@@ -53,7 +53,7 @@ export function reasonsFor(player, pool, ctx) {
   if (player.adp !== null && player.adp !== undefined) {
     const past = Math.round(currentPick - player.adp);
     if (past >= ADP_VALUE_GAP) {
-      reasons.push(`Value — ${past} picks past his ADP of ${player.adp}`);
+      reasons.push(`Value — ${past} picks past his ADP of ${Math.round(player.adp)}`);
     } else if (-past >= ADP_REACH_GAP) {
       reasons.push(`Slight reach — ADP is ${player.adp}, ${-past} picks from now`);
     }
@@ -70,7 +70,10 @@ export function recommend(pool, ctx, limit = 3) {
   if (pool.length === 0) return [];
 
   const maxAbsVbd = pool.reduce((max, pl) => Math.max(max, Math.abs(pl.vbd)), 0);
-  const scoreCtx = { poolSize: pool.length, maxAbsVbd, needs: ctx.needs };
+  // overallRank is a fixed whole-pool rank that never renumbers as players are drafted,
+  // so the BPA denominator must track the highest rank still present, not pool.length.
+  const poolSize = pool.reduce((max, pl) => Math.max(max, pl.overallRank), pool.length);
+  const scoreCtx = { poolSize, maxAbsVbd, needs: ctx.needs };
 
   return pool
     .map((player) => ({ player, score: scorePlayer(player, scoreCtx) }))
