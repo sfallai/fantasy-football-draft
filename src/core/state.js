@@ -118,20 +118,38 @@ export function deserialize(json) {
   return { config: raw.config, picks: raw.picks, history: raw.history || [] };
 }
 
+function isUsableStorage(candidate) {
+  return !!candidate
+    && typeof candidate.getItem === 'function'
+    && typeof candidate.setItem === 'function'
+    && typeof candidate.removeItem === 'function';
+}
+
 function resolveStorage(storage) {
-  return storage || (typeof globalThis !== 'undefined' ? globalThis.localStorage : null);
+  const candidate = storage || (typeof globalThis !== 'undefined' ? globalThis.localStorage : null);
+  return isUsableStorage(candidate) ? candidate : null;
 }
 
 export function saveState(state, storage) {
   const store = resolveStorage(storage);
   if (!store) return;
-  store.setItem(STORAGE_KEY, serialize(state));
+  try {
+    store.setItem(STORAGE_KEY, serialize(state));
+  } catch {
+    // Storage can throw at write time (quota exceeded, blocked site data, etc).
+    // A pick must never crash the app, so fail silently.
+  }
 }
 
 export function loadState(storage) {
   const store = resolveStorage(storage);
   if (!store) return null;
-  const raw = store.getItem(STORAGE_KEY);
+  let raw;
+  try {
+    raw = store.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
   if (!raw) return null;
   try {
     return deserialize(raw);
@@ -142,5 +160,10 @@ export function loadState(storage) {
 
 export function clearState(storage) {
   const store = resolveStorage(storage);
-  if (store) store.removeItem(STORAGE_KEY);
+  if (!store) return;
+  try {
+    store.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore — clearing is best-effort.
+  }
 }

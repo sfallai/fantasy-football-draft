@@ -93,6 +93,17 @@ test('a round-3 keeper is placed at that team\'s round-3 slot', () => {
   assert.deepEqual(state.picks[27], { playerId: 'p9', teamIndex: 7, isKeeper: true });
 });
 
+test('an even-round keeper is placed at that team\'s reversed-round slot', () => {
+  const config = {
+    ...DEFAULT_CONFIG,
+    teams: DEFAULT_CONFIG.teams.map((t, i) =>
+      (i === 2 ? { ...t, keeper: { playerId: 'p20', round: 2 } } : t)),
+  };
+  const state = createState(config);
+  // Team 3, round 2 (even, reversed) = pick 18.
+  assert.deepEqual(state.picks[18], { playerId: 'p20', teamIndex: 3, isKeeper: true });
+});
+
 test('undoPick never removes a keeper', () => {
   const config = {
     ...DEFAULT_CONFIG,
@@ -152,4 +163,27 @@ test('loadState returns null on corrupt storage instead of throwing', () => {
   const storage = memoryStorage();
   storage.setItem(STORAGE_KEY, 'not json{');
   assert.equal(loadState(storage), null);
+});
+
+test('a storage-shaped object missing getItem/setItem/removeItem is never used', () => {
+  // Mirrors Node v25's globalThis.localStorage, which exists but has no methods
+  // unless --localstorage-file is passed. Must not throw and must behave as "no storage".
+  const bogusStub = {};
+  const state = createState(DEFAULT_CONFIG);
+  assert.doesNotThrow(() => saveState(state, bogusStub));
+  assert.doesNotThrow(() => clearState(bogusStub));
+  assert.equal(loadState(bogusStub), null);
+});
+
+test('saveState/clearState swallow errors and loadState returns null when storage throws at call time', () => {
+  // Simulates a real browser storage that throws (quota exceeded, blocked site data, etc).
+  const throwingStorage = {
+    getItem: () => { throw new Error('blocked'); },
+    setItem: () => { throw new Error('quota exceeded'); },
+    removeItem: () => { throw new Error('blocked'); },
+  };
+  const state = createState(DEFAULT_CONFIG);
+  assert.doesNotThrow(() => saveState(state, throwingStorage));
+  assert.doesNotThrow(() => clearState(throwingStorage));
+  assert.equal(loadState(throwingStorage), null);
 });
