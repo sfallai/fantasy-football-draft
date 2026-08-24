@@ -5,7 +5,9 @@ import {
   NEED_MULTIPLIER, maxPositiveVbd, scorePlayer, reasonsFor, recommend,
 } from '../src/core/recommend.js';
 import { replacementPoints, withVbd } from '../src/core/vbd.js';
-import { DEFAULT_SLOTS } from '../src/core/roster.js';
+import { DEFAULT_SLOTS, positionalNeeds, assignSlots, countByPosition } from '../src/core/roster.js';
+import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, availablePlayers, rosterFor } from '../src/core/state.js';
+import { pickToSlot } from '../src/core/snake.js';
 
 const p = (over) => ({
   id: over.id, name: over.id, team: 'XX',
@@ -216,4 +218,44 @@ test('reasonsFor caps output at two lines', () => {
   const target = p({ id: 'a', position: 'RB', overallRank: 1, projectedPoints: 280, adp: 50, vbd: 120 });
   const pool = [target, p({ id: 'b', position: 'RB', overallRank: 2, projectedPoints: 150, vbd: 5 })];
   assert.ok(reasonsFor(target, pool, ctx).length <= 2);
+});
+
+// Regression: found by running a full practice draft in the browser. When rival
+// teams draft strictly by overall rank, quarterbacks fall far past their VBD-implied
+// value and pile up in the pool. Before the 'bench' tier existed, a filled position
+// still scored at multiplier 1.0, so the engine recommended a sixth QB — one who can
+// never enter the lineup — over an unfilled starting WR, and finished the draft with
+// WR1 and WR2 empty.
+test('following the top recommendation fills every starting slot, even when rivals draft pure BPA', () => {
+  const players = JSON.parse(readFileSync(new URL('../data/players.json', import.meta.url)));
+  const replacement = replacementPoints(players, 10, DEFAULT_SLOTS);
+  const vbdScale = maxPositiveVbd(withVbd(players, replacement));
+
+  let state = createState({ ...DEFAULT_CONFIG, myTeamIndex: 4 });
+  while (currentPickNumber(state) !== null) {
+    const pick = currentPickNumber(state);
+    const { round, teamIndex } = pickToSlot(pick, 10);
+    const available = availablePlayers(state, players);
+
+    let chosen;
+    if (teamIndex === 4) {
+      const pool = withVbd(available, replacement);
+      const needs = positionalNeeds(rosterFor(state, 4, players), DEFAULT_SLOTS, round, 15);
+      chosen = recommend(pool, { needs, currentPick: pick, nextPick: pick + 1, round, vbdScale }, 1)[0].player;
+    } else {
+      chosen = available.reduce((best, x) => (x.overallRank < best.overallRank ? x : best));
+    }
+    state = applyPick(state, chosen.id);
+  }
+
+  const mine = rosterFor(state, 4, players);
+  const unfilled = assignSlots(mine, DEFAULT_SLOTS)
+    .filter((slot) => !slot.label.startsWith('BN') && slot.player === null)
+    .map((slot) => slot.label);
+
+  assert.deepEqual(unfilled, [], `starting slots left empty: ${unfilled.join(', ')}`);
+
+  const counts = countByPosition(mine);
+  assert.ok(counts.QB <= 3, `hoarded ${counts.QB} QBs for one starting slot`);
+  assert.ok(counts.WR >= 2, `only ${counts.WR} WRs for two starting slots`);
 });

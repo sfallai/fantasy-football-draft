@@ -5,7 +5,7 @@ export const WEIGHTS = { bpa: 0.6, vbd: 0.4 };
 // point ~0.0015, so a "clearly better player" gap of 30 ranks + 10 VBD points is
 // ~0.060 while `high` swings ~0.031 on a typical value of ~0.77. Need therefore
 // breaks a genuine near-tie (~0.006) without ever overriding a real value gap.
-export const NEED_MULTIPLIER = { high: 1.04, medium: 1.02, low: 1.0, none: 0.55 };
+export const NEED_MULTIPLIER = { high: 1.04, medium: 1.02, low: 1.0, bench: 0.7, none: 0.55 };
 
 // A projected-point gap this large to the next player at the position is a cliff.
 export const CLIFF_THRESHOLD = 20;

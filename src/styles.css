@@ -97,6 +97,7 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 .tier-high { color: #f87171; font-weight: 600; }
 .tier-medium { color: var(--accent); }
 .tier-low { color: var(--muted); }
+.tier-bench { color: #5d6577; }
 .tier-none { color: #4b5263; }
 
 /* ---- Center ---- */

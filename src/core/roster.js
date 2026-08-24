@@ -2,9 +2,12 @@ export const DEFAULT_SLOTS = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1
 export const FLEX_POSITIONS = ['RB', 'WR', 'TE'];
 export const SKILL_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
 export const ALL_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-export const NEED_TIERS = ['high', 'medium', 'low', 'none'];
+// 'bench' sits below 'low': the position's startable slots are all full and another
+// player there cannot enter the lineup, so he is worth strictly less than his raw VBD
+// suggests. Without it a backup QB outranks an unfilled starting WR.
+export const NEED_TIERS = ['high', 'medium', 'low', 'bench', 'none'];
 
-// K/DEF stay deprioritized until this many rounds remain (spec: rounds 13-14 of 15).
+// K/DEF stay deprioritized until this many rounds remain (last 3 of 15).
 export const LATE_ROUND_WINDOW = 3;
 
 const STARTER_ORDER = ['QB', 'RB', 'WR', 'TE'];
@@ -72,13 +75,20 @@ export function positionalNeeds(players, slots, round, totalRounds) {
   const counts = countByPosition(players);
   const needs = {};
 
+  // A FLEX-eligible player still has somewhere to start while the combined
+  // RB/WR/TE starting slots plus FLEX are not yet covered.
+  const flexCapacity = FLEX_POSITIONS.reduce((sum, p) => sum + (slots[p] || 0), 0) + (slots.FLEX || 0);
+  const flexHeld = FLEX_POSITIONS.reduce((sum, p) => sum + counts[p], 0);
+  const flexOpen = flexHeld < flexCapacity;
+
   for (const pos of SKILL_POSITIONS) {
     const required = slots[pos] || 0;
     const have = counts[pos];
     if (required === 0) needs[pos] = 'low';
     else if (have === 0) needs[pos] = 'high';
     else if (have < required) needs[pos] = 'medium';
-    else needs[pos] = 'low';
+    else if (FLEX_POSITIONS.includes(pos) && flexOpen) needs[pos] = 'low';
+    else needs[pos] = 'bench';
   }
 
   const lateRounds = round > totalRounds - LATE_ROUND_WINDOW;

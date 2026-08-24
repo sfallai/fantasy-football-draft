@@ -103,6 +103,7 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 .tier-high { color: #f87171; font-weight: 600; }
 .tier-medium { color: var(--accent); }
 .tier-low { color: var(--muted); }
+.tier-bench { color: #5d6577; }
 .tier-none { color: #4b5263; }
 
 /* ---- Center ---- */
@@ -244,7 +245,7 @@ const WEIGHTS = { bpa: 0.6, vbd: 0.4 };
 // point ~0.0015, so a "clearly better player" gap of 30 ranks + 10 VBD points is
 // ~0.060 while `high` swings ~0.031 on a typical value of ~0.77. Need therefore
 // breaks a genuine near-tie (~0.006) without ever overriding a real value gap.
-const NEED_MULTIPLIER = { high: 1.04, medium: 1.02, low: 1.0, none: 0.55 };
+const NEED_MULTIPLIER = { high: 1.04, medium: 1.02, low: 1.0, bench: 0.7, none: 0.55 };
 
 // A projected-point gap this large to the next player at the position is a cliff.
 const CLIFF_THRESHOLD = 20;
@@ -359,9 +360,12 @@ const DEFAULT_SLOTS = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1, BENCH
 const FLEX_POSITIONS = ['RB', 'WR', 'TE'];
 const SKILL_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
 const ALL_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-const NEED_TIERS = ['high', 'medium', 'low', 'none'];
+// 'bench' sits below 'low': the position's startable slots are all full and another
+// player there cannot enter the lineup, so he is worth strictly less than his raw VBD
+// suggests. Without it a backup QB outranks an unfilled starting WR.
+const NEED_TIERS = ['high', 'medium', 'low', 'bench', 'none'];
 
-// K/DEF stay deprioritized until this many rounds remain (spec: rounds 13-14 of 15).
+// K/DEF stay deprioritized until this many rounds remain (last 3 of 15).
 const LATE_ROUND_WINDOW = 3;
 
 const STARTER_ORDER = ['QB', 'RB', 'WR', 'TE'];
@@ -429,13 +433,20 @@ function positionalNeeds(players, slots, round, totalRounds) {
   const counts = countByPosition(players);
   const needs = {};
 
+  // A FLEX-eligible player still has somewhere to start while the combined
+  // RB/WR/TE starting slots plus FLEX are not yet covered.
+  const flexCapacity = FLEX_POSITIONS.reduce((sum, p) => sum + (slots[p] || 0), 0) + (slots.FLEX || 0);
+  const flexHeld = FLEX_POSITIONS.reduce((sum, p) => sum + counts[p], 0);
+  const flexOpen = flexHeld < flexCapacity;
+
   for (const pos of SKILL_POSITIONS) {
     const required = slots[pos] || 0;
     const have = counts[pos];
     if (required === 0) needs[pos] = 'low';
     else if (have === 0) needs[pos] = 'high';
     else if (have < required) needs[pos] = 'medium';
-    else needs[pos] = 'low';
+    else if (FLEX_POSITIONS.includes(pos) && flexOpen) needs[pos] = 'low';
+    else needs[pos] = 'bench';
   }
 
   const lateRounds = round > totalRounds - LATE_ROUND_WINDOW;
