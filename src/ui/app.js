@@ -19,6 +19,10 @@ function root() {
 
 function startDraft(config) {
   state = createState(config);
+  // Baselines depend on numTeams and slots, both of which the setup screen lets the
+  // user change, so they must be recomputed for the config just chosen — not left
+  // over from whatever config (default or a previously loaded draft) preceded this.
+  replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
   saveState(state);
   renderDraft();
 }
@@ -112,7 +116,7 @@ function renderDraft() {
     notes,
   }, { onPick: handlePick, onUndo: handleUndo });
 
-  renderBoard(right, { state, allPlayers, currentPick });
+  renderBoard(right, { state, allPlayers });
 }
 
 export function init() {

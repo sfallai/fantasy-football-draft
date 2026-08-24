@@ -45,6 +45,23 @@ test('replacementPoints is 0 for a position with no players', () => {
   assert.equal(replacement.WR, 0);
 });
 
+test('replacementPoints depends on numTeams — a 12-team league is not a 10-team league', () => {
+  const pool = [];
+  for (let i = 1; i <= 40; i += 1) pool.push(p('RB', i, 300 - i * 3));
+  for (let i = 1; i <= 40; i += 1) pool.push(p('WR', i, 300 - i * 3));
+  for (let i = 1; i <= 30; i += 1) pool.push(p('QB', i, 280 - i * 2));
+
+  const tenTeam = replacementPoints(pool, 10, DEFAULT_SLOTS);
+  const twelveTeam = replacementPoints(pool, 12, DEFAULT_SLOTS);
+
+  // A larger league pushes the replacement-level rank deeper into the pool, so a
+  // baseline computed for one team count must not silently carry over to another —
+  // this is the exact dependency Finding 1 requires app.js to recompute on Start Draft.
+  assert.notEqual(tenTeam.RB, twelveTeam.RB, 'RB baseline must shift with numTeams');
+  assert.notEqual(tenTeam.WR, twelveTeam.WR, 'WR baseline must shift with numTeams');
+  assert.ok(twelveTeam.RB < tenTeam.RB, 'a deeper baseline rank sits further down the sorted pool');
+});
+
 test('withVbd subtracts the positional replacement, not a global one', () => {
   const pool = [p('RB', 1, 300), p('QB', 1, 380)];
   const out = withVbd(pool, { QB: 300, RB: 120, WR: 0, TE: 0, K: 0, DEF: 0 });
