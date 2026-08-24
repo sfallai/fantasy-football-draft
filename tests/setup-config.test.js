@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildConfig, validateConfig } from '../src/ui/setup.js';
+import { buildConfig, validateConfig, resizeTeams } from '../src/ui/setup.js';
 
 const form = (over) => ({
   numTeams: 10, rounds: 15, myTeamIndex: 4,
@@ -69,4 +69,34 @@ test('validateConfig rejects a keeper round beyond the draft', () => {
 
 test('validateConfig rejects an implausible team count', () => {
   assert.ok(validateConfig(buildConfig(form({ numTeams: 1 }))).length > 0);
+});
+
+test('validateConfig rejects a config whose team entries do not match numTeams', () => {
+  // Reproduces the setup-screen defect: numTeams raised to 14 while the
+  // form.teams array (still 10 entries) was never resized to match.
+  const config = buildConfig(form({ numTeams: 14 }));
+  assert.equal(config.teams.length, 10);
+  const errors = validateConfig(config);
+  assert.ok(errors.some((e) => /team entries/i.test(e) && e.includes('14')), errors.join(' | '));
+});
+
+test('resizeTeams grows the array, preserving existing rows and appending defaults', () => {
+  const teams = form().teams;
+  teams[2] = { name: 'Sharks', keeperId: 'p42', keeperRound: '3' };
+  const resized = resizeTeams(teams, 14);
+  assert.equal(resized.length, 14);
+  assert.deepEqual(resized[2], { name: 'Sharks', keeperId: 'p42', keeperRound: '3' });
+  assert.deepEqual(resized[0], teams[0]);
+  assert.deepEqual(resized[10], { name: 'Team 11', keeperId: '', keeperRound: '' });
+  assert.deepEqual(resized[13], { name: 'Team 14', keeperId: '', keeperRound: '' });
+});
+
+test('resizeTeams shrinks the array, preserving surviving rows', () => {
+  const teams = form().teams;
+  teams[1] = { name: 'Wolves', keeperId: 'p7', keeperRound: '5' };
+  const resized = resizeTeams(teams, 6);
+  assert.equal(resized.length, 6);
+  assert.deepEqual(resized[1], { name: 'Wolves', keeperId: 'p7', keeperRound: '5' });
+  assert.deepEqual(resized[0], teams[0]);
+  assert.deepEqual(resized[5], teams[5]);
 });

@@ -3,6 +3,17 @@ import { DEFAULT_CONFIG } from '../core/state.js';
 
 const SLOT_FIELDS = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'BENCH'];
 
+// Resizes a form.teams array to exactly `numTeams` entries, preserving surviving
+// rows (their name/keeperId/keeperRound) whether growing or shrinking, and
+// appending fresh default rows when growing.
+export function resizeTeams(teams, numTeams) {
+  const result = teams.slice(0, numTeams);
+  for (let i = result.length; i < numTeams; i += 1) {
+    result.push({ name: `Team ${i + 1}`, keeperId: '', keeperRound: '' });
+  }
+  return result;
+}
+
 export function buildConfig(form) {
   const numTeams = Number(form.numTeams);
   const rounds = Number(form.rounds);
@@ -42,6 +53,9 @@ export function validateConfig(config) {
   }
   if (!(config.myTeamIndex >= 1 && config.myTeamIndex <= config.numTeams)) {
     errors.push(`Draft position must be between 1 and ${config.numTeams}.`);
+  }
+  if (config.teams.length !== config.numTeams) {
+    errors.push(`Team entries (${config.teams.length}) do not match the configured team count (${config.numTeams}).`);
   }
 
   const slotTotal = SLOT_FIELDS.reduce((sum, key) => sum + (config.slots[key] || 0), 0);
@@ -129,11 +143,12 @@ export function renderSetup(root, initialConfig, onStart) {
   clear(root);
   const errorBox = el('div', { class: 'notes', style: { display: 'none' } }, []);
 
-  const numberField = (label, key, min, max) => el('div', { class: 'field' }, [
+  const numberField = (label, key, min, max, onCommit) => el('div', { class: 'field' }, [
     el('label', { text: label }, []),
     el('input', {
       type: 'number', min, max, value: form[key],
       onInput: (e) => { form[key] = e.target.value; },
+      onChange: onCommit,
     }, []),
   ]);
 
@@ -149,7 +164,6 @@ export function renderSetup(root, initialConfig, onStart) {
       }, []));
     }
   };
-  drawPositions();
 
   const slotFields = el('div', { class: 'field-row' }, SLOT_FIELDS.map((key) => el('div', { class: 'field' }, [
     el('label', { text: key }, []),
@@ -160,23 +174,56 @@ export function renderSetup(root, initialConfig, onStart) {
     }, []),
   ])));
 
-  const teamRows = form.teams.map((team, i) => el('tr', {}, [
-    el('td', { text: String(i + 1) }, []),
-    el('td', {}, [el('input', {
-      type: 'text', value: team.name,
-      onInput: (e) => { form.teams[i].name = e.target.value; },
-    }, [])]),
-    el('td', {}, [playerPicker(players, team.keeperId, (id) => { form.teams[i].keeperId = id; })]),
-    el('td', {}, [el('select', {
-      onChange: (e) => { form.teams[i].keeperRound = e.target.value; },
-    }, [
-      el('option', { value: '', text: '—' }, []),
-      ...Array.from({ length: Number(form.rounds) }, (_, r) => el('option', {
-        value: String(r + 1), text: String(r + 1),
-        selected: String(team.keeperRound) === String(r + 1) ? 'selected' : null,
-      }, [])),
-    ])]),
-  ]));
+  // Team & keeper table. Rebuilt in place whenever numTeams or rounds changes,
+  // so the visible rows and dropdown options always match the current form.
+  const tbody = el('tbody', {}, []);
+  const drawTeamRows = () => {
+    clear(tbody);
+    form.teams.forEach((team, i) => {
+      tbody.appendChild(el('tr', {}, [
+        el('td', { text: String(i + 1) }, []),
+        el('td', {}, [el('input', {
+          type: 'text', value: team.name,
+          onInput: (e) => { form.teams[i].name = e.target.value; },
+        }, [])]),
+        el('td', {}, [playerPicker(players, team.keeperId, (id) => { form.teams[i].keeperId = id; })]),
+        el('td', {}, [el('select', {
+          onChange: (e) => { form.teams[i].keeperRound = e.target.value; },
+        }, [
+          el('option', { value: '', text: '—' }, []),
+          ...Array.from({ length: Number(form.rounds) }, (_, r) => el('option', {
+            value: String(r + 1), text: String(r + 1),
+            selected: String(team.keeperRound) === String(r + 1) ? 'selected' : null,
+          }, [])),
+        ])]),
+      ]));
+    });
+  };
+
+  // Re-derives form.teams/myTeamIndex when the Teams field is committed
+  // (blur/Enter), preserving already-entered rows, then redraws the
+  // position grid and team table to match the new count.
+  const onNumTeamsChange = () => {
+    const n = Number(form.numTeams);
+    if (!Number.isFinite(n) || n <= 0) return;
+    form.teams = resizeTeams(form.teams, n);
+    if (Number(form.myTeamIndex) > n) form.myTeamIndex = n;
+    drawPositions();
+    drawTeamRows();
+  };
+
+  // Re-derives the keeper-round dropdown options when Rounds is committed;
+  // clears any keeper round that no longer falls within the draft.
+  const onRoundsChange = () => {
+    const rounds = Number(form.rounds) || 0;
+    form.teams.forEach((team) => {
+      if (team.keeperRound && Number(team.keeperRound) > rounds) team.keeperRound = '';
+    });
+    drawTeamRows();
+  };
+
+  drawPositions();
+  drawTeamRows();
 
   root.appendChild(el('div', { class: 'panel setup' }, [
     el('h1', { text: 'Draft Assistant — Setup' }, []),
@@ -184,8 +231,8 @@ export function renderSetup(root, initialConfig, onStart) {
 
     el('h2', { text: 'League Settings' }, []),
     el('div', { class: 'field-row' }, [
-      numberField('Teams', 'numTeams', 4, 16),
-      numberField('Rounds', 'rounds', 1, 30),
+      numberField('Teams', 'numTeams', 4, 16, onNumTeamsChange),
+      numberField('Rounds', 'rounds', 1, 30, onRoundsChange),
       el('div', { class: 'field' }, [
         el('label', { text: 'Scoring' }, []),
         el('select', { disabled: 'disabled' }, [el('option', { text: 'Standard (non-PPR)' }, [])]),
@@ -208,7 +255,7 @@ export function renderSetup(root, initialConfig, onStart) {
         el('th', { text: '#' }, []), el('th', { text: 'Team name' }, []),
         el('th', { text: 'Keeper (optional)' }, []), el('th', { text: 'Round' }, []),
       ])]),
-      el('tbody', {}, teamRows),
+      tbody,
     ]),
 
     el('button', {
