@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { searchPlayers, sortPlayers, filterByPosition, SORT_KEYS } from '../src/ui/center.js';
+import { searchPlayers, sortPlayers, filterByPosition, formatVbd, SORT_KEYS } from '../src/ui/center.js';
 
 const p = (id, name, position, overallRank, extra) => ({
   id, name, team: (extra && extra.team) || 'XX', position, overallRank,
@@ -72,6 +72,13 @@ test('sortPlayers does not mutate its input', () => {
   const before = POOL.map((x) => x.id);
   sortPlayers(POOL, 'vbd');
   assert.deepEqual(POOL.map((x) => x.id), before);
+});
+
+test('formatVbd signs below-replacement players instead of printing +-37', () => {
+  assert.equal(formatVbd(37.2), '+37');
+  assert.equal(formatVbd(-37.4), '-37');
+  assert.equal(formatVbd(0), '+0');
+  assert.equal(formatVbd(-0.4), '+0', 'never renders a negative zero');
 });
 
 test('filterByPosition narrows the pool and ALL passes it through', () => {

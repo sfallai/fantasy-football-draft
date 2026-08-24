@@ -37,10 +37,18 @@ export function filterByPosition(pool, position) {
   return position === 'ALL' ? [...pool] : pool.filter((pl) => pl.position === position);
 }
 
+// Below-replacement players are common late, so the sign has to come from the
+// number rather than a hardcoded '+'. Math.round(-0.4) is -0, which formats as
+// "+0" here rather than the nonsensical "-0".
+export function formatVbd(vbd) {
+  const rounded = Math.round(vbd);
+  return rounded >= 0 ? `+${rounded}` : String(rounded);
+}
+
 // Module-level view state so a re-render keeps the user's sort/filter/search choices.
 const view = { sortKey: 'overallRank', filter: 'ALL', query: '' };
 
-function pickEntry(pool, onPick, onUndo) {
+function pickEntry(pool, onPick, onUndo, onOffList) {
   const input = el('input', {
     type: 'text', placeholder: 'Type a player name, then Enter…', autocomplete: 'off',
   }, []);
@@ -87,6 +95,11 @@ function pickEntry(pool, onPick, onUndo) {
   const wrap = el('div', { class: 'pickbar' }, [
     el('div', { class: 'suggest', style: { flex: '1' } }, [input, list]),
     el('button', { text: 'Undo', onClick: onUndo }, []),
+    el('button', {
+      text: 'Skip / off-list',
+      title: 'Someone drafted a player who is not in this list — consume the pick slot',
+      onClick: onOffList,
+    }, []),
   ]);
 
   // Focus is restored after each render so the user can type pick after pick without reaching for the mouse.
@@ -104,18 +117,22 @@ function recommendationCard(rec) {
       el('span', { class: 'pname', text: `${pl.name}` }, []),
       el('span', {
         class: 'meta',
-        text: `${pl.position} · ${pl.team} · #${pl.overallRank} BPA · VBD +${Math.round(pl.vbd)}`,
+        text: `${pl.position} · ${pl.team} · #${pl.overallRank} BPA · VBD ${formatVbd(pl.vbd)}`,
       }, []),
     ]),
-    el('div', { class: 'meta', text: `${pl.position} need: ${rec.need}${pl.adp === null ? '' : ` · ADP ${pl.adp}`}` }, []),
+    el('div', {
+      class: 'meta',
+      text: `${pl.position} need: ${rec.need}${pl.adp === null ? '' : ` · ADP ${Math.round(pl.adp)}`}`,
+    }, []),
     ...rec.reasons.map((reason) => el('div', { class: 'why', text: reason }, [])),
   ]);
 }
 
 function playerTable(pool, onPick) {
+  // No row cap: the spec asks for all remaining players, and capping the list
+  // silently hides the bottom of the pool in the unfiltered view.
   const rows = filterByPosition(sortPlayers(pool, view.sortKey), view.filter)
     .filter((pl) => !view.query || pl.name.toLowerCase().includes(view.query.toLowerCase()))
-    .slice(0, 250)
     .map((pl) => el('tr', { onDblclick: () => onPick(pl.id) }, [
       el('td', { text: String(pl.overallRank) }, []),
       el('td', { text: pl.name }, []),
@@ -151,6 +168,7 @@ export function renderCenter(container, ctx, handlers) {
 
   const {
     pool, needs, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
+    vbdScale,
   } = ctx;
 
   container.appendChild(el('div', { class: 'pick-info' }, [
@@ -163,13 +181,15 @@ export function renderCenter(container, ctx, handlers) {
       text: currentPick === null ? ''
         : isMyPick ? 'YOUR PICK' : `${pickingTeamName} is on the clock`,
     }, []),
-    !isMyPick && nextPick ? el('span', {
+    // Shown whether or not it is your pick — when it is, the wait until your next
+    // turn is exactly what the current decision hangs on.
+    nextPick ? el('span', {
       class: 'meta',
       text: `Your next: ${formatPick(nextPick, numTeams)} (${nextPick - currentPick} picks away)`,
     }, []) : null,
   ]));
 
-  container.appendChild(pickEntry(pool, handlers.onPick, handlers.onUndo));
+  container.appendChild(pickEntry(pool, handlers.onPick, handlers.onUndo, handlers.onOffList));
 
   for (const note of notes || []) {
     container.appendChild(el('div', { class: 'notes', text: note }, []));
@@ -177,7 +197,7 @@ export function renderCenter(container, ctx, handlers) {
 
   if (isMyPick && pool.length) {
     container.appendChild(el('h2', { text: 'Recommended' }, []));
-    const recs = recommend(pool, { needs, currentPick, nextPick, round }, 3);
+    const recs = recommend(pool, { needs, currentPick, nextPick, round, vbdScale }, 3);
     for (const rec of recs) container.appendChild(recommendationCard(rec));
   }
 

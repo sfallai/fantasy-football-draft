@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { boardCells } from '../src/ui/board.js';
-import { DEFAULT_CONFIG, createState, applyPick } from '../src/core/state.js';
+import { DEFAULT_CONFIG, createState, applyPick, applyOffListPick } from '../src/core/state.js';
 
 const PLAYERS = Array.from({ length: 60 }, (_, i) => ({
   id: `p${i + 1}`, name: `First Last${i + 1}`, team: 'XX',
@@ -43,6 +43,19 @@ test('boardCells flags the current pick and the user\'s column', () => {
   assert.equal(grid[0][1].isCurrent, false);
   assert.ok(grid.every((row) => row[3].isMine), 'column 4 is mine in every round');
   assert.ok(grid.every((row) => !row[0].isMine));
+});
+
+test('boardCells marks an off-list pick as spent, not empty', () => {
+  let state = createState({ ...DEFAULT_CONFIG, rounds: 3 });
+  state = applyPick(state, 'p1');
+  state = applyOffListPick(state);
+  const grid = boardCells(state, PLAYERS);
+
+  assert.equal(grid[0][1].player, null, 'there is no pool player to show');
+  assert.equal(grid[0][1].isOffList, true);
+  assert.equal(grid[0][1].isKeeper, false);
+  assert.equal(grid[0][2].isOffList, false, 'a genuinely unfilled cell is not off-list');
+  assert.equal(grid[0][0].isOffList, false, 'a normal pick is not off-list');
 });
 
 test('boardCells flags keepers', () => {

@@ -1,7 +1,7 @@
 import { el, clear, POSITION_COLORS, abbreviate } from './dom.js';
 import { slotToPick } from '../core/snake.js';
 import { assignSlots, positionalNeeds } from '../core/roster.js';
-import { currentPickNumber, rosterFor } from '../core/state.js';
+import { currentPickNumber, rosterFor, isOffListId } from '../core/state.js';
 
 export function boardCells(state, allPlayers) {
   const { numTeams, rounds, myTeamIndex } = state.config;
@@ -19,6 +19,7 @@ export function boardCells(state, allPlayers) {
         round,
         teamIndex,
         player: entry ? byId.get(entry.playerId) || null : null,
+        isOffList: Boolean(entry && isOffListId(entry.playerId)),
         isKeeper: Boolean(entry && entry.isKeeper),
         isMine: teamIndex === myTeamIndex,
         isCurrent: pick === current,
@@ -97,15 +98,22 @@ export function renderBoard(container, ctx) {
       if (cell.isCurrent) classes.push('current');
       if (cell.isKeeper) classes.push('keeper');
 
+      // An off-list pick has no player to name, but it must not look like an
+      // unfilled cell — that slot is spent.
+      const offListText = cell.isOffList ? '—' : '';
+      const offListTitle = cell.isOffList
+        ? `Pick ${cell.pick} — off-list pick (player not in the loaded pool)`
+        : `Pick ${cell.pick}`;
+
       cells.push(el('td', {
         class: classes.join(' '),
-        text: cell.player ? abbreviate(cell.player.name) : '',
+        text: cell.player ? abbreviate(cell.player.name) : offListText,
         style: cell.player ? { color: POSITION_COLORS[cell.player.position] } : {},
         title: cell.player
           ? `${cell.player.name} — ${cell.player.position} ${cell.player.team}\n`
             + `#${cell.player.overallRank} overall · ${cell.player.projectedPoints} proj · `
             + `ADP ${cell.player.adp ?? '—'} · bye ${cell.player.bye ?? '—'}`
-          : `Pick ${cell.pick}`,
+          : offListTitle,
       }, []));
     }
 
