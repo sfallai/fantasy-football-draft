@@ -1,7 +1,5 @@
 import { el, clear, POSITION_COLORS } from './dom.js';
-import {
-  assignSlots, positionalNeeds, countByPosition, ALL_POSITIONS, NEED_TIERS, LATE_ROUND_WINDOW,
-} from '../core/roster.js';
+import { assignSlots, positionalNeeds, countByPosition, ALL_POSITIONS, NEED_TIERS, LATE_ROUND_WINDOW } from '../core/roster.js';
 
 function needLabel(position, tier, have, required, totalRounds) {
   if (position === 'K' || position === 'DEF') {
