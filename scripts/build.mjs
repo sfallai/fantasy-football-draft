@@ -79,10 +79,12 @@ export function bundle({ srcDir, entry, players, css, html }) {
 
   const dataScript = `window.PLAYERS = ${JSON.stringify(players)};`;
 
+  // Function replacements, not strings: a string replacement would treat $&, $`, $'
+  // and $n inside a player name or CSS rule as substitution patterns.
   return html
-    .replace('/*<!--STYLES-->*/', css)
-    .replace('/*<!--DATA-->*/', dataScript)
-    .replace('/*<!--SCRIPT-->*/', registry);
+    .replace('/*<!--STYLES-->*/', () => css)
+    .replace('/*<!--DATA-->*/', () => dataScript)
+    .replace('/*<!--SCRIPT-->*/', () => registry);
 }
 
 function main() {
@@ -95,4 +97,7 @@ function main() {
   console.log(`Wrote draft.html (${(out.length / 1024).toFixed(0)} KB, ${players.length} players)`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+// fileURLToPath, not a `file://` template: the latter mismatches on any path
+// containing a space or a non-ASCII character, and the build would exit 0 having
+// written nothing.
+if (fileURLToPath(import.meta.url) === process.argv[1]) main();

@@ -89,4 +89,15 @@ test('generated data/players.json matches the schema and covers all positions', 
 
   const ranks = players.map((p) => p.overallRank).sort((a, b) => a - b);
   assert.deepEqual(ranks, players.map((_, i) => i + 1), 'overallRank must be dense 1..N');
+
+  // A refresh that returned zeros would pass every check above while silently
+  // destroying VBD — every player would sit at or below replacement level.
+  const projecting = players.filter((p) => p.projectedPoints > 0).length;
+  const floor = Math.floor(players.length * 0.9);
+  assert.ok(
+    projecting >= floor,
+    `only ${projecting} of ${players.length} players have a non-zero projection `
+    + `(expected at least ${floor}) — the projections source is probably broken; `
+    + 'run `git checkout data/players.json` to restore the committed file',
+  );
 });

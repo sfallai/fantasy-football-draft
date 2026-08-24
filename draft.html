@@ -236,7 +236,11 @@ __def("core/recommend.js", function (__exports, __req) {
 // BPA rank sets the baseline ordering; VBD adjusts within tiers; need applies a
 // multiplier small enough that it breaks ties without overriding real value gaps.
 const WEIGHTS = { bpa: 0.6, vbd: 0.4 };
-const NEED_MULTIPLIER = { high: 1.25, medium: 1.12, low: 1.0, none: 0.55 };
+// On the shipped 400-player pool one weighted rank is worth ~0.0015 and one VBD
+// point ~0.0015, so a "clearly better player" gap of 30 ranks + 10 VBD points is
+// ~0.060 while `high` swings ~0.031 on a typical value of ~0.77. Need therefore
+// breaks a genuine near-tie (~0.006) without ever overriding a real value gap.
+const NEED_MULTIPLIER = { high: 1.04, medium: 1.02, low: 1.0, none: 0.55 };
 
 // A projected-point gap this large to the next player at the position is a cliff.
 const CLIFF_THRESHOLD = 20;
@@ -247,12 +251,20 @@ const ADP_REACH_GAP = 12;
 
 const NEED_LABEL = { high: 'high need', medium: 'medium need', low: 'depth', none: 'not needed' };
 
+// The VBD normalisation scale: the largest *positive* VBD in a pool, never an
+// absolute value. A single zero-projection data row can sit hundreds of points
+// below replacement, and using its magnitude as the scale would compress every
+// real player's VBD into a sliver of its range.
+function maxPositiveVbd(players) {
+  return players.reduce((max, pl) => Math.max(max, pl.vbd), 0) || 1;
+}
+
 function scorePlayer(player, ctx) {
-  const { poolSize, maxAbsVbd, needs } = ctx;
+  const { poolSize, vbdScale, needs } = ctx;
 
   // Both components normalize into [0, 1] so the multiplier can never flip a sign.
   const bpaScore = Math.max(0, (poolSize - (player.overallRank - 1)) / poolSize);
-  const scale = maxAbsVbd || 1;
+  const scale = vbdScale > 0 ? vbdScale : 1;
   const clamped = Math.max(-1, Math.min(1, player.vbd / scale));
   const vbdScore = (clamped + 1) / 2;
 
@@ -290,12 +302,13 @@ function reasonsFor(player, pool, ctx) {
     if (past >= ADP_VALUE_GAP) {
       reasons.push(`Value — ${past} picks past his ADP of ${Math.round(player.adp)}`);
     } else if (-past >= ADP_REACH_GAP) {
-      reasons.push(`Slight reach — ADP is ${player.adp}, ${-past} picks from now`);
+      reasons.push(`Slight reach — ADP is ${Math.round(player.adp)}, ${-past} picks from now`);
     }
   }
 
   if (reasons.length === 0) {
-    reasons.push(`Best value on the board (+${Math.round(player.vbd)} over replacement)`);
+    const over = Math.round(player.vbd);
+    reasons.push(`Best value on the board (${over >= 0 ? '+' : ''}${over} over replacement)`);
   }
 
   return reasons.slice(0, 2);
@@ -304,11 +317,15 @@ function reasonsFor(player, pool, ctx) {
 function recommend(pool, ctx, limit = 3) {
   if (pool.length === 0) return [];
 
-  const maxAbsVbd = pool.reduce((max, pl) => Math.max(max, Math.abs(pl.vbd)), 0);
+  // Replacement levels are fixed for the whole draft, so the VBD scale must be too.
+  // Callers pass ctx.vbdScale, derived once from the full pool; deriving it from the
+  // shrinking live pool instead would make one VBD point worth more every round until
+  // VBD swamped the BPA baseline. The live-pool fallback keeps recommend() usable standalone.
+  const vbdScale = ctx.vbdScale > 0 ? ctx.vbdScale : maxPositiveVbd(pool);
   // overallRank is a fixed whole-pool rank that never renumbers as players are drafted,
   // so the BPA denominator must track the highest rank still present, not pool.length.
   const poolSize = pool.reduce((max, pl) => Math.max(max, pl.overallRank), pool.length);
-  const scoreCtx = { poolSize, maxAbsVbd, needs: ctx.needs };
+  const scoreCtx = { poolSize, vbdScale, needs: ctx.needs };
 
   return pool
     .map((player) => ({ player, score: scorePlayer(player, scoreCtx) }))
@@ -327,6 +344,7 @@ __exports.NEED_MULTIPLIER = NEED_MULTIPLIER;
 __exports.CLIFF_THRESHOLD = CLIFF_THRESHOLD;
 __exports.ADP_VALUE_GAP = ADP_VALUE_GAP;
 __exports.ADP_REACH_GAP = ADP_REACH_GAP;
+__exports.maxPositiveVbd = maxPositiveVbd;
 __exports.scorePlayer = scorePlayer;
 __exports.reasonsFor = reasonsFor;
 __exports.recommend = recommend;
@@ -488,6 +506,16 @@ const { DEFAULT_SLOTS } = __req('core/roster.js');
 
 const STORAGE_KEY = 'ffdraft.state.v1';
 
+// Any manager may draft someone who is not in the pool (a rookie, a handcuff, an
+// injured stash). Such a pick still consumes its slot, so it is recorded under a
+// sentinel id that matches no player: unique per pick so the duplicate check keeps
+// working, and recognisable so renderers can show it as an off-list pick.
+const OFF_LIST_PREFIX = 'off-list-';
+
+function isOffListId(playerId) {
+  return String(playerId).startsWith(OFF_LIST_PREFIX);
+}
+
 function defaultTeams(numTeams) {
   return Array.from({ length: numTeams }, (_, i) => ({ name: `Team ${i + 1}`, keeper: null }));
 }
@@ -548,6 +576,14 @@ function applyPick(state, playerId) {
   };
 }
 
+// Consumes the current pick slot without naming a player from the pool, so a pick
+// the app cannot represent never shifts every later pick onto the wrong team.
+function applyOffListPick(state) {
+  const pick = currentPickNumber(state);
+  if (pick === null) throw new Error('Draft is complete — no picks remain');
+  return applyPick(state, `${OFF_LIST_PREFIX}${pick}`);
+}
+
 function undoPick(state) {
   if (state.history.length === 0) return state;
   const history = [...state.history];
@@ -585,12 +621,26 @@ function rostersByTeam(state, allPlayers) {
   return out;
 }
 
+// The user's next *selection* strictly after `afterPick`. Scheduled slots that are
+// already filled (a keeper) are skipped — they are not selections the user makes,
+// and treating them as such both misreports the wait and shrinks the competitive
+// window used to judge positional-run risk.
+function myNextPickAfter(state, afterPick) {
+  const { numTeams, rounds, myTeamIndex } = state.config;
+  let pick = nextPickForTeam(afterPick, myTeamIndex, numTeams, rounds);
+  while (pick !== null && state.picks[pick]) {
+    pick = nextPickForTeam(pick, myTeamIndex, numTeams, rounds);
+  }
+  return pick;
+}
+
 function myNextPick(state) {
   const pick = currentPickNumber(state);
-  const { numTeams, rounds, myTeamIndex } = state.config;
   if (pick === null) return null;
-  if (pickToSlot(pick, numTeams).teamIndex === myTeamIndex) return pick;
-  return nextPickForTeam(pick - 1, myTeamIndex, numTeams, rounds);
+  // currentPickNumber only ever returns an unfilled slot, so if it is ours it is
+  // genuinely our next selection.
+  if (pickToSlot(pick, state.config.numTeams).teamIndex === state.config.myTeamIndex) return pick;
+  return myNextPickAfter(state, pick);
 }
 
 function serialize(state) {
@@ -615,14 +665,18 @@ function resolveStorage(storage) {
   return isUsableStorage(candidate) ? candidate : null;
 }
 
+// Returns whether the draft was actually persisted. A pick must never crash the
+// app, but a silent no-op is worse than a crash if the user then refreshes, so the
+// caller is told and can warn.
 function saveState(state, storage) {
   const store = resolveStorage(storage);
-  if (!store) return;
+  if (!store) return false;
   try {
     store.setItem(STORAGE_KEY, serialize(state));
+    return true;
   } catch {
     // Storage can throw at write time (quota exceeded, blocked site data, etc).
-    // A pick must never crash the app, so fail silently.
+    return false;
   }
 }
 
@@ -654,15 +708,19 @@ function clearState(storage) {
 }
 
 __exports.STORAGE_KEY = STORAGE_KEY;
+__exports.OFF_LIST_PREFIX = OFF_LIST_PREFIX;
+__exports.isOffListId = isOffListId;
 __exports.DEFAULT_CONFIG = DEFAULT_CONFIG;
 __exports.createState = createState;
 __exports.currentPickNumber = currentPickNumber;
 __exports.pickedIds = pickedIds;
 __exports.applyPick = applyPick;
+__exports.applyOffListPick = applyOffListPick;
 __exports.undoPick = undoPick;
 __exports.availablePlayers = availablePlayers;
 __exports.rosterFor = rosterFor;
 __exports.rostersByTeam = rostersByTeam;
+__exports.myNextPickAfter = myNextPickAfter;
 __exports.myNextPick = myNextPick;
 __exports.serialize = serialize;
 __exports.deserialize = deserialize;
@@ -739,15 +797,28 @@ const { renderSetup } = __req('ui/setup.js');
 const { renderMyTeam } = __req('ui/myteam.js');
 const { renderCenter } = __req('ui/center.js');
 const { renderBoard } = __req('ui/board.js');
-const { pickToSlot, nextPickForTeam } = __req('core/snake.js');
+const { pickToSlot } = __req('core/snake.js');
 const { positionalNeeds } = __req('core/roster.js');
 const { replacementPoints, withVbd } = __req('core/vbd.js');
+const { maxPositiveVbd } = __req('core/recommend.js');
 const { competitiveNotes } = __req('core/competitive.js');
-const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, undoPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, saveState, loadState, clearState } = __req('core/state.js');
+const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState } = __req('core/state.js');
 
 let state = null;
 let allPlayers = [];
 let replacement = null;
+// Fixed for the whole draft, exactly like `replacement` — see recommend().
+let vbdScale = 1;
+// False once a save has failed, so the user is warned before they trust a refresh.
+let storageWorks = true;
+
+function scaleFromReplacement() {
+  return maxPositiveVbd(withVbd(allPlayers, replacement));
+}
+
+function persist() {
+  storageWorks = saveState(state);
+}
 
 function root() {
   return document.getElementById('app');
@@ -759,7 +830,8 @@ function startDraft(config) {
   // user change, so they must be recomputed for the config just chosen — not left
   // over from whatever config (default or a previously loaded draft) preceded this.
   replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
-  saveState(state);
+  vbdScale = scaleFromReplacement();
+  persist();
   renderDraft();
 }
 
@@ -776,13 +848,26 @@ function handlePick(playerId) {
     window.alert(err.message);
     return;
   }
-  saveState(state);
+  persist();
+  renderDraft();
+}
+
+// Someone drafted a player who is not in the loaded pool. Burn the slot so every
+// later pick still lands on the right pick number and the right team.
+function handleOffListPick() {
+  try {
+    state = applyOffListPick(state);
+  } catch (err) {
+    window.alert(err.message);
+    return;
+  }
+  persist();
   renderDraft();
 }
 
 function handleUndo() {
   state = undoPick(state);
-  saveState(state);
+  persist();
   renderDraft();
 }
 
@@ -807,11 +892,14 @@ function renderDraft() {
   const myRoster = rosterFor(state, config.myTeamIndex, allPlayers);
   const needs = positionalNeeds(myRoster, config.slots, round, config.rounds);
   const nextPick = myNextPick(state);
+  // The selection after this one — what the competitive window is measured over,
+  // and what the header shows when it is already your turn.
+  const nextAfterCurrent = currentPick === null ? null : myNextPickAfter(state, currentPick);
 
   const notes = isMyPick
     ? competitiveNotes({
       currentPick,
-      nextPick: nextPickForTeam(currentPick, config.myTeamIndex, config.numTeams, config.rounds),
+      nextPick: nextAfterCurrent,
       numTeams: config.numTeams,
       rounds: config.rounds,
       rostersByTeam: rostersByTeam(state, allPlayers),
@@ -825,6 +913,17 @@ function renderDraft() {
   const left = el('div', { class: 'panel' }, []);
   const center = el('div', { class: 'panel' }, []);
   const right = el('div', { class: 'panel' }, []);
+
+  // localStorage can be unavailable or throw (Safari on file://, blocked site data,
+  // quota). Saving then silently no-ops, and the user only finds out when a refresh
+  // loses the draft — so say so, on every render, until it works again.
+  if (!storageWorks) {
+    container.appendChild(el('div', {
+      class: 'notes',
+      text: 'Draft is NOT being saved — do not refresh this page. '
+        + 'Browser storage is unavailable (private window, blocked site data, or full).',
+    }, []));
+  }
 
   container.appendChild(el('div', { class: 'layout' }, [left, center, right]));
 
@@ -844,13 +943,14 @@ function renderDraft() {
     myRoster,
     needs,
     currentPick,
-    nextPick,
+    nextPick: isMyPick ? nextAfterCurrent : nextPick,
     round,
     numTeams: config.numTeams,
     isMyPick,
     pickingTeamName: pickingTeam ? config.teams[pickingTeam - 1].name : '',
     notes,
-  }, { onPick: handlePick, onUndo: handleUndo });
+    vbdScale,
+  }, { onPick: handlePick, onUndo: handleUndo, onOffList: handleOffListPick });
 
   renderBoard(right, { state, allPlayers });
 }
@@ -858,11 +958,13 @@ function renderDraft() {
 function init() {
   allPlayers = window.PLAYERS || [];
   replacement = replacementPoints(allPlayers, DEFAULT_CONFIG.numTeams, DEFAULT_CONFIG.slots);
+  vbdScale = scaleFromReplacement();
 
   const saved = loadState();
   if (saved) {
     state = saved;
     replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
+    vbdScale = scaleFromReplacement();
     renderDraft();
   } else {
     showSetup();
@@ -878,7 +980,7 @@ __def("ui/board.js", function (__exports, __req) {
 const { el, clear, POSITION_COLORS, abbreviate } = __req('ui/dom.js');
 const { slotToPick } = __req('core/snake.js');
 const { assignSlots, positionalNeeds } = __req('core/roster.js');
-const { currentPickNumber, rosterFor } = __req('core/state.js');
+const { currentPickNumber, rosterFor, isOffListId } = __req('core/state.js');
 
 function boardCells(state, allPlayers) {
   const { numTeams, rounds, myTeamIndex } = state.config;
@@ -896,6 +998,7 @@ function boardCells(state, allPlayers) {
         round,
         teamIndex,
         player: entry ? byId.get(entry.playerId) || null : null,
+        isOffList: Boolean(entry && isOffListId(entry.playerId)),
         isKeeper: Boolean(entry && entry.isKeeper),
         isMine: teamIndex === myTeamIndex,
         isCurrent: pick === current,
@@ -974,15 +1077,22 @@ function renderBoard(container, ctx) {
       if (cell.isCurrent) classes.push('current');
       if (cell.isKeeper) classes.push('keeper');
 
+      // An off-list pick has no player to name, but it must not look like an
+      // unfilled cell — that slot is spent.
+      const offListText = cell.isOffList ? '—' : '';
+      const offListTitle = cell.isOffList
+        ? `Pick ${cell.pick} — off-list pick (player not in the loaded pool)`
+        : `Pick ${cell.pick}`;
+
       cells.push(el('td', {
         class: classes.join(' '),
-        text: cell.player ? abbreviate(cell.player.name) : '',
+        text: cell.player ? abbreviate(cell.player.name) : offListText,
         style: cell.player ? { color: POSITION_COLORS[cell.player.position] } : {},
         title: cell.player
           ? `${cell.player.name} — ${cell.player.position} ${cell.player.team}\n`
             + `#${cell.player.overallRank} overall · ${cell.player.projectedPoints} proj · `
             + `ADP ${cell.player.adp ?? '—'} · bye ${cell.player.bye ?? '—'}`
-          : `Pick ${cell.pick}`,
+          : offListTitle,
       }, []));
     }
 
@@ -1039,10 +1149,18 @@ function filterByPosition(pool, position) {
   return position === 'ALL' ? [...pool] : pool.filter((pl) => pl.position === position);
 }
 
+// Below-replacement players are common late, so the sign has to come from the
+// number rather than a hardcoded '+'. Math.round(-0.4) is -0, which formats as
+// "+0" here rather than the nonsensical "-0".
+function formatVbd(vbd) {
+  const rounded = Math.round(vbd);
+  return rounded >= 0 ? `+${rounded}` : String(rounded);
+}
+
 // Module-level view state so a re-render keeps the user's sort/filter/search choices.
 const view = { sortKey: 'overallRank', filter: 'ALL', query: '' };
 
-function pickEntry(pool, onPick, onUndo) {
+function pickEntry(pool, onPick, onUndo, onOffList) {
   const input = el('input', {
     type: 'text', placeholder: 'Type a player name, then Enter…', autocomplete: 'off',
   }, []);
@@ -1089,6 +1207,11 @@ function pickEntry(pool, onPick, onUndo) {
   const wrap = el('div', { class: 'pickbar' }, [
     el('div', { class: 'suggest', style: { flex: '1' } }, [input, list]),
     el('button', { text: 'Undo', onClick: onUndo }, []),
+    el('button', {
+      text: 'Skip / off-list',
+      title: 'Someone drafted a player who is not in this list — consume the pick slot',
+      onClick: onOffList,
+    }, []),
   ]);
 
   // Focus is restored after each render so the user can type pick after pick without reaching for the mouse.
@@ -1106,18 +1229,22 @@ function recommendationCard(rec) {
       el('span', { class: 'pname', text: `${pl.name}` }, []),
       el('span', {
         class: 'meta',
-        text: `${pl.position} · ${pl.team} · #${pl.overallRank} BPA · VBD +${Math.round(pl.vbd)}`,
+        text: `${pl.position} · ${pl.team} · #${pl.overallRank} BPA · VBD ${formatVbd(pl.vbd)}`,
       }, []),
     ]),
-    el('div', { class: 'meta', text: `${pl.position} need: ${rec.need}${pl.adp === null ? '' : ` · ADP ${pl.adp}`}` }, []),
+    el('div', {
+      class: 'meta',
+      text: `${pl.position} need: ${rec.need}${pl.adp === null ? '' : ` · ADP ${Math.round(pl.adp)}`}`,
+    }, []),
     ...rec.reasons.map((reason) => el('div', { class: 'why', text: reason }, [])),
   ]);
 }
 
 function playerTable(pool, onPick) {
+  // No row cap: the spec asks for all remaining players, and capping the list
+  // silently hides the bottom of the pool in the unfiltered view.
   const rows = filterByPosition(sortPlayers(pool, view.sortKey), view.filter)
     .filter((pl) => !view.query || pl.name.toLowerCase().includes(view.query.toLowerCase()))
-    .slice(0, 250)
     .map((pl) => el('tr', { onDblclick: () => onPick(pl.id) }, [
       el('td', { text: String(pl.overallRank) }, []),
       el('td', { text: pl.name }, []),
@@ -1153,6 +1280,7 @@ function renderCenter(container, ctx, handlers) {
 
   const {
     pool, needs, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
+    vbdScale,
   } = ctx;
 
   container.appendChild(el('div', { class: 'pick-info' }, [
@@ -1165,13 +1293,15 @@ function renderCenter(container, ctx, handlers) {
       text: currentPick === null ? ''
         : isMyPick ? 'YOUR PICK' : `${pickingTeamName} is on the clock`,
     }, []),
-    !isMyPick && nextPick ? el('span', {
+    // Shown whether or not it is your pick — when it is, the wait until your next
+    // turn is exactly what the current decision hangs on.
+    nextPick ? el('span', {
       class: 'meta',
       text: `Your next: ${formatPick(nextPick, numTeams)} (${nextPick - currentPick} picks away)`,
     }, []) : null,
   ]));
 
-  container.appendChild(pickEntry(pool, handlers.onPick, handlers.onUndo));
+  container.appendChild(pickEntry(pool, handlers.onPick, handlers.onUndo, handlers.onOffList));
 
   for (const note of notes || []) {
     container.appendChild(el('div', { class: 'notes', text: note }, []));
@@ -1179,7 +1309,7 @@ function renderCenter(container, ctx, handlers) {
 
   if (isMyPick && pool.length) {
     container.appendChild(el('h2', { text: 'Recommended' }, []));
-    const recs = recommend(pool, { needs, currentPick, nextPick, round }, 3);
+    const recs = recommend(pool, { needs, currentPick, nextPick, round, vbdScale }, 3);
     for (const rec of recs) container.appendChild(recommendationCard(rec));
   }
 
@@ -1209,6 +1339,7 @@ __exports.POSITION_FILTERS = POSITION_FILTERS;
 __exports.searchPlayers = searchPlayers;
 __exports.sortPlayers = sortPlayers;
 __exports.filterByPosition = filterByPosition;
+__exports.formatVbd = formatVbd;
 __exports.renderCenter = renderCenter;
 
 });
@@ -1366,12 +1497,17 @@ function buildConfig(form) {
 
   const teams = form.teams.slice(0, numTeams).map((team, i) => {
     const name = String(team.name || '').trim() || `Team ${i + 1}`;
-    const hasKeeper = Boolean(team.keeperId) && Boolean(String(team.keeperRound).trim());
+    const hasPlayer = Boolean(team.keeperId);
+    const hasRound = Boolean(String(team.keeperRound ?? '').trim());
     return {
       name,
-      keeper: hasKeeper
+      keeper: hasPlayer && hasRound
         ? { playerId: String(team.keeperId), round: Number(team.keeperRound) }
         : null,
+      // Half a keeper is almost always a mistake — a name typed without picking a
+      // suggestion, or a player chosen with the round left at "—". Silently dropping
+      // it leaves the player in the pool and the board cell empty, so flag it instead.
+      keeperPartial: hasPlayer !== hasRound,
     };
   });
 
@@ -1408,6 +1544,9 @@ function validateConfig(config) {
 
   const keeperIds = new Set();
   for (const team of config.teams) {
+    if (team.keeperPartial) {
+      errors.push(`${team.name}: keeper needs both a player and a round.`);
+    }
     if (!team.keeper) continue;
     if (keeperIds.has(team.keeper.playerId)) {
       errors.push(`Two teams have the same keeper (${team.name}).`);

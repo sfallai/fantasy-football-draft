@@ -120,7 +120,9 @@ async function main() {
   console.log(`FFC sample: ${ffc.meta.total_drafts} drafts, ${ffc.meta.start_date}..${ffc.meta.end_date}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// fileURLToPath, not a `file://` template: the latter mismatches on any path
+// containing a space or a non-ASCII character, and the fetch would do nothing.
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);
