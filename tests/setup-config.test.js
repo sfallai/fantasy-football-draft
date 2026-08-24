@@ -22,13 +22,29 @@ test('buildConfig keeps a keeper with a player and a round', () => {
   const teams = form().teams;
   teams[2] = { name: 'Sharks', keeperId: 'p42', keeperRound: '3' };
   const config = buildConfig(form({ teams }));
-  assert.deepEqual(config.teams[2], { name: 'Sharks', keeper: { playerId: 'p42', round: 3 } });
+  assert.deepEqual(config.teams[2], {
+    name: 'Sharks', keeper: { playerId: 'p42', round: 3 }, keeperPartial: false,
+  });
 });
 
-test('buildConfig ignores a keeper missing its round', () => {
+test('buildConfig ignores a keeper missing its round but flags it as partial', () => {
   const teams = form().teams;
   teams[0] = { name: 'A', keeperId: 'p1', keeperRound: '' };
-  assert.equal(buildConfig(form({ teams })).teams[0].keeper, null);
+  const team = buildConfig(form({ teams })).teams[0];
+  assert.equal(team.keeper, null);
+  assert.equal(team.keeperPartial, true);
+});
+
+test('buildConfig flags a round chosen without a player', () => {
+  const teams = form().teams;
+  teams[0] = { name: 'A', keeperId: '', keeperRound: '4' };
+  const team = buildConfig(form({ teams })).teams[0];
+  assert.equal(team.keeper, null);
+  assert.equal(team.keeperPartial, true);
+});
+
+test('buildConfig does not flag a team with no keeper at all', () => {
+  assert.equal(buildConfig(form()).teams[0].keeperPartial, false);
 });
 
 test('buildConfig falls back to a default name for a blank team name', () => {
@@ -58,6 +74,26 @@ test('validateConfig rejects duplicate keepers', () => {
   teams[1] = { name: 'B', keeperId: 'p1', keeperRound: '2' };
   const errors = validateConfig(buildConfig(form({ teams })));
   assert.ok(errors.some((e) => /same keeper/i.test(e)), errors.join(' | '));
+});
+
+test('validateConfig rejects a player typed without a round, naming the team', () => {
+  const teams = form().teams;
+  teams[2] = { name: 'Team 3', keeperId: 'p42', keeperRound: '' };
+  const errors = validateConfig(buildConfig(form({ teams })));
+  assert.ok(
+    errors.some((e) => /^Team 3: keeper needs both a player and a round/.test(e)),
+    errors.join(' | '),
+  );
+});
+
+test('validateConfig rejects a round chosen without a player, naming the team', () => {
+  const teams = form().teams;
+  teams[6] = { name: 'Wolves', keeperId: '', keeperRound: '5' };
+  const errors = validateConfig(buildConfig(form({ teams })));
+  assert.ok(
+    errors.some((e) => /^Wolves: keeper needs both a player and a round/.test(e)),
+    errors.join(' | '),
+  );
 });
 
 test('validateConfig rejects a keeper round beyond the draft', () => {

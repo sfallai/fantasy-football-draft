@@ -23,12 +23,17 @@ export function buildConfig(form) {
 
   const teams = form.teams.slice(0, numTeams).map((team, i) => {
     const name = String(team.name || '').trim() || `Team ${i + 1}`;
-    const hasKeeper = Boolean(team.keeperId) && Boolean(String(team.keeperRound).trim());
+    const hasPlayer = Boolean(team.keeperId);
+    const hasRound = Boolean(String(team.keeperRound ?? '').trim());
     return {
       name,
-      keeper: hasKeeper
+      keeper: hasPlayer && hasRound
         ? { playerId: String(team.keeperId), round: Number(team.keeperRound) }
         : null,
+      // Half a keeper is almost always a mistake — a name typed without picking a
+      // suggestion, or a player chosen with the round left at "—". Silently dropping
+      // it leaves the player in the pool and the board cell empty, so flag it instead.
+      keeperPartial: hasPlayer !== hasRound,
     };
   });
 
@@ -65,6 +70,9 @@ export function validateConfig(config) {
 
   const keeperIds = new Set();
   for (const team of config.teams) {
+    if (team.keeperPartial) {
+      errors.push(`${team.name}: keeper needs both a player and a round.`);
+    }
     if (!team.keeper) continue;
     if (keeperIds.has(team.keeper.playerId)) {
       errors.push(`Two teams have the same keeper (${team.name}).`);
