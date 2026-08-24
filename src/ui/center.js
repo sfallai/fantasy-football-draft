@@ -9,7 +9,7 @@ export function searchPlayers(pool, query, limit = 8) {
   const needle = String(query || '').trim().toLowerCase();
   if (!needle) return [];
   return pool
-    .filter((pl) => pl.name.toLowerCase().includes(needle) || pl.team.toLowerCase() === needle)
+    .filter((pl) => pl.name.toLowerCase().includes(needle) || pl.team.toLowerCase().includes(needle))
     .sort((a, b) => a.overallRank - b.overallRank)
     .slice(0, limit);
 }

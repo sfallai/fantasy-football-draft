@@ -30,6 +30,10 @@ test('searchPlayers matches on team abbreviation', () => {
   assert.deepEqual(searchPlayers(POOL, 'cin').map((x) => x.id), ['3']);
 });
 
+test('searchPlayers matches team by substring, not just exact equality', () => {
+  assert.deepEqual(searchPlayers(POOL, 'ci').map((x) => x.id), ['3']);
+});
+
 test('searchPlayers handles apostrophes in names', () => {
   assert.deepEqual(searchPlayers(POOL, "ja'marr").map((x) => x.id), ['3']);
 });
