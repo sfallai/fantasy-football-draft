@@ -5,7 +5,7 @@ export const WEIGHTS = { bpa: 0.6, vbd: 0.4 };
 // point ~0.0015, so a "clearly better player" gap of 30 ranks + 10 VBD points is
 // ~0.060 while `high` swings ~0.031 on a typical value of ~0.77. Need therefore
 // breaks a genuine near-tie (~0.006) without ever overriding a real value gap.
-export const NEED_MULTIPLIER = { high: 1.04, medium: 1.02, low: 1.0, bench: 0.7, none: 0.55 };
+export const NEED_MULTIPLIER = { high: 1.04, medium: 1.02, low: 1.0, bench: 0.7, none: 0.45 };
 
 // A projected-point gap this large to the next player at the position is a cliff.
 export const CLIFF_THRESHOLD = 20;
@@ -24,8 +24,20 @@ export function maxPositiveVbd(players) {
   return players.reduce((max, pl) => Math.max(max, pl.vbd), 0) || 1;
 }
 
+// Each player already surplus at a position makes the next one there worth less: only
+// one backup can cover a starter in any given week. Without this, cross-position VBD
+// keeps favouring shallow-baseline positions late (a 4th TE still scores near TE12
+// while a 5th WR is measured against WR24), and the bench fills with backups for
+// positions that start one player.
+export const BENCH_DECAY = 0.35;
+
+// Kickers and defenses are streamed off waivers week to week, so a rostered backup is
+// worth close to nothing — far less than a spare running back. They decay much harder.
+export const STREAMED_POSITIONS = ['K', 'DEF'];
+export const BENCH_DECAY_STREAMED = 2;
+
 export function scorePlayer(player, ctx) {
-  const { poolSize, vbdScale, needs } = ctx;
+  const { poolSize, vbdScale, needs, surplus } = ctx;
 
   // Both components normalize into [0, 1] so the multiplier can never flip a sign.
   const bpaScore = Math.max(0, (poolSize - (player.overallRank - 1)) / poolSize);
@@ -34,7 +46,17 @@ export function scorePlayer(player, ctx) {
   const vbdScore = (clamped + 1) / 2;
 
   const value = WEIGHTS.bpa * bpaScore + WEIGHTS.vbd * vbdScore;
-  const multiplier = NEED_MULTIPLIER[needs[player.position]] ?? 1;
+  let multiplier = NEED_MULTIPLIER[needs[player.position]] ?? 1;
+
+  // Decay on how many at this position would already be riding the bench, whatever the
+  // tier says. This is the signal that matters — a second kicker and a fourth tight end
+  // are both unplayable — and it stays at zero while a FLEX slot can still absorb one.
+  const onBench = surplus ? surplus[player.position] || 0 : 0;
+  if (onBench > 0) {
+    const decay = STREAMED_POSITIONS.includes(player.position) ? BENCH_DECAY_STREAMED : BENCH_DECAY;
+    multiplier /= 1 + decay * onBench;
+  }
+
   return value * multiplier;
 }
 
@@ -90,7 +112,7 @@ export function recommend(pool, ctx, limit = 3) {
   // overallRank is a fixed whole-pool rank that never renumbers as players are drafted,
   // so the BPA denominator must track the highest rank still present, not pool.length.
   const poolSize = pool.reduce((max, pl) => Math.max(max, pl.overallRank), pool.length);
-  const scoreCtx = { poolSize, vbdScale, needs: ctx.needs };
+  const scoreCtx = { poolSize, vbdScale, needs: ctx.needs, surplus: ctx.surplus };
 
   return pool
     .map((player) => ({ player, score: scorePlayer(player, scoreCtx) }))

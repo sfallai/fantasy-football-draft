@@ -5,7 +5,7 @@ import {
   NEED_MULTIPLIER, maxPositiveVbd, scorePlayer, reasonsFor, recommend,
 } from '../src/core/recommend.js';
 import { replacementPoints, withVbd } from '../src/core/vbd.js';
-import { DEFAULT_SLOTS, positionalNeeds, assignSlots, countByPosition } from '../src/core/roster.js';
+import { DEFAULT_SLOTS, positionalNeeds, benchDepthIfAdded, assignSlots, countByPosition } from '../src/core/roster.js';
 import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, availablePlayers, rosterFor } from '../src/core/state.js';
 import { pickToSlot } from '../src/core/snake.js';
 
@@ -240,22 +240,82 @@ test('following the top recommendation fills every starting slot, even when riva
     let chosen;
     if (teamIndex === 4) {
       const pool = withVbd(available, replacement);
-      const needs = positionalNeeds(rosterFor(state, 4, players), DEFAULT_SLOTS, round, 15);
-      chosen = recommend(pool, { needs, currentPick: pick, nextPick: pick + 1, round, vbdScale }, 1)[0].player;
+      const mine = rosterFor(state, 4, players);
+      const needs = positionalNeeds(mine, DEFAULT_SLOTS, round, 15);
+      const surplus = benchDepthIfAdded(mine, DEFAULT_SLOTS);
+      chosen = recommend(pool, { needs, surplus, currentPick: pick, nextPick: pick + 1, round, vbdScale }, 1)[0].player;
     } else {
       chosen = available.reduce((best, x) => (x.overallRank < best.overallRank ? x : best));
     }
     state = applyPick(state, chosen.id);
   }
 
-  const mine = rosterFor(state, 4, players);
-  const unfilled = assignSlots(mine, DEFAULT_SLOTS)
+  const finalRoster = rosterFor(state, 4, players);
+  const unfilled = assignSlots(finalRoster, DEFAULT_SLOTS)
     .filter((slot) => !slot.label.startsWith('BN') && slot.player === null)
     .map((slot) => slot.label);
 
   assert.deepEqual(unfilled, [], `starting slots left empty: ${unfilled.join(', ')}`);
 
-  const counts = countByPosition(mine);
+  const counts = countByPosition(finalRoster);
   assert.ok(counts.QB <= 3, `hoarded ${counts.QB} QBs for one starting slot`);
   assert.ok(counts.WR >= 2, `only ${counts.WR} WRs for two starting slots`);
+
+  // A backup kicker or defense can never play — you stream them off waivers.
+  assert.equal(counts.K, 1, `drafted ${counts.K} kickers`);
+  assert.equal(counts.DEF, 1, `drafted ${counts.DEF} defenses`);
+
+  // And the bench should carry at least some cover for the five RB/WR/FLEX slots.
+  const benchDepth = assignSlots(finalRoster, DEFAULT_SLOTS)
+    .filter((s2) => s2.label.startsWith('BN') && s2.player)
+    .filter((s2) => s2.player.position === 'RB' || s2.player.position === 'WR').length;
+  assert.ok(benchDepth >= 1, 'no RB/WR cover on the bench for five starting slots');
+});
+
+// Companion to the test above, with rivals drafting in ADP order — how real drafters
+// actually behave, and the model that exposed the bench problem. Before bench depth
+// decayed, this finished with four tight ends and two QBs backing up two starting
+// slots, and zero cover for the five RB/WR/FLEX slots that carry a lineup.
+test('bench cover is spread across the positions that actually start, vs ADP rivals', () => {
+  const players = JSON.parse(readFileSync(new URL('../data/players.json', import.meta.url)));
+  const replacement = replacementPoints(players, 10, DEFAULT_SLOTS);
+  const vbdScale = maxPositiveVbd(withVbd(players, replacement));
+
+  let state = createState({ ...DEFAULT_CONFIG, myTeamIndex: 4 });
+  while (currentPickNumber(state) !== null) {
+    const pick = currentPickNumber(state);
+    const { round, teamIndex } = pickToSlot(pick, 10);
+    const available = availablePlayers(state, players);
+
+    let chosen;
+    if (teamIndex === 4) {
+      const mine = rosterFor(state, 4, players);
+      const needs = positionalNeeds(mine, DEFAULT_SLOTS, round, 15);
+      const surplus = benchDepthIfAdded(mine, DEFAULT_SLOTS);
+      const pool = withVbd(available, replacement);
+      chosen = recommend(pool, { needs, surplus, currentPick: pick, nextPick: pick + 1, round, vbdScale }, 1)[0].player;
+    } else {
+      chosen = [...available].sort((a, b) => (a.adp ?? 999) - (b.adp ?? 999) || a.overallRank - b.overallRank)[0];
+    }
+    state = applyPick(state, chosen.id);
+  }
+
+  const finalRoster = rosterFor(state, 4, players);
+  const slots = assignSlots(finalRoster, DEFAULT_SLOTS);
+  const counts = countByPosition(finalRoster);
+
+  const unfilled = slots.filter((s2) => !s2.label.startsWith('BN') && !s2.player).map((s2) => s2.label);
+  assert.deepEqual(unfilled, [], `starting slots left empty: ${unfilled.join(', ')}`);
+
+  assert.equal(counts.K, 1, `drafted ${counts.K} kickers — a backup kicker can never play`);
+  assert.equal(counts.DEF, 1, `drafted ${counts.DEF} defenses`);
+
+  const bench = slots.filter((s2) => s2.label.startsWith('BN') && s2.player).map((s2) => s2.player);
+  const cover = bench.filter((b) => b.position === 'RB' || b.position === 'WR').length;
+  assert.ok(cover >= 1, `bench has no RB/WR cover for five starting slots: ${bench.map((b) => b.position).join(',')}`);
+
+  const mostAtOnePosition = Math.max(...Object.values(bench.reduce((m, b) => {
+    m[b.position] = (m[b.position] || 0) + 1; return m;
+  }, {})));
+  assert.ok(mostAtOnePosition <= 3, `bench stacked ${mostAtOnePosition} deep at one position`);
 });

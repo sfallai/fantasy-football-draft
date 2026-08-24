@@ -71,6 +71,25 @@ export function countByPosition(players) {
   return counts;
 }
 
+// For each position: how many players there would be riding the bench if you drafted
+// one more. Counting who is ALREADY benched is not enough — it reads zero for the very
+// first surplus pick, which is exactly the one worth discouraging (a second kicker).
+//
+// A probe player scoring below everyone is appended and the roster re-assigned, so the
+// probe lands in the least valuable slot still open. That makes FLEX fall out for free:
+// while a FLEX slot can still absorb a third running back, the probe starts and the
+// count stays 0.
+export function benchDepthIfAdded(players, slots) {
+  const depth = {};
+  for (const pos of ALL_POSITIONS) {
+    const probe = { id: '__probe__', name: '__probe__', position: pos, projectedPoints: -Infinity };
+    depth[pos] = assignSlots([...players, probe], slots)
+      .filter((slot) => slot.label.startsWith('BN') && slot.player && slot.player.position === pos)
+      .length;
+  }
+  return depth;
+}
+
 export function positionalNeeds(players, slots, round, totalRounds) {
   const counts = countByPosition(players);
   const needs = {};

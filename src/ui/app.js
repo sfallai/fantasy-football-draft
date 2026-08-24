@@ -4,7 +4,7 @@ import { renderMyTeam } from './myteam.js';
 import { renderCenter } from './center.js';
 import { renderBoard } from './board.js';
 import { pickToSlot } from '../core/snake.js';
-import { positionalNeeds } from '../core/roster.js';
+import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
 import { maxPositiveVbd } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
@@ -97,6 +97,8 @@ function renderDraft() {
   const pool = withVbd(availablePlayers(state, allPlayers), replacement);
   const myRoster = rosterFor(state, config.myTeamIndex, allPlayers);
   const needs = positionalNeeds(myRoster, config.slots, round, config.rounds);
+  // How deep the bench would get at each position if this pick went there.
+  const surplus = benchDepthIfAdded(myRoster, config.slots);
   const nextPick = myNextPick(state);
   // The selection after this one — what the competitive window is measured over,
   // and what the header shows when it is already your turn.
@@ -148,6 +150,7 @@ function renderDraft() {
     pool,
     myRoster,
     needs,
+    surplus,
     currentPick,
     nextPick: isMyPick ? nextAfterCurrent : nextPick,
     round,

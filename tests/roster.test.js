@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_SLOTS, slotLabels, assignSlots, countByPosition, positionalNeeds,
+  DEFAULT_SLOTS, slotLabels, assignSlots, countByPosition, positionalNeeds, benchDepthIfAdded,
 } from '../src/core/roster.js';
 
 const p = (id, position, projectedPoints) => ({
@@ -87,4 +87,37 @@ test('K and DEF are none until the last three rounds', () => {
 
 test('an already-drafted K goes back to none even late', () => {
   assert.equal(positionalNeeds([p('k', 'K', 140)], DEFAULT_SLOTS, 14, 15).K, 'none');
+});
+
+test('benchDepthIfAdded stays 0 while a FLEX slot can still absorb the player', () => {
+  const roster = [p('a', 'RB', 200), p('b', 'RB', 190)];
+  // RB1 and RB2 are full, but FLEX is open, so a third RB would still start.
+  assert.equal(benchDepthIfAdded(roster, DEFAULT_SLOTS).RB, 0);
+});
+
+test('benchDepthIfAdded counts the player once FLEX is taken', () => {
+  // Six FLEX-eligible players cover RB1/RB2/WR1/WR2/TE and FLEX, so the next one benches.
+  const roster = [
+    p('a', 'RB', 200), p('b', 'RB', 190), p('c', 'RB', 185),
+    p('d', 'WR', 180), p('e', 'WR', 170), p('f', 'TE', 160),
+  ];
+  assert.equal(benchDepthIfAdded(roster, DEFAULT_SLOTS).RB, 1);
+});
+
+test('benchDepthIfAdded flags a second kicker even though the first one starts', () => {
+  const roster = [p('k', 'K', 140)];
+  assert.equal(benchDepthIfAdded(roster, DEFAULT_SLOTS).K, 1, 'a backup kicker can never play');
+  assert.equal(benchDepthIfAdded([], DEFAULT_SLOTS).K, 0, 'the first kicker starts');
+});
+
+test('benchDepthIfAdded grows with each extra player already benched', () => {
+  const base = [
+    p('a', 'RB', 200), p('b', 'RB', 190), p('c', 'RB', 185),
+    p('d', 'WR', 180), p('e', 'WR', 170), p('f', 'TE', 160),
+  ];
+  const depths = [0, 1, 2].map((n) => {
+    const extra = Array.from({ length: n }, (_, i) => p(`x${i}`, 'RB', 100 - i));
+    return benchDepthIfAdded([...base, ...extra], DEFAULT_SLOTS).RB;
+  });
+  assert.deepEqual(depths, [1, 2, 3]);
 });

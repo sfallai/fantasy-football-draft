@@ -167,7 +167,7 @@ export function renderCenter(container, ctx, handlers) {
   clear(container);
 
   const {
-    pool, needs, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
+    pool, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
     vbdScale,
   } = ctx;
 
@@ -197,7 +197,7 @@ export function renderCenter(container, ctx, handlers) {
 
   if (isMyPick && pool.length) {
     container.appendChild(el('h2', { text: 'Recommended' }, []));
-    const recs = recommend(pool, { needs, currentPick, nextPick, round, vbdScale }, 3);
+    const recs = recommend(pool, { needs, surplus, currentPick, nextPick, round, vbdScale }, 3);
     for (const rec of recs) container.appendChild(recommendationCard(rec));
   }
 
