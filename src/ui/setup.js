@@ -258,12 +258,17 @@ export function renderSetup(root, initialConfig, onStart) {
     slotFields,
 
     el('h2', { text: 'Teams & Keepers' }, []),
-    el('table', { class: 'teams' }, [
-      el('thead', {}, [el('tr', {}, [
-        el('th', { text: '#' }, []), el('th', { text: 'Team name' }, []),
-        el('th', { text: 'Keeper (optional)' }, []), el('th', { text: 'Round' }, []),
-      ])]),
-      tbody,
+    // Fixed-height scroller: changing the team count adds or removes rows inside
+    // this box rather than growing the page, so nothing below it — the Start Draft
+    // button in particular — shifts under the pointer mid-click.
+    el('div', { class: 'teams-scroll' }, [
+      el('table', { class: 'teams' }, [
+        el('thead', {}, [el('tr', {}, [
+          el('th', { text: '#' }, []), el('th', { text: 'Team name' }, []),
+          el('th', { text: 'Keeper (optional)' }, []), el('th', { text: 'Round' }, []),
+        ])]),
+        tbody,
+      ]),
     ]),
 
     el('button', {
