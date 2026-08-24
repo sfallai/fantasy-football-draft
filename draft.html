@@ -734,23 +734,478 @@ __exports.withVbd = withVbd;
 
 });
 __def("ui/app.js", function (__exports, __req) {
-const { clear } = __req('ui/dom.js');
+const { el, clear } = __req('ui/dom.js');
 const { renderSetup } = __req('ui/setup.js');
-const { DEFAULT_CONFIG, createState, saveState } = __req('core/state.js');
+const { renderMyTeam } = __req('ui/myteam.js');
+const { renderCenter } = __req('ui/center.js');
+const { renderBoard } = __req('ui/board.js');
+const { pickToSlot, nextPickForTeam } = __req('core/snake.js');
+const { positionalNeeds } = __req('core/roster.js');
+const { replacementPoints, withVbd } = __req('core/vbd.js');
+const { competitiveNotes } = __req('core/competitive.js');
+const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, undoPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, saveState, loadState, clearState } = __req('core/state.js');
+
+let state = null;
+let allPlayers = [];
+let replacement = null;
+
+function root() {
+  return document.getElementById('app');
+}
+
+function startDraft(config) {
+  state = createState(config);
+  saveState(state);
+  renderDraft();
+}
+
+function showSetup() {
+  const container = root();
+  clear(container);
+  renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft);
+}
+
+function handlePick(playerId) {
+  try {
+    state = applyPick(state, playerId);
+  } catch (err) {
+    window.alert(err.message);
+    return;
+  }
+  saveState(state);
+  renderDraft();
+}
+
+function handleUndo() {
+  state = undoPick(state);
+  saveState(state);
+  renderDraft();
+}
+
+function handleReset() {
+  if (!window.confirm('Clear this draft and return to setup?')) return;
+  clearState();
+  state = null;
+  showSetup();
+}
+
+function renderDraft() {
+  const container = root();
+  const { config } = state;
+  const currentPick = currentPickNumber(state);
+  const round = currentPick === null ? config.rounds : pickToSlot(currentPick, config.numTeams).round;
+  const pickingTeam = currentPick === null ? null : pickToSlot(currentPick, config.numTeams).teamIndex;
+  const isMyPick = pickingTeam === config.myTeamIndex;
+
+  // VBD baselines are computed once from the full pool, so replacement level does not
+  // drift as players come off the board — that is what makes VBD comparable all draft.
+  const pool = withVbd(availablePlayers(state, allPlayers), replacement);
+  const myRoster = rosterFor(state, config.myTeamIndex, allPlayers);
+  const needs = positionalNeeds(myRoster, config.slots, round, config.rounds);
+  const nextPick = myNextPick(state);
+
+  const notes = isMyPick
+    ? competitiveNotes({
+      currentPick,
+      nextPick: nextPickForTeam(currentPick, config.myTeamIndex, config.numTeams, config.rounds),
+      numTeams: config.numTeams,
+      rounds: config.rounds,
+      rostersByTeam: rostersByTeam(state, allPlayers),
+      slots: config.slots,
+      pool,
+      replacement,
+    })
+    : [];
+
+  clear(container);
+  const left = el('div', { class: 'panel' }, []);
+  const center = el('div', { class: 'panel' }, []);
+  const right = el('div', { class: 'panel' }, []);
+
+  container.appendChild(el('div', { class: 'layout' }, [left, center, right]));
+
+  renderMyTeam(left, {
+    roster: myRoster,
+    slots: config.slots,
+    round,
+    totalRounds: config.rounds,
+    teamName: config.teams[config.myTeamIndex - 1].name,
+  });
+  left.appendChild(el('button', {
+    text: 'Reset draft', style: { marginTop: '12px' }, onClick: handleReset,
+  }, []));
+
+  renderCenter(center, {
+    pool,
+    myRoster,
+    needs,
+    currentPick,
+    nextPick,
+    round,
+    numTeams: config.numTeams,
+    isMyPick,
+    pickingTeamName: pickingTeam ? config.teams[pickingTeam - 1].name : '',
+    notes,
+  }, { onPick: handlePick, onUndo: handleUndo });
+
+  renderBoard(right, { state, allPlayers, currentPick });
+}
 
 function init() {
-  const root = document.getElementById('app');
-  clear(root);
-  renderSetup(root, DEFAULT_CONFIG, (config) => {
-    const state = createState(config);
-    saveState(state);
-    root.textContent = `Draft started: ${Object.keys(state.picks).length} keeper(s) placed.`;
-  });
+  allPlayers = window.PLAYERS || [];
+  replacement = replacementPoints(allPlayers, DEFAULT_CONFIG.numTeams, DEFAULT_CONFIG.slots);
+
+  const saved = loadState();
+  if (saved) {
+    state = saved;
+    replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
+    renderDraft();
+  } else {
+    showSetup();
+  }
 }
 
 init();
 
 __exports.init = init;
+
+});
+__def("ui/board.js", function (__exports, __req) {
+const { el, clear, POSITION_COLORS, abbreviate } = __req('ui/dom.js');
+const { slotToPick } = __req('core/snake.js');
+const { assignSlots, positionalNeeds } = __req('core/roster.js');
+const { currentPickNumber, rosterFor } = __req('core/state.js');
+
+function boardCells(state, allPlayers) {
+  const { numTeams, rounds, myTeamIndex } = state.config;
+  const byId = new Map(allPlayers.map((pl) => [pl.id, pl]));
+  const current = currentPickNumber(state);
+
+  const grid = [];
+  for (let round = 1; round <= rounds; round += 1) {
+    const row = [];
+    for (let teamIndex = 1; teamIndex <= numTeams; teamIndex += 1) {
+      const pick = slotToPick(round, teamIndex, numTeams);
+      const entry = state.picks[pick] || null;
+      row.push({
+        pick,
+        round,
+        teamIndex,
+        player: entry ? byId.get(entry.playerId) || null : null,
+        isKeeper: Boolean(entry && entry.isKeeper),
+        isMine: teamIndex === myTeamIndex,
+        isCurrent: pick === current,
+      });
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+
+let openPopover = null;
+
+function closePopover() {
+  if (openPopover && openPopover.parentNode) openPopover.parentNode.removeChild(openPopover);
+  openPopover = null;
+}
+
+function showRosterPopover(event, state, allPlayers, teamIndex) {
+  closePopover();
+  const { slots, rounds } = state.config;
+  const roster = rosterFor(state, teamIndex, allPlayers);
+  const round = Math.min(rounds, Math.floor(roster.length) + 1);
+  const needs = positionalNeeds(roster, slots, round, rounds);
+
+  const pop = el('div', { class: 'roster-pop' }, [
+    el('div', { style: { fontWeight: '600', marginBottom: '6px' }, text: state.config.teams[teamIndex - 1].name }, []),
+    ...assignSlots(roster, slots).map((slot) => el('div', { class: 'slot' }, [
+      el('span', { class: 'label', text: slot.label }, []),
+      el('span', {
+        class: `name${slot.player ? '' : ' empty'}`,
+        text: slot.player ? slot.player.name : 'empty',
+        style: slot.player ? { color: POSITION_COLORS[slot.player.position] } : {},
+      }, []),
+    ])),
+    el('div', { style: { marginTop: '6px', color: '#8b93a5' }, text: 'Needs' }, []),
+    ...Object.keys(needs).map((pos) => el('div', { class: 'need-row' }, [
+      el('span', { text: pos, style: { color: POSITION_COLORS[pos] } }, []),
+      el('span', { class: `tier tier-${needs[pos]}`, text: needs[pos] }, []),
+    ])),
+  ]);
+
+  pop.style.left = `${Math.min(event.clientX, window.innerWidth - 280)}px`;
+  pop.style.top = `${Math.min(event.clientY, window.innerHeight - 400)}px`;
+  document.body.appendChild(pop);
+  openPopover = pop;
+  setTimeout(() => document.addEventListener('click', closePopover, { once: true }), 0);
+}
+
+function renderBoard(container, ctx) {
+  const { state, allPlayers } = ctx;
+  const { numTeams, teams, myTeamIndex } = state.config;
+  clear(container);
+  closePopover();
+
+  container.appendChild(el('h2', { text: 'Draft Board' }, []));
+
+  const headerCells = [el('th', { class: 'rnd', text: 'R' }, [])];
+  for (let teamIndex = 1; teamIndex <= numTeams; teamIndex += 1) {
+    headerCells.push(el('th', {
+      class: teamIndex === myTeamIndex ? 'mine' : '',
+      text: teams[teamIndex - 1].name,
+      title: 'Click for this team\'s roster and needs',
+      onClick: (e) => { e.stopPropagation(); showRosterPopover(e, state, allPlayers, teamIndex); },
+    }, []));
+  }
+
+  const rows = boardCells(state, allPlayers).map((row, i) => {
+    const round = i + 1;
+    // Odd rounds run left to right, even rounds right to left.
+    const arrow = round % 2 === 1 ? '→' : '←';
+    const cells = [el('td', { class: 'rnd', text: `${round}${arrow}` }, [])];
+
+    for (const cell of row) {
+      const classes = ['cell'];
+      if (cell.isMine) classes.push('mine-col');
+      if (cell.isCurrent) classes.push('current');
+      if (cell.isKeeper) classes.push('keeper');
+
+      cells.push(el('td', {
+        class: classes.join(' '),
+        text: cell.player ? abbreviate(cell.player.name) : '',
+        style: cell.player ? { color: POSITION_COLORS[cell.player.position] } : {},
+        title: cell.player
+          ? `${cell.player.name} — ${cell.player.position} ${cell.player.team}\n`
+            + `#${cell.player.overallRank} overall · ${cell.player.projectedPoints} proj · `
+            + `ADP ${cell.player.adp ?? '—'} · bye ${cell.player.bye ?? '—'}`
+          : `Pick ${cell.pick}`,
+      }, []));
+    }
+
+    return el('tr', {}, cells);
+  });
+
+  container.appendChild(el('table', { class: 'board' }, [
+    el('thead', {}, [el('tr', {}, headerCells)]),
+    el('tbody', {}, rows),
+  ]));
+}
+
+__exports.boardCells = boardCells;
+__exports.renderBoard = renderBoard;
+
+});
+__def("ui/center.js", function (__exports, __req) {
+const { el, clear, POSITION_COLORS, formatPick } = __req('ui/dom.js');
+const { recommend } = __req('core/recommend.js');
+
+const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
+const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+
+function searchPlayers(pool, query, limit = 8) {
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return [];
+  return pool
+    .filter((pl) => pl.name.toLowerCase().includes(needle) || pl.team.toLowerCase().includes(needle))
+    .sort((a, b) => a.overallRank - b.overallRank)
+    .slice(0, limit);
+}
+
+function sortPlayers(pool, key) {
+  const copy = [...pool];
+  if (key === 'vbd') return copy.sort((a, b) => b.vbd - a.vbd);
+  if (key === 'adp') {
+    return copy.sort((a, b) => {
+      if (a.adp === null && b.adp === null) return a.overallRank - b.overallRank;
+      if (a.adp === null) return 1;
+      if (b.adp === null) return -1;
+      return a.adp - b.adp;
+    });
+  }
+  if (key === 'position') {
+    return copy.sort((a, b) =>
+      POSITION_ORDER.indexOf(a.position) - POSITION_ORDER.indexOf(b.position)
+      || a.overallRank - b.overallRank);
+  }
+  return copy.sort((a, b) => a.overallRank - b.overallRank);
+}
+
+function filterByPosition(pool, position) {
+  return position === 'ALL' ? [...pool] : pool.filter((pl) => pl.position === position);
+}
+
+// Module-level view state so a re-render keeps the user's sort/filter/search choices.
+const view = { sortKey: 'overallRank', filter: 'ALL', query: '' };
+
+function pickEntry(pool, onPick, onUndo) {
+  const input = el('input', {
+    type: 'text', placeholder: 'Type a player name, then Enter…', autocomplete: 'off',
+  }, []);
+  const list = el('div', { class: 'suggest-list', style: { display: 'none' } }, []);
+  let matches = [];
+  let active = 0;
+
+  function close() {
+    list.style.display = 'none';
+    clear(list);
+    matches = [];
+    active = 0;
+  }
+
+  function draw() {
+    clear(list);
+    matches.forEach((pl, i) => {
+      list.appendChild(el('div', {
+        class: i === active ? 'active' : '',
+        text: `${pl.name} — ${pl.position} ${pl.team} (#${pl.overallRank})`,
+        onMousedown: (e) => { e.preventDefault(); onPick(pl.id); close(); input.value = ''; },
+      }, []));
+    });
+    list.style.display = matches.length ? 'block' : 'none';
+  }
+
+  input.addEventListener('input', () => {
+    matches = searchPlayers(pool, input.value);
+    active = 0;
+    draw();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { active = Math.min(active + 1, matches.length - 1); draw(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { active = Math.max(active - 1, 0); draw(); e.preventDefault(); }
+    else if (e.key === 'Enter' && matches[active]) {
+      onPick(matches[active].id);
+      input.value = '';
+      close();
+      e.preventDefault();
+    } else if (e.key === 'Escape') close();
+  });
+
+  const wrap = el('div', { class: 'pickbar' }, [
+    el('div', { class: 'suggest', style: { flex: '1' } }, [input, list]),
+    el('button', { text: 'Undo', onClick: onUndo }, []),
+  ]);
+
+  // Focus is restored after each render so the user can type pick after pick without reaching for the mouse.
+  setTimeout(() => input.focus(), 0);
+  return wrap;
+}
+
+function recommendationCard(rec) {
+  const pl = rec.player;
+  return el('div', {
+    class: 'rec',
+    style: { borderLeftColor: POSITION_COLORS[pl.position] },
+  }, [
+    el('div', { class: 'top' }, [
+      el('span', { class: 'pname', text: `${pl.name}` }, []),
+      el('span', {
+        class: 'meta',
+        text: `${pl.position} · ${pl.team} · #${pl.overallRank} BPA · VBD +${Math.round(pl.vbd)}`,
+      }, []),
+    ]),
+    el('div', { class: 'meta', text: `${pl.position} need: ${rec.need}${pl.adp === null ? '' : ` · ADP ${pl.adp}`}` }, []),
+    ...rec.reasons.map((reason) => el('div', { class: 'why', text: reason }, [])),
+  ]);
+}
+
+function playerTable(pool, onPick) {
+  const rows = filterByPosition(sortPlayers(pool, view.sortKey), view.filter)
+    .filter((pl) => !view.query || pl.name.toLowerCase().includes(view.query.toLowerCase()))
+    .slice(0, 250)
+    .map((pl) => el('tr', { onDblclick: () => onPick(pl.id) }, [
+      el('td', { text: String(pl.overallRank) }, []),
+      el('td', { text: pl.name }, []),
+      el('td', { text: pl.position, style: { color: POSITION_COLORS[pl.position] } }, []),
+      el('td', { text: pl.team }, []),
+      el('td', { text: String(pl.projectedPoints) }, []),
+      el('td', { text: String(Math.round(pl.vbd)) }, []),
+      el('td', { text: pl.adp === null ? '—' : String(pl.adp) }, []),
+      el('td', { text: pl.bye === null ? '—' : String(pl.bye) }, []),
+    ]));
+
+  const header = (label, key) => el('th', {
+    text: view.sortKey === key ? `${label} ▾` : label,
+    onClick: key ? () => { view.sortKey = key; rerender(); } : null,
+  }, []);
+
+  return el('table', { class: 'players' }, [
+    el('thead', {}, [el('tr', {}, [
+      header('#', 'overallRank'), header('Player', null), header('Pos', 'position'),
+      header('Tm', null), header('Proj', null), header('VBD', 'vbd'),
+      header('ADP', 'adp'), header('Bye', null),
+    ])]),
+    el('tbody', {}, rows),
+  ]);
+}
+
+// Set by renderCenter so the sort/filter controls can redraw without the caller's help.
+let rerender = () => {};
+
+function renderCenter(container, ctx, handlers) {
+  rerender = () => renderCenter(container, ctx, handlers);
+  clear(container);
+
+  const {
+    pool, needs, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
+  } = ctx;
+
+  container.appendChild(el('div', { class: 'pick-info' }, [
+    el('span', {
+      class: 'round',
+      text: currentPick === null ? 'Draft complete' : `Round ${round} · Pick ${formatPick(currentPick, numTeams)}`,
+    }, []),
+    el('span', {
+      class: `who${isMyPick ? ' mine' : ''}`,
+      text: currentPick === null ? ''
+        : isMyPick ? 'YOUR PICK' : `${pickingTeamName} is on the clock`,
+    }, []),
+    !isMyPick && nextPick ? el('span', {
+      class: 'meta',
+      text: `Your next: ${formatPick(nextPick, numTeams)} (${nextPick - currentPick} picks away)`,
+    }, []) : null,
+  ]));
+
+  container.appendChild(pickEntry(pool, handlers.onPick, handlers.onUndo));
+
+  for (const note of notes || []) {
+    container.appendChild(el('div', { class: 'notes', text: note }, []));
+  }
+
+  if (isMyPick && pool.length) {
+    container.appendChild(el('h2', { text: 'Recommended' }, []));
+    const recs = recommend(pool, { needs, currentPick, nextPick, round }, 3);
+    for (const rec of recs) container.appendChild(recommendationCard(rec));
+  }
+
+  const filters = el('div', { class: 'filters' }, [
+    ...POSITION_FILTERS.map((position) => el('button', {
+      class: view.filter === position ? 'selected' : '',
+      text: position,
+      onClick: () => { view.filter = position; rerender(); },
+    }, [])),
+    el('input', {
+      type: 'text', placeholder: 'filter list…', value: view.query,
+      onInput: (e) => {
+        view.query = e.target.value;
+        const table = container.querySelector('table.players');
+        if (table) table.replaceWith(playerTable(pool, handlers.onPick));
+      },
+    }, []),
+  ]);
+
+  container.appendChild(el('h2', { text: `Available (${pool.length})` }, []));
+  container.appendChild(filters);
+  container.appendChild(playerTable(pool, handlers.onPick));
+}
+
+__exports.SORT_KEYS = SORT_KEYS;
+__exports.POSITION_FILTERS = POSITION_FILTERS;
+__exports.searchPlayers = searchPlayers;
+__exports.sortPlayers = sortPlayers;
+__exports.filterByPosition = filterByPosition;
+__exports.renderCenter = renderCenter;
 
 });
 __def("ui/dom.js", function (__exports, __req) {
@@ -809,6 +1264,76 @@ __exports.el = el;
 __exports.clear = clear;
 __exports.abbreviate = abbreviate;
 __exports.formatPick = formatPick;
+
+});
+__def("ui/myteam.js", function (__exports, __req) {
+const { el, clear, POSITION_COLORS } = __req('ui/dom.js');
+const { assignSlots, positionalNeeds, countByPosition, ALL_POSITIONS, NEED_TIERS, LATE_ROUND_WINDOW } = __req('core/roster.js');
+
+function needLabel(position, tier, have, required, totalRounds) {
+  if (position === 'K' || position === 'DEF') {
+    if (tier === 'none' && have >= required) return `${position} set`;
+    if (tier === 'none') return `wait until round ${totalRounds - LATE_ROUND_WINDOW + 1}`;
+    return `${position} needed`;
+  }
+  if (tier === 'high') return required > 1 ? `${position}1 needed` : `${position} needed`;
+  if (tier === 'medium') return `${position}${have + 1} needed`;
+  if (have >= required && required > 0) {
+    return position === 'QB' || position === 'TE'
+      ? `${position} set — depth only`
+      : 'FLEX / bench depth';
+  }
+  return 'FLEX / bench depth';
+}
+
+function needSummary(roster, slots, round, totalRounds) {
+  const needs = positionalNeeds(roster, slots, round, totalRounds);
+  const counts = countByPosition(roster);
+
+  return ALL_POSITIONS
+    .map((position) => ({
+      position,
+      tier: needs[position],
+      label: needLabel(position, needs[position], counts[position], slots[position] || 0, totalRounds),
+    }))
+    .sort((a, b) => NEED_TIERS.indexOf(a.tier) - NEED_TIERS.indexOf(b.tier)
+      || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position));
+}
+
+function renderMyTeam(container, ctx) {
+  const { roster, slots, round, totalRounds, teamName } = ctx;
+  clear(container);
+
+  container.appendChild(el('h2', { text: `My Team — ${teamName}` }, []));
+
+  for (const slot of assignSlots(roster, slots)) {
+    const player = slot.player;
+    container.appendChild(el('div', { class: 'slot' }, [
+      el('span', { class: 'label', text: slot.label }, []),
+      el('span', {
+        class: `name${player ? '' : ' empty'}`,
+        text: player ? `${player.name} (${player.team})` : 'empty',
+        style: player ? { color: POSITION_COLORS[player.position] } : {},
+        title: player ? `${player.position} · ${player.projectedPoints} proj · bye ${player.bye ?? '—'}` : '',
+      }, []),
+    ]));
+  }
+
+  const needs = el('div', { class: 'needs' }, [el('h2', { text: 'Positional Needs' }, [])]);
+  for (const need of needSummary(roster, slots, round, totalRounds)) {
+    needs.appendChild(el('div', { class: 'need-row' }, [
+      el('span', {
+        text: need.label,
+        style: { color: POSITION_COLORS[need.position] },
+      }, []),
+      el('span', { class: `tier tier-${need.tier}`, text: need.tier }, []),
+    ]));
+  }
+  container.appendChild(needs);
+}
+
+__exports.needSummary = needSummary;
+__exports.renderMyTeam = renderMyTeam;
 
 });
 __def("ui/setup.js", function (__exports, __req) {
