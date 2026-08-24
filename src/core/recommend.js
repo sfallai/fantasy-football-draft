@@ -1,7 +1,11 @@
 // BPA rank sets the baseline ordering; VBD adjusts within tiers; need applies a
 // multiplier small enough that it breaks ties without overriding real value gaps.
 export const WEIGHTS = { bpa: 0.6, vbd: 0.4 };
-export const NEED_MULTIPLIER = { high: 1.25, medium: 1.12, low: 1.0, none: 0.55 };
+// On the shipped 400-player pool one weighted rank is worth ~0.0015 and one VBD
+// point ~0.0015, so a "clearly better player" gap of 30 ranks + 10 VBD points is
+// ~0.060 while `high` swings ~0.031 on a typical value of ~0.77. Need therefore
+// breaks a genuine near-tie (~0.006) without ever overriding a real value gap.
+export const NEED_MULTIPLIER = { high: 1.04, medium: 1.02, low: 1.0, none: 0.55 };
 
 // A projected-point gap this large to the next player at the position is a cliff.
 export const CLIFF_THRESHOLD = 20;
@@ -12,12 +16,20 @@ export const ADP_REACH_GAP = 12;
 
 const NEED_LABEL = { high: 'high need', medium: 'medium need', low: 'depth', none: 'not needed' };
 
+// The VBD normalisation scale: the largest *positive* VBD in a pool, never an
+// absolute value. A single zero-projection data row can sit hundreds of points
+// below replacement, and using its magnitude as the scale would compress every
+// real player's VBD into a sliver of its range.
+export function maxPositiveVbd(players) {
+  return players.reduce((max, pl) => Math.max(max, pl.vbd), 0) || 1;
+}
+
 export function scorePlayer(player, ctx) {
-  const { poolSize, maxAbsVbd, needs } = ctx;
+  const { poolSize, vbdScale, needs } = ctx;
 
   // Both components normalize into [0, 1] so the multiplier can never flip a sign.
   const bpaScore = Math.max(0, (poolSize - (player.overallRank - 1)) / poolSize);
-  const scale = maxAbsVbd || 1;
+  const scale = vbdScale > 0 ? vbdScale : 1;
   const clamped = Math.max(-1, Math.min(1, player.vbd / scale));
   const vbdScore = (clamped + 1) / 2;
 
@@ -55,12 +67,13 @@ export function reasonsFor(player, pool, ctx) {
     if (past >= ADP_VALUE_GAP) {
       reasons.push(`Value — ${past} picks past his ADP of ${Math.round(player.adp)}`);
     } else if (-past >= ADP_REACH_GAP) {
-      reasons.push(`Slight reach — ADP is ${player.adp}, ${-past} picks from now`);
+      reasons.push(`Slight reach — ADP is ${Math.round(player.adp)}, ${-past} picks from now`);
     }
   }
 
   if (reasons.length === 0) {
-    reasons.push(`Best value on the board (+${Math.round(player.vbd)} over replacement)`);
+    const over = Math.round(player.vbd);
+    reasons.push(`Best value on the board (${over >= 0 ? '+' : ''}${over} over replacement)`);
   }
 
   return reasons.slice(0, 2);
@@ -69,11 +82,15 @@ export function reasonsFor(player, pool, ctx) {
 export function recommend(pool, ctx, limit = 3) {
   if (pool.length === 0) return [];
 
-  const maxAbsVbd = pool.reduce((max, pl) => Math.max(max, Math.abs(pl.vbd)), 0);
+  // Replacement levels are fixed for the whole draft, so the VBD scale must be too.
+  // Callers pass ctx.vbdScale, derived once from the full pool; deriving it from the
+  // shrinking live pool instead would make one VBD point worth more every round until
+  // VBD swamped the BPA baseline. The live-pool fallback keeps recommend() usable standalone.
+  const vbdScale = ctx.vbdScale > 0 ? ctx.vbdScale : maxPositiveVbd(pool);
   // overallRank is a fixed whole-pool rank that never renumbers as players are drafted,
   // so the BPA denominator must track the highest rank still present, not pool.length.
   const poolSize = pool.reduce((max, pl) => Math.max(max, pl.overallRank), pool.length);
-  const scoreCtx = { poolSize, maxAbsVbd, needs: ctx.needs };
+  const scoreCtx = { poolSize, vbdScale, needs: ctx.needs };
 
   return pool
     .map((player) => ({ player, score: scorePlayer(player, scoreCtx) }))

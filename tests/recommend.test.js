@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
-  NEED_MULTIPLIER, scorePlayer, reasonsFor, recommend,
+  NEED_MULTIPLIER, maxPositiveVbd, scorePlayer, reasonsFor, recommend,
 } from '../src/core/recommend.js';
+import { replacementPoints, withVbd } from '../src/core/vbd.js';
+import { DEFAULT_SLOTS } from '../src/core/roster.js';
 
 const p = (over) => ({
   id: over.id, name: over.id, team: 'XX',
@@ -14,15 +17,42 @@ const p = (over) => ({
 
 const allLow = { QB: 'low', RB: 'low', WR: 'low', TE: 'low', K: 'low', DEF: 'low' };
 
+// A realistic board: 400 ranked players spread over six positions, with VBD
+// decaying with rank the way real projections do. Two-player fixtures cannot test
+// the need multiplier at all — poolSize collapses to the top rank, which inflates
+// the BPA term far beyond anything a real pool produces.
+function syntheticPool() {
+  const shape = { QB: [1, 40, 60], RB: [2, 120, 130], WR: [3, 140, 120], TE: [4, 50, 70], K: [5, 25, 8], DEF: [6, 25, 10] };
+  const players = [];
+  for (const [position, [offset, count, topVbd]] of Object.entries(shape)) {
+    for (let i = 0; i < count; i += 1) {
+      players.push(p({
+        id: `${position}${i + 1}`,
+        position,
+        // Interleave positions so ranks are not blocked by position.
+        overallRank: offset + i * 6,
+        projectedPoints: 300 - i * 2,
+        vbd: Math.round((topVbd - (i / count) * topVbd * 2) * 10) / 10,
+      }));
+    }
+  }
+  return players.sort((a, b) => a.overallRank - b.overallRank);
+}
+
+function realPool() {
+  const players = JSON.parse(readFileSync(new URL('../data/players.json', import.meta.url)));
+  return withVbd(players, replacementPoints(players, 10, DEFAULT_SLOTS));
+}
+
 test('a better rank scores higher when need and VBD are equal', () => {
-  const ctx = { poolSize: 100, maxAbsVbd: 100, needs: allLow };
+  const ctx = { poolSize: 100, vbdScale: 100, needs: allLow };
   const good = scorePlayer(p({ id: 'a', position: 'RB', overallRank: 1 }), ctx);
   const worse = scorePlayer(p({ id: 'b', position: 'RB', overallRank: 50 }), ctx);
   assert.ok(good > worse);
 });
 
 test('a high-need multiplier beats a low-need one at equal value', () => {
-  const base = { poolSize: 100, maxAbsVbd: 100 };
+  const base = { poolSize: 100, vbdScale: 100 };
   const player = p({ id: 'a', position: 'RB', overallRank: 10 });
   const high = scorePlayer(player, { ...base, needs: { ...allLow, RB: 'high' } });
   const low = scorePlayer(player, { ...base, needs: allLow });
@@ -31,29 +61,95 @@ test('a high-need multiplier beats a low-need one at equal value', () => {
 });
 
 test('scores never go negative even at the bottom of the pool', () => {
-  const ctx = { poolSize: 100, maxAbsVbd: 100, needs: allLow };
+  const ctx = { poolSize: 100, vbdScale: 100, needs: allLow };
   const score = scorePlayer(p({ id: 'z', position: 'K', overallRank: 100, vbd: -100 }), ctx);
   assert.ok(score >= 0, `expected a non-negative score, got ${score}`);
 });
 
+test('maxPositiveVbd ignores below-replacement outliers', () => {
+  const pool = [p({ id: 'a', position: 'RB', vbd: 40, overallRank: 1 }),
+    p({ id: 'b', position: 'QB', vbd: -288.3, overallRank: 2 })];
+  assert.equal(maxPositiveVbd(pool), 40);
+});
+
+test('maxPositiveVbd falls back to 1 when nothing is above replacement', () => {
+  const pool = [p({ id: 'a', position: 'K', vbd: -5, overallRank: 1 })];
+  assert.equal(maxPositiveVbd(pool), 1, 'never divides by zero');
+});
+
+test('a zero-projection outlier does not set the VBD scale for the whole engine', () => {
+  const pool = syntheticPool();
+  const junk = p({ id: 'zero-qb', position: 'QB', overallRank: 400, projectedPoints: 0, vbd: -288.3 });
+  const ctx = { needs: allLow, currentPick: 20, nextPick: 21, round: 2 };
+  const clean = recommend(pool, ctx, 3).map((r) => r.player.id);
+  const polluted = recommend([...pool, junk], ctx, 3).map((r) => r.player.id);
+  assert.deepEqual(polluted, clean, 'one garbage row must not move the recommendations');
+});
+
 test('need does not let a marginal player leapfrog a far better one', () => {
-  const ctx = { needs: { ...allLow, TE: 'high' }, currentPick: 4, nextPick: 17, round: 1 };
-  const pool = [
-    p({ id: 'elite-rb', position: 'RB', overallRank: 1, vbd: 120 }),
-    p({ id: 'weak-te', position: 'TE', overallRank: 60, vbd: 5 }),
-  ];
-  const [top] = recommend(pool, ctx);
-  assert.equal(top.player.id, 'elite-rb', 'need is a tiebreaker, not an override');
+  // Realistic 400-player board, mid-draft: the top 43 are gone, TE is the open slot.
+  const pool = realPool().filter((pl) => pl.overallRank > 43);
+  const needs = { QB: 'low', RB: 'low', WR: 'low', TE: 'high', K: 'none', DEF: 'none' };
+  const ctx = {
+    needs, currentPick: 44, nextPick: 57, round: 5, vbdScale: maxPositiveVbd(realPool()),
+  };
+  const top = recommend(pool, ctx, 3);
+
+  const bestWr = pool.filter((pl) => pl.position === 'WR')
+    .sort((a, b) => a.overallRank - b.overallRank)[0];
+  for (const rec of top) {
+    assert.ok(
+      rec.player.overallRank <= bestWr.overallRank + 15,
+      `${rec.player.name} (#${rec.player.overallRank}) is far below the best available `
+      + `player at #${bestWr.overallRank} — need is a tiebreaker, not an override`,
+    );
+  }
+  assert.ok(
+    new Set(top.map((r) => r.player.position)).size > 1,
+    `need swept the board: ${top.map((r) => `${r.player.name} ${r.player.position}`).join(', ')}`,
+  );
+});
+
+test('a high need never outweighs a clearly better player at the same board state', () => {
+  const pool = realPool().filter((pl) => pl.overallRank > 43);
+  const scale = maxPositiveVbd(realPool());
+  const base = { QB: 'low', RB: 'low', WR: 'low', TE: 'low', K: 'none', DEF: 'none' };
+
+  // Every position in turn is made a high need; the top pick must never fall more
+  // than a round's worth of ranks behind the best player on the board.
+  const bestRank = Math.min(...pool.map((pl) => pl.overallRank));
+  for (const pos of ['QB', 'RB', 'WR', 'TE']) {
+    const ctx = {
+      needs: { ...base, [pos]: 'high' }, currentPick: 44, nextPick: 57, round: 5, vbdScale: scale,
+    };
+    const [top] = recommend(pool, ctx, 1);
+    assert.ok(
+      top.player.overallRank - bestRank <= 20,
+      `${pos} high need pulled #${top.player.overallRank} over #${bestRank}`,
+    );
+  }
 });
 
 test('need breaks the tie when two players are close in value', () => {
-  const ctx = { needs: { ...allLow, WR: 'high' }, currentPick: 4, nextPick: 17, round: 1 };
-  const pool = [
-    p({ id: 'rb', position: 'RB', overallRank: 5, vbd: 80 }),
-    p({ id: 'wr', position: 'WR', overallRank: 6, vbd: 78 }),
-  ];
-  const [top] = recommend(pool, ctx);
-  assert.equal(top.player.id, 'wr');
+  const pool = syntheticPool();
+  const ctx = { needs: allLow, currentPick: 30, nextPick: 43, round: 3, vbdScale: maxPositiveVbd(syntheticPool()) };
+  const [neutral] = recommend(pool, ctx, 1);
+
+  // The runner-up sits within a couple of ranks and a couple of VBD points of the
+  // leader — a genuine near-tie. Making its position a need must flip the order.
+  const ranked = recommend(pool, ctx, 5);
+  const rival = ranked.find((r) => r.player.position !== neutral.player.position);
+  assert.ok(rival, 'fixture must offer a rival at another position');
+  assert.ok(
+    Math.abs(rival.player.overallRank - neutral.player.overallRank) <= 6,
+    'fixture must be a genuine near-tie',
+  );
+
+  const [withNeed] = recommend(pool, {
+    ...ctx, needs: { ...allLow, [rival.player.position]: 'high' },
+  }, 1);
+  assert.equal(withNeed.player.id, rival.player.id,
+    'a near-tie must resolve toward the position that fills a need');
 });
 
 test('recommend returns at most the requested number, best first', () => {
@@ -87,18 +183,32 @@ test('reasonsFor states which need is filled', () => {
   assert.ok(reasons.some((r) => /high need/i.test(r)), reasons.join(' | '));
 });
 
-test('reasonsFor calls out a player falling past his ADP', () => {
+test('reasonsFor calls out a player falling past his ADP, rounded', () => {
   const ctx = { needs: allLow, currentPick: 40, nextPick: 41, round: 4 };
-  const target = p({ id: 'a', position: 'WR', overallRank: 20, adp: 22, vbd: 60 });
+  const target = p({ id: 'a', position: 'WR', overallRank: 20, adp: 22.4, vbd: 60 });
   const reasons = reasonsFor(target, [target], ctx);
-  assert.ok(reasons.some((r) => /past his ADP/i.test(r)), reasons.join(' | '));
+  const line = reasons.find((r) => /past his ADP/i.test(r));
+  assert.ok(line, reasons.join(' | '));
+  assert.match(line, /ADP of 22\b/);
+  assert.doesNotMatch(line, /22\.4/, 'ADP is rounded for display');
 });
 
-test('reasonsFor warns when a pick is well ahead of ADP', () => {
+test('reasonsFor warns when a pick is well ahead of ADP, rounded', () => {
   const ctx = { needs: allLow, currentPick: 10, nextPick: 11, round: 1 };
-  const target = p({ id: 'a', position: 'WR', overallRank: 40, adp: 55, vbd: 10 });
+  const target = p({ id: 'a', position: 'WR', overallRank: 40, adp: 55.4, vbd: 10 });
   const reasons = reasonsFor(target, [target], ctx);
-  assert.ok(reasons.some((r) => /reach/i.test(r)), reasons.join(' | '));
+  const line = reasons.find((r) => /reach/i.test(r));
+  assert.ok(line, reasons.join(' | '));
+  assert.match(line, /ADP is 55\b/);
+  assert.doesNotMatch(line, /55\.4/, 'ADP is rounded for display');
+});
+
+test('reasonsFor signs a below-replacement VBD correctly', () => {
+  const ctx = { needs: allLow, currentPick: 140, nextPick: 141, round: 14 };
+  const target = p({ id: 'a', position: 'K', overallRank: 300, projectedPoints: 90, vbd: -37 });
+  const [line] = reasonsFor(target, [target], ctx);
+  assert.match(line, /\(-37 over replacement\)/);
+  assert.doesNotMatch(line, /\+-/);
 });
 
 test('reasonsFor caps output at two lines', () => {
