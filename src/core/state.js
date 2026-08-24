@@ -3,6 +3,16 @@ import { DEFAULT_SLOTS } from './roster.js';
 
 export const STORAGE_KEY = 'ffdraft.state.v1';
 
+// Any manager may draft someone who is not in the pool (a rookie, a handcuff, an
+// injured stash). Such a pick still consumes its slot, so it is recorded under a
+// sentinel id that matches no player: unique per pick so the duplicate check keeps
+// working, and recognisable so renderers can show it as an off-list pick.
+export const OFF_LIST_PREFIX = 'off-list-';
+
+export function isOffListId(playerId) {
+  return String(playerId).startsWith(OFF_LIST_PREFIX);
+}
+
 function defaultTeams(numTeams) {
   return Array.from({ length: numTeams }, (_, i) => ({ name: `Team ${i + 1}`, keeper: null }));
 }
@@ -63,6 +73,14 @@ export function applyPick(state, playerId) {
   };
 }
 
+// Consumes the current pick slot without naming a player from the pool, so a pick
+// the app cannot represent never shifts every later pick onto the wrong team.
+export function applyOffListPick(state) {
+  const pick = currentPickNumber(state);
+  if (pick === null) throw new Error('Draft is complete — no picks remain');
+  return applyPick(state, `${OFF_LIST_PREFIX}${pick}`);
+}
+
 export function undoPick(state) {
   if (state.history.length === 0) return state;
   const history = [...state.history];
@@ -100,12 +118,26 @@ export function rostersByTeam(state, allPlayers) {
   return out;
 }
 
+// The user's next *selection* strictly after `afterPick`. Scheduled slots that are
+// already filled (a keeper) are skipped — they are not selections the user makes,
+// and treating them as such both misreports the wait and shrinks the competitive
+// window used to judge positional-run risk.
+export function myNextPickAfter(state, afterPick) {
+  const { numTeams, rounds, myTeamIndex } = state.config;
+  let pick = nextPickForTeam(afterPick, myTeamIndex, numTeams, rounds);
+  while (pick !== null && state.picks[pick]) {
+    pick = nextPickForTeam(pick, myTeamIndex, numTeams, rounds);
+  }
+  return pick;
+}
+
 export function myNextPick(state) {
   const pick = currentPickNumber(state);
-  const { numTeams, rounds, myTeamIndex } = state.config;
   if (pick === null) return null;
-  if (pickToSlot(pick, numTeams).teamIndex === myTeamIndex) return pick;
-  return nextPickForTeam(pick - 1, myTeamIndex, numTeams, rounds);
+  // currentPickNumber only ever returns an unfilled slot, so if it is ours it is
+  // genuinely our next selection.
+  if (pickToSlot(pick, state.config.numTeams).teamIndex === state.config.myTeamIndex) return pick;
+  return myNextPickAfter(state, pick);
 }
 
 export function serialize(state) {
@@ -130,14 +162,18 @@ function resolveStorage(storage) {
   return isUsableStorage(candidate) ? candidate : null;
 }
 
+// Returns whether the draft was actually persisted. A pick must never crash the
+// app, but a silent no-op is worse than a crash if the user then refreshes, so the
+// caller is told and can warn.
 export function saveState(state, storage) {
   const store = resolveStorage(storage);
-  if (!store) return;
+  if (!store) return false;
   try {
     store.setItem(STORAGE_KEY, serialize(state));
+    return true;
   } catch {
     // Storage can throw at write time (quota exceeded, blocked site data, etc).
-    // A pick must never crash the app, so fail silently.
+    return false;
   }
 }
 

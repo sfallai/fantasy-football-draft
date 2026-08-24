@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   STORAGE_KEY, DEFAULT_CONFIG, createState, currentPickNumber, applyPick, undoPick,
-  availablePlayers, rosterFor, rostersByTeam, myNextPick, saveState, loadState, clearState,
+  availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter,
+  applyOffListPick, isOffListId, saveState, loadState, clearState,
 } from '../src/core/state.js';
 
 const PLAYERS = Array.from({ length: 200 }, (_, i) => ({
@@ -136,6 +137,69 @@ test('myNextPick tracks the user\'s upcoming turn', () => {
   assert.equal(myNextPick(state), 17);
 });
 
+test('myNextPick skips a scheduled slot a keeper already occupies', () => {
+  // Team 4 keeps a player in round 3, which is pick 24. Picks 18-23 must report
+  // pick 37 as the next selection, not the slot that is already spoken for.
+  const teams = DEFAULT_CONFIG.teams.map((t, i) =>
+    (i === 3 ? { ...t, keeper: { playerId: 'p99', round: 3 } } : { ...t, keeper: null }));
+  let state = createState({ ...DEFAULT_CONFIG, myTeamIndex: 4, teams });
+  assert.equal(state.picks[24].isKeeper, true, 'keeper sits at pick 24');
+
+  let taken = 0;
+  while (currentPickNumber(state) < 18) {
+    taken += 1;
+    state = applyPick(state, `p${taken}`);
+  }
+  assert.equal(currentPickNumber(state), 18);
+  assert.equal(myNextPick(state), 37, 'pick 24 is already filled, so 37 is the real next turn');
+  assert.equal(myNextPickAfter(state, 18), 37);
+});
+
+test('myNextPickAfter returns the selection strictly after the given pick', () => {
+  const state = createState({ ...DEFAULT_CONFIG, myTeamIndex: 4 });
+  assert.equal(myNextPick(state), 4, 'pick 4 is on the clock and is ours');
+  assert.equal(myNextPickAfter(state, 4), 17, 'the turn after this one');
+  assert.equal(myNextPickAfter(state, 143), 144, 'team 4\'s last selection');
+  assert.equal(myNextPickAfter(state, 144), null, 'no selection after the last round');
+});
+
+test('an off-list pick consumes the slot without naming a pool player', () => {
+  let state = createState(DEFAULT_CONFIG);
+  state = applyPick(state, 'p1');
+  state = applyOffListPick(state);
+
+  assert.equal(currentPickNumber(state), 3, 'the slot is spent, so the draft advances');
+  assert.equal(state.picks[2].teamIndex, 2, 'it is still team 2\'s pick');
+  assert.equal(state.picks[2].isKeeper, false);
+  assert.ok(isOffListId(state.picks[2].playerId));
+  assert.equal(availablePlayers(state, PLAYERS).length, 199, 'no pool player was removed');
+});
+
+test('off-list picks are unique, so the duplicate check keeps working', () => {
+  let state = createState(DEFAULT_CONFIG);
+  state = applyOffListPick(state);
+  state = applyOffListPick(state);
+  assert.notEqual(state.picks[1].playerId, state.picks[2].playerId);
+  assert.equal(currentPickNumber(state), 3);
+});
+
+test('an off-list pick is undoable like any other pick', () => {
+  let state = createState(DEFAULT_CONFIG);
+  state = applyPick(state, 'p1');
+  state = applyOffListPick(state);
+  state = undoPick(state);
+  assert.equal(currentPickNumber(state), 2);
+  assert.equal(state.picks[2], undefined);
+  assert.deepEqual(state.history, [1]);
+});
+
+test('renderers drop off-list ids instead of showing a phantom player', () => {
+  let state = createState(DEFAULT_CONFIG);
+  state = applyOffListPick(state);
+  assert.deepEqual(rosterFor(state, 1, PLAYERS), []);
+  assert.deepEqual(rostersByTeam(state, PLAYERS)[1], []);
+});
+
 test('currentPickNumber is null once every pick is filled', () => {
   let state = createState({ ...DEFAULT_CONFIG, rounds: 1 });
   for (let i = 1; i <= 10; i += 1) state = applyPick(state, `p${i}`);
@@ -171,8 +235,15 @@ test('a storage-shaped object missing getItem/setItem/removeItem is never used',
   const bogusStub = {};
   const state = createState(DEFAULT_CONFIG);
   assert.doesNotThrow(() => saveState(state, bogusStub));
+  assert.equal(saveState(state, bogusStub), false, 'reports that nothing was saved');
   assert.doesNotThrow(() => clearState(bogusStub));
   assert.equal(loadState(bogusStub), null);
+});
+
+test('saveState reports success and failure so the UI can warn', () => {
+  const state = createState(DEFAULT_CONFIG);
+  assert.equal(saveState(state, memoryStorage()), true);
+  assert.equal(saveState(state, { getItem: () => null, setItem: () => { throw new Error('quota'); }, removeItem: () => {} }), false);
 });
 
 test('saveState/clearState swallow errors and loadState returns null when storage throws at call time', () => {
@@ -184,6 +255,7 @@ test('saveState/clearState swallow errors and loadState returns null when storag
   };
   const state = createState(DEFAULT_CONFIG);
   assert.doesNotThrow(() => saveState(state, throwingStorage));
+  assert.equal(saveState(state, throwingStorage), false, 'a swallowed error is still reported');
   assert.doesNotThrow(() => clearState(throwingStorage));
   assert.equal(loadState(throwingStorage), null);
 });
