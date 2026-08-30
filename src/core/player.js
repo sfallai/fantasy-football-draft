@@ -2,7 +2,10 @@
 // so it cannot be trusted as a years-played number. Requiring no prior season is what
 // makes this independent of whichever convention ESPN is using in a given year.
 export function isRookie(player) {
-  return player.experience !== null
+  // Guarded like priorSummary below: both are called on whatever the caller has,
+  // and a missing player is a "no" rather than a crash.
+  return !!player
+    && player.experience !== null
     && player.experience !== undefined
     && player.experience <= 1
     && !player.prior;

@@ -1,7 +1,7 @@
 import { el, clear } from './dom.js';
 import { renderSetup } from './setup.js';
 import { renderMyTeam } from './myteam.js';
-import { renderCenter } from './center.js';
+import { renderCenter, resetView } from './center.js';
 import { renderBoard } from './board.js';
 import { pickToSlot } from '../core/snake.js';
 import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
@@ -81,6 +81,9 @@ function handleReset() {
   if (!window.confirm('Clear this draft and return to setup?')) return;
   clearState();
   state = null;
+  // The centre panel's sort/filter/search is module state and would otherwise
+  // survive into the next draft.
+  resetView();
   showSetup();
 }
 
@@ -184,4 +187,8 @@ export function init() {
   }
 }
 
-init();
+// The built page has no bundler and no entry hook: evaluating this module IS the
+// start signal, so the call has to stay at module scope. Under `node --test` there
+// is a `process`, and the test must install its DOM stub and fixtures before
+// anything renders — so it is skipped there and the test calls init() itself.
+if (typeof process === 'undefined') init();

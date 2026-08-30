@@ -48,7 +48,27 @@ export function formatVbd(vbd) {
 }
 
 // Module-level view state so a re-render keeps the user's sort/filter/search choices.
-const view = { sortKey: 'overallRank', filter: 'ALL', query: '' };
+// `availableOnly` defaults on: the spec requires every player to have a row, but by
+// the middle rounds most of the region you scroll is greyed noise, and renderDraft
+// rebuilds the panel every pick so scroll position resets to the top each time.
+const DEFAULT_VIEW = { sortKey: 'overallRank', filter: 'ALL', query: '', availableOnly: true };
+const view = { ...DEFAULT_VIEW };
+
+// Module state outlives a draft, so a reset has to put it back explicitly.
+export function resetView() {
+  Object.assign(view, DEFAULT_VIEW);
+}
+
+export function isTaken(player) {
+  return player.ownerName !== null && player.ownerName !== undefined;
+}
+
+// The rows the table will actually show, in order — also what the heading counts.
+export function visiblePlayers(tablePlayers) {
+  return filterByPosition(sortPlayers(tablePlayers, view.sortKey), view.filter)
+    .filter((pl) => matchesQuery(pl, view.query))
+    .filter((pl) => !view.availableOnly || !isTaken(pl));
+}
 
 function recommendationCard(rec) {
   const pl = rec.player;
@@ -72,16 +92,17 @@ function recommendationCard(rec) {
 }
 
 function playerTable(tablePlayers, onPick) {
-  const rows = filterByPosition(sortPlayers(tablePlayers, view.sortKey), view.filter)
-    .filter((pl) => matchesQuery(pl, view.query))
+  const rows = visiblePlayers(tablePlayers)
     .map((pl) => {
-      const taken = pl.ownerName !== null && pl.ownerName !== undefined;
+      const taken = isTaken(pl);
       const name = el('td', {
         class: 'pname', title: pl.name,
-        onClick: (e) => { e.stopPropagation(); showPopover(playerPopover(pl), e); },
+        onClick: (e) => showPopover(playerPopover(pl), e),
       }, [
-        el('span', { text: pl.name }, []),
+        // Before the name, not after: the badge is the row's one piece of scannable
+        // colour and must never be what a long name pushes out of view.
         isRookie(pl) ? el('span', { class: 'rookie', text: 'R' }, []) : null,
+        el('span', { text: pl.name }, []),
       ]);
       return el('tr', {
         class: taken ? 'taken' : '',
@@ -118,18 +139,28 @@ function playerTable(tablePlayers, onPick) {
   ]);
 }
 
+// The five need tiers are the ones positionalNeeds() actually produces and the
+// recommendation card actually prints — not the reason-line labels, which the user
+// never sees on their own.
 const GLOSSARY = [
   ['BPA', 'Best player available — the raw overall ranking, ignoring what you already have.'],
+  ['Proj', 'Projected fantasy points for the whole season, under this league\'s scoring.'],
   ['VBD', 'Value based drafting — points above the last starter at this position. Compares across positions.'],
   ['ADP', 'Average draft pick — where this player usually goes. Far past it is value; well before it is a reach.'],
   ['Bye', 'The week this player does not play.'],
-  ['Need', 'high: no starter yet · medium: a starting slot open · depth: bench only · not needed: slots full.'],
   ['R', 'Rookie — no prior NFL season on record.'],
+  ['Need', 'How much your roster wants this position right now — one of the five tiers below.'],
+  ['high', 'No starter at this position yet.'],
+  ['medium', 'You have one, but a starting slot at this position is still open.'],
+  ['low', 'Starters are covered; only a FLEX slot could still take one.'],
+  ['bench', 'Every startable slot is full — this would be bench depth.'],
+  ['none', 'Not needed. K and DEF sit here until the last few rounds.'],
 ];
 
 function glossaryPopover() {
   return el('div', { class: 'pop' }, [
-    el('h3', { text: 'What the columns mean' }, []),
+    // Not "columns": BPA, Need and R are not columns, and the need tiers are values.
+    el('h3', { text: 'What these mean' }, []),
     el('dl', {}, GLOSSARY.flatMap(([term, meaning]) => [
       el('dt', { text: term }, []),
       el('dd', { text: meaning }, []),
@@ -142,6 +173,9 @@ function playerPopover(pl) {
   return el('div', { class: 'pop' }, [
     el('h3', { text: pl.name }, []),
     el('div', { text: `${pl.position} · ${pl.team} · #${pl.overallRank} overall${pl.age === null || pl.age === undefined ? '' : ` · age ${pl.age}`}` }, []),
+    // The greyed row conveys "gone"; only the owner column says to whom, and the
+    // popover is opened from the name cell that sits right next to it.
+    isTaken(pl) ? el('div', { class: 'owner', text: `Drafted by ${pl.ownerName}` }, []) : null,
     el('div', { style: { marginTop: '8px', color: '#8b93a5' }, text: 'Last season' }, []),
     // A rookie has no prior line, and saying so is better than printing zeroes.
     el('div', { text: prior || (isRookie(pl) ? 'Rookie — no NFL season yet' : 'No prior season on record') }, []),
@@ -197,9 +231,15 @@ export function renderCenter(container, ctx, handlers) {
     for (const rec of recs) container.appendChild(recommendationCard(rec));
   }
 
+  const headingText = () =>
+    `Players (${visiblePlayers(tablePlayers).length} shown · ${pool.length} available)`;
+  const heading = el('h2', { text: headingText() }, []);
+
   function redrawTable() {
     const wrap = container.querySelector('.tablewrap');
     if (wrap) wrap.replaceWith(playerTable(tablePlayers, handlers.onPick));
+    // The count is a count of what is on screen, so it moves with the table.
+    heading.textContent = headingText();
   }
 
   const filterInput = el('input', {
@@ -215,10 +255,18 @@ export function renderCenter(container, ctx, handlers) {
     }, [])),
     filterInput,
     el('button', { text: '✕', title: 'Clear the filter', onClick: () => { view.query = ''; rerender(); } }, []),
-    el('button', { text: '?', title: 'What do these columns mean?', onClick: (e) => showPopover(glossaryPopover(), e) }, []),
+    // Deliberately its own button rather than another position chip: chunk D turns
+    // the position row into a multi-select, and folding this in would collide.
+    el('button', {
+      class: view.availableOnly ? 'selected' : '',
+      text: 'Available only',
+      title: 'Hide players who have already been drafted',
+      onClick: () => { view.availableOnly = !view.availableOnly; rerender(); },
+    }, []),
+    el('button', { text: '?', title: 'What do these mean?', onClick: (e) => showPopover(glossaryPopover(), e) }, []),
   ]);
 
-  container.appendChild(el('h2', { text: `Players (${pool.length} available)` }, []));
+  container.appendChild(heading);
   container.appendChild(filters);
   container.appendChild(playerTable(tablePlayers, handlers.onPick));
 
