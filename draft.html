@@ -146,6 +146,28 @@ table.players tr:hover td { background: #22262f; }
    is what makes the pin work. */
 .tablewrap { overflow: auto; }
 .panel.center { display: flex; flex-direction: column; }
+/* The centre panel must never be the scroller itself. It was: `.panel` sets
+   `overflow: auto`, and once the chrome above the table exceeded panelHeight − 120px
+   the panel scrolled instead of the table — and renderCenter's post-render
+   filterInput.focus() then scrolled the round/pick header and the Undo and Skip
+   buttons off the top on every single pick. `overflow: hidden` here takes that away;
+   the one variable-height block (notes, recommendations, sleepers) gets its own
+   scrollport below so long recommendations still reach the user. */
+.panel.center { overflow: hidden; }
+/* Chrome that must never move: the round/pick header, the Undo/Skip bar, the Players
+   heading and the filter row all stay pinned by simply refusing to shrink. */
+.panel.center > .pick-info,
+.panel.center > .pickbar,
+.panel.center > h2,
+.panel.center > .filters { flex: 0 0 auto; }
+/* min-height: 0 is the load-bearing part: without it this scroller's flex automatic
+   minimum size is its content height, so it would refuse to shrink and push the table
+   past the bottom of the panel. */
+.panel.center .center-scroll { flex: 0 1 auto; overflow: auto; min-height: 0; }
+/* The explicit min-height is what keeps a few rows visible when the block above is
+   long. An explicit min-height always overrides the flexbox automatic minimum size —
+   that has nothing to do with `overflow: auto`, which only zeroes the *automatic*
+   minimum when no explicit one is given. */
 .panel.center .tablewrap { flex: 1 1 auto; min-height: 120px; }
 table.players tr.taken td { color: #545b6b; }
 table.players tr.taken:hover td { background: transparent; }
@@ -311,6 +333,12 @@ function maxPositiveVbd(players) {
   return players.reduce((max, pl) => Math.max(max, pl.vbd), 0) || 1;
 }
 
+// The BPA denominator: the highest overallRank in the whole pool. Like the VBD scale it
+// is fixed for the draft, so app.js derives it once and passes it in ctx.
+function maxOverallRank(players) {
+  return players.reduce((max, pl) => Math.max(max, pl.overallRank), players.length);
+}
+
 // Each player already surplus at a position makes the next one there worth less: only
 // one backup can cover a starter in any given week. Without this, cross-position VBD
 // keeps favouring shallow-baseline positions late (a 4th TE still scores near TE12
@@ -405,12 +433,23 @@ function picksPastAdp(player, currentPick) {
   return currentPick - player.adp;
 }
 
+// The comparison is against *positional* peers, never overall-rank neighbours.
+// Projected points are not position-normalised — a QB at a given overall rank projects
+// roughly twice what an RB or WR at the same rank does — so a whole-pool band measures
+// which position a player plays, not whether he out-projects his rank. Scoped to his own
+// position the number means what the panel claims it means, and it matches what the
+// already-single-position pool produces under position targeting.
 function projectionEdge(player, pool) {
   const near = pool.filter((x) => x.id !== player.id
+    && x.position === player.position
     && Math.abs(x.overallRank - player.overallRank) <= SLEEPER_RANK_BAND / 2);
   if (near.length < MIN_BAND_NEIGHBOURS) return null;
   const points = near.map((x) => x.projectedPoints).sort((a, b) => a - b);
-  const median = points[Math.floor(points.length / 2)];
+  const mid = Math.floor(points.length / 2);
+  // Even-length bands average the two middle values rather than taking the lower one,
+  // which would bias every edge upward by half a gap and let a player clear the
+  // threshold on the shape of his band rather than on his own projection.
+  const median = points.length % 2 === 0 ? (points[mid - 1] + points[mid]) / 2 : points[mid];
   return player.projectedPoints - median;
 }
 
@@ -423,24 +462,33 @@ function sleepers(pool, ctx, limit = 2) {
   for (const player of pool) {
     if (exclude.has(player.id)) continue;
 
+    // The two tests are measured in different units — picks on the falling test,
+    // fantasy points on the projection test — so neither raw number can order the
+    // combined list. Each claim is scored as a multiple of its own threshold, which
+    // is the same question in both units: how far past the bar is this?
+    const claims = [];
+
     const past = picksPastAdp(player, ctx.currentPick);
     if (past !== null && past >= SLEEPER_ADP_GAP) {
-      found.push({
-        player,
-        rank: past,
+      claims.push({
+        strength: past / SLEEPER_ADP_GAP,
         why: `Still here ${Math.round(past)} picks past his ADP of ${Math.round(player.adp)}`,
       });
-      continue;
     }
 
+    // No `continue` above: a player can qualify on both tests, and the panel should
+    // say whichever claim is stronger rather than whichever happened to be tried first.
     const edge = projectionEdge(player, pool);
     if (edge !== null && edge >= SLEEPER_PROJECTION_EDGE) {
-      found.push({
-        player,
-        rank: edge,
-        why: `Projects ${Math.round(edge)} pts above the players ranked around him`,
+      claims.push({
+        strength: edge / SLEEPER_PROJECTION_EDGE,
+        why: `Projects ${Math.round(edge)} pts above the ${player.position}s ranked around him`,
       });
     }
+
+    if (claims.length === 0) continue;
+    const best = claims.reduce((a, b) => (b.strength > a.strength ? b : a));
+    found.push({ player, rank: best.strength, why: best.why });
   }
 
   return found
@@ -458,8 +506,13 @@ function recommend(pool, ctx, limit = 3) {
   // VBD swamped the BPA baseline. The live-pool fallback keeps recommend() usable standalone.
   const vbdScale = ctx.vbdScale > 0 ? ctx.vbdScale : maxPositiveVbd(pool);
   // overallRank is a fixed whole-pool rank that never renumbers as players are drafted,
-  // so the BPA denominator must track the highest rank still present, not pool.length.
-  const poolSize = pool.reduce((max, pl) => Math.max(max, pl.overallRank), pool.length);
+  // so the BPA denominator must track the highest rank present, not pool.length — and it
+  // is a whole-pool normaliser like vbdScale, so callers pass it in ctx, derived once
+  // from the full pool. Deriving it from the pool handed in would let a position filter
+  // move the denominator and reorder near-ties. The fallback keeps recommend() standalone.
+  const poolSize = ctx.poolSize > 0
+    ? ctx.poolSize
+    : pool.reduce((max, pl) => Math.max(max, pl.overallRank), pool.length);
   const scoreCtx = { poolSize, vbdScale, needs: ctx.needs, surplus: ctx.surplus };
 
   return pool
@@ -480,6 +533,7 @@ __exports.CLIFF_THRESHOLD = CLIFF_THRESHOLD;
 __exports.ADP_VALUE_GAP = ADP_VALUE_GAP;
 __exports.ADP_REACH_GAP = ADP_REACH_GAP;
 __exports.maxPositiveVbd = maxPositiveVbd;
+__exports.maxOverallRank = maxOverallRank;
 __exports.BENCH_DECAY = BENCH_DECAY;
 __exports.STREAMED_POSITIONS = STREAMED_POSITIONS;
 __exports.BENCH_DECAY_STREAMED = BENCH_DECAY_STREAMED;
@@ -1002,7 +1056,7 @@ const { renderBoard } = __req('ui/board.js');
 const { pickToSlot } = __req('core/snake.js');
 const { positionalNeeds, benchDepthIfAdded } = __req('core/roster.js');
 const { replacementPoints, withVbd } = __req('core/vbd.js');
-const { maxPositiveVbd } = __req('core/recommend.js');
+const { maxPositiveVbd, maxOverallRank } = __req('core/recommend.js');
 const { competitiveNotes } = __req('core/competitive.js');
 const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners } = __req('core/state.js');
 
@@ -1011,6 +1065,9 @@ let allPlayers = [];
 let replacement = null;
 // Fixed for the whole draft, exactly like `replacement` — see recommend().
 let vbdScale = 1;
+// The BPA denominator, also fixed for the whole draft: a position filter narrows the
+// pool recommend() sees, and deriving this from that pool would move the denominator.
+let poolSize = 1;
 // False once a save has failed, so the user is warned before they trust a refresh.
 let storageWorks = true;
 
@@ -1163,6 +1220,7 @@ function renderDraft() {
     pickingTeamName: pickingTeam ? config.teams[pickingTeam - 1].name : '',
     notes,
     vbdScale,
+    poolSize,
   }, { onPick: handlePick, onUndo: handleUndo, onOffList: handleOffListPick });
 
   renderBoard(right, { state, allPlayers });
@@ -1170,6 +1228,9 @@ function renderDraft() {
 
 function init() {
   allPlayers = window.PLAYERS || [];
+  // Depends only on the shipped pool, so unlike vbdScale it never needs recomputing
+  // when the league config changes.
+  poolSize = maxOverallRank(allPlayers);
   replacement = replacementPoints(allPlayers, DEFAULT_CONFIG.numTeams, DEFAULT_CONFIG.slots);
   vbdScale = scaleFromReplacement();
 
@@ -1427,6 +1488,12 @@ function sleeperCard(gamble, myRoster, slots) {
       ]),
       el('span', { class: 'meta', text: `${pl.position} · ${pl.team} · #${pl.overallRank}` }, []),
     ]),
+    // The same two numbers a recommendation card carries. A sleeper is the pick a user
+    // is most likely to second-guess, so it must not be the one card that hides them.
+    el('div', {
+      class: 'meta',
+      text: `VBD ${formatVbd(pl.vbd)}${pl.adp === null || pl.adp === undefined ? '' : ` · ADP ${Math.round(pl.adp)}`}`,
+    }, []),
     el('div', { class: 'why', text: gamble.why }, []),
     byeWarning(pl, myRoster, slots),
   ]);
@@ -1533,7 +1600,7 @@ function renderCenter(container, ctx, handlers) {
 
   const {
     pool, tablePlayers, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
-    vbdScale, myRoster, slots,
+    vbdScale, poolSize, myRoster, slots,
   } = ctx;
 
   container.appendChild(el('div', { class: 'pick-info' }, [
@@ -1563,29 +1630,36 @@ function renderCenter(container, ctx, handlers) {
     }, []),
   ]));
 
+  // Everything of variable height — competitive notes, three recommendation cards each
+  // possibly carrying a bye-warning line, and the sleepers — lives in its own scrollport.
+  // The panel itself is `overflow: hidden` (see styles.css), so this is what absorbs a
+  // long block instead of the panel scrolling the pick header off the top.
+  const scroll = el('div', { class: 'center-scroll' }, []);
+  container.appendChild(scroll);
+
   for (const note of notes || []) {
-    container.appendChild(el('div', { class: 'notes', text: note }, []));
+    scroll.appendChild(el('div', { class: 'notes', text: note }, []));
   }
 
   if (isMyPick && pool.length) {
     // The same selection drives the table and the recommendations — one control, one
-    // meaning. vbdScale stays the whole-pool value passed in ctx, so narrowing the
-    // input here cannot change what a VBD point is worth.
+    // meaning. vbdScale and poolSize stay the whole-pool values passed in ctx, so
+    // narrowing the input here cannot change what a VBD point or a rank is worth.
     const targeted = filterByPositions(pool, view.positions);
-    const recs = recommend(targeted, { needs, surplus, currentPick, nextPick, round, vbdScale }, 3);
+    const recs = recommend(targeted, { needs, surplus, currentPick, nextPick, round, vbdScale, poolSize }, 3);
 
-    container.appendChild(el('h2', {
+    scroll.appendChild(el('h2', {
       text: view.positions.length ? `Recommended — ${view.positions.join(', ')}` : 'Recommended',
     }, []));
-    for (const rec of recs) container.appendChild(recommendationCard(rec, myRoster, slots));
+    for (const rec of recs) scroll.appendChild(recommendationCard(rec, myRoster, slots));
 
     const gambles = sleepers(targeted, {
       currentPick,
       excludeIds: new Set(recs.map((r) => r.player.id)),
     }, 2);
     if (gambles.length) {
-      container.appendChild(el('h2', { text: 'Sleepers' }, []));
-      for (const g of gambles) container.appendChild(sleeperCard(g, myRoster, slots));
+      scroll.appendChild(el('h2', { text: 'Sleepers' }, []));
+      for (const g of gambles) scroll.appendChild(sleeperCard(g, myRoster, slots));
     }
   }
 
@@ -1658,8 +1732,10 @@ function renderCenter(container, ctx, handlers) {
   container.appendChild(playerTable(tablePlayers, handlers.onPick));
 
   // Focus is restored after each render so the user can filter pick after pick
-  // without reaching for the mouse.
-  setTimeout(() => filterInput.focus(), 0);
+  // without reaching for the mouse. preventScroll: true because focus() otherwise
+  // scrolls the nearest scrollable ancestor to reveal the input — this call has no
+  // business moving the viewport, whatever the layout happens to be doing.
+  setTimeout(() => filterInput.focus({ preventScroll: true }), 0);
 }
 
 __exports.SORT_KEYS = SORT_KEYS;
@@ -1760,16 +1836,27 @@ function needSummary(roster, slots, round, totalRounds) {
   const counts = countByPosition(roster);
 
   return ALL_POSITIONS
-    .map((position) => ({
-      position,
-      tier: needs[position],
-      // 'bench' means every startable slot at this position is full, so another
-      // player there cannot enter the lineup. It stays in the list as a
-      // confirmation — "QB set" — but is no longer a ranked need. The tier itself
-      // stays in positionalNeeds because scorePlayer uses it to devalue surplus picks.
-      set: needs[position] === 'bench',
-      label: needLabel(position, needs[position], counts[position], slots[position] || 0, totalRounds),
-    }))
+    .map((position) => {
+      const tier = needs[position];
+      const have = counts[position];
+      const required = slots[position] || 0;
+      return {
+        position,
+        tier,
+        // "Set" means every startable slot at this position is full, so another player
+        // there cannot enter the lineup. For the skill positions that is exactly the
+        // 'bench' tier. K and DEF never reach 'bench' — positionalNeeds drops a filled
+        // one straight to 'none' — so they need the second clause, or a full kicker
+        // would print "K set" on a *ranked* row and sort above genuinely-set rows.
+        //
+        // The fix belongs here and not in positionalNeeds: retiering a filled K/DEF to
+        // 'bench' would raise its NEED_MULTIPLIER from 0.45 to 0.7, making a surplus
+        // kicker *less* penalised in scorePlayer and fighting BENCH_DECAY_STREAMED.
+        // The tier is a scoring input; `set` is a display fact about the lineup.
+        set: tier === 'bench' || ((position === 'K' || position === 'DEF') && have >= required),
+        label: needLabel(position, tier, have, required, totalRounds),
+      };
+    })
     .sort((a, b) => {
       // Set positions sink below every ranked tier, including 'none' — a satisfied
       // position ranks below one whose need has not even arrived yet.
