@@ -8,7 +8,7 @@ import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
 import { maxPositiveVbd } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
-import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState } from '../core/state.js';
+import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners } from '../core/state.js';
 
 let state = null;
 let allPlayers = [];
@@ -95,6 +95,9 @@ function renderDraft() {
   // VBD baselines are computed once from the full pool, so replacement level does not
   // drift as players come off the board — that is what makes VBD comparable all draft.
   const pool = withVbd(availablePlayers(state, allPlayers), replacement);
+  // Every player, drafted or not, for the table. `pool` stays available-only so the
+  // recommendation path structurally cannot see a drafted player.
+  const tablePlayers = withVbd(playersWithOwners(state, allPlayers), replacement);
   const myRoster = rosterFor(state, config.myTeamIndex, allPlayers);
   const needs = positionalNeeds(myRoster, config.slots, round, config.rounds);
   // How deep the bench would get at each position if this pick went there.
@@ -148,6 +151,7 @@ function renderDraft() {
 
   renderCenter(center, {
     pool,
+    tablePlayers,
     myRoster,
     needs,
     surplus,
