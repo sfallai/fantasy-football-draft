@@ -207,39 +207,62 @@ collision is not. The warning renders on the recommendation card.
 *Notes: edit a player cell directly instead of undoing repeatedly; survive
 catastrophic loss.*
 
-**The problem.** `currentPickNumber` returns the first *unfilled* pick. The
-clock is therefore derived from where the holes are. Clearing pick 43 in a
-draft that has reached pick 80 would snap the clock back to round 5 and
-misroute every subsequent pick.
+**Editing a cell replaces its player. It never empties it.** That one
+restriction is what keeps this chunk small, and it costs nothing real.
 
-**The fix.** Stop deriving the clock from holes. State gains an explicit
-`cursor`: the next pick to be made. It advances on `applyPick` and
-`applyOffListPick`, retreats on undo, and is untouched by editing a past cell.
-Clearing a past cell leaves a genuine hole, which renders as an empty cell
-inside the drafted region — honest about what happened, and no longer able to
-move the clock.
+**Why the restriction.** `currentPickNumber` returns the first *unfilled* pick,
+so the clock is derived from where the holes are — an invariant the whole app
+rests on, with two dozen tests pinned to it. Replacing the player at pick 43
+leaves pick 43 filled and moves nothing. *Clearing* it back to empty would put a
+hole in the middle, make "first unfilled pick" mean the wrong thing, and force an
+explicit cursor, a migration for mid-draft saves, and rework of every one of
+those tests.
 
-**Undo generalizes.** `history` entries become `{pick, previous}` rather than a
-bare pick number, so undo reverses the most recent *action* — an edit as
-readily as a pick.
+**Why clearing was dropped rather than deferred.** Working through when a user
+would actually want an empty cell:
 
-**Migration.** A draft saved by the current version has no `cursor`.
-`deserialize` derives one on load from the existing picks, so a mid-draft
-reload across the upgrade does not lose the draft.
+- *Logged the wrong player* — that is a replace, which this chunk does.
+- *Logged a pick that never happened* — clearing leaves a hole and shifts
+  nothing, so it does not fix this either. That would need a delete-and-shift,
+  which was never specified.
+- *Do not know who was taken* — **Skip / off-list** already does exactly this,
+  and marks the cell honestly.
+
+Replace plus the existing off-list button covers every case clearing would, and
+clearing was the sole reason the state model had to change. It is not deferred
+scope; it is a feature that does not do a job. If a real case ever turns up, the
+cursor work can be justified by that example instead of by speculation.
+
+**What changes.**
+
+- `setPick(state, pickNumber, playerId)` replaces the player at an
+  already-filled pick, rejecting anyone already drafted elsewhere. It refuses an
+  unfilled pick — that is what the normal flow is for. `currentPickNumber` is
+  untouched.
+- `history` entries become `{pick, previous}` rather than a bare pick number, so
+  undo reverses the most recent *action* — an edit as readily as a pick.
+- **Migration:** a draft saved by an earlier version has `history` as a plain
+  array of pick numbers. `deserialize` normalises both shapes, so a mid-draft
+  reload across the upgrade keeps working. This is the only migration.
 
 **Editing surface.** Clicking a filled board cell opens an editor for that pick
-offering a player search or a clear.
+with a player search. Keeper cells edit on the same terms: keepers are written
+into `picks` by `createState` at setup and are ordinary entries thereafter, so
+replacing one changes the pick and leaves `config.teams[].keeper` alone.
 
-Keeper cells are editable on the same terms. Keepers are written into `picks` by
-`createState` at setup and are ordinary entries thereafter, so clearing one
-removes that pick and leaves `config.teams[].keeper` untouched. A cleared keeper
-does not reappear on reload, because `deserialize` restores `picks` as saved
-rather than rebuilding them from the config.
+The editor is the first *interactive* popover. Chunk C's `src/ui/popover.js`
+dismisses on a click outside the open node rather than on any click, and chunk D
+made `renderCenter` close popovers on re-render — both are prerequisites this
+chunk depends on and neither needs revisiting.
 
 **Backup.** A **Save backup** button writes the serialized draft to a file. An
 **Import** button restores one, replacing the current draft after a
-confirmation. This is prevention rather than recovery, and it is accurate,
-offline, and dependency-free — which reading a photograph of the board is not.
+confirmation, and must call `resetView()` — otherwise an imported draft silently
+inherits the previous draft's position targeting and filtered recommendations.
+Backup touches no state-model logic at all.
+
+This is prevention rather than recovery, and it is accurate, offline, and
+dependency-free — which reading a photograph of the board is not.
 
 ### F — Grading and end of draft
 
