@@ -90,6 +90,21 @@ export function benchDepthIfAdded(players, slots) {
   return depth;
 }
 
+// Only a projected STARTER at the SAME position counts. Bench depth is
+// position-specific, so an RB and a WR sharing a bye is coverable while RB1 and RB2
+// sharing one leaves a slot empty that week. A null bye is missing data, never a
+// collision — two unknowns are not a known clash.
+export function byeConflict(player, roster, slots) {
+  if (player.bye === null || player.bye === undefined) return null;
+
+  const starter = assignSlots(roster, slots)
+    .filter((slot) => !slot.label.startsWith('BN') && slot.player)
+    .map((slot) => slot.player)
+    .find((other) => other.position === player.position && other.bye === player.bye);
+
+  return starter ? starter.name : null;
+}
+
 export function positionalNeeds(players, slots, round, totalRounds) {
   const counts = countByPosition(players);
   const needs = {};

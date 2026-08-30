@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_SLOTS, slotLabels, assignSlots, countByPosition, positionalNeeds, benchDepthIfAdded,
+  DEFAULT_SLOTS, slotLabels, assignSlots, countByPosition, positionalNeeds, benchDepthIfAdded, byeConflict,
 } from '../src/core/roster.js';
 
 const p = (id, position, projectedPoints) => ({
@@ -120,4 +120,43 @@ test('benchDepthIfAdded grows with each extra player already benched', () => {
     return benchDepthIfAdded([...base, ...extra], DEFAULT_SLOTS).RB;
   });
   assert.deepEqual(depths, [1, 2, 3]);
+});
+
+const pl = (id, position, bye, points) => ({
+  id, name: id, position, bye, projectedPoints: points, team: 'XX',
+});
+
+test('byeConflict names a starter at the same position on the same bye', () => {
+  const roster = [pl('rb1', 'RB', 9, 200), pl('wr1', 'WR', 9, 180)];
+  const conflict = byeConflict(pl('rb2', 'RB', 9, 150), roster, DEFAULT_SLOTS);
+  assert.equal(conflict, 'rb1');
+});
+
+test('byeConflict ignores a collision at a different position', () => {
+  // Bench depth is position-specific: an RB and a WR sharing a bye is coverable,
+  // RB1 and RB2 sharing one is not.
+  const roster = [pl('wr1', 'WR', 9, 180)];
+  assert.equal(byeConflict(pl('rb1', 'RB', 9, 150), roster, DEFAULT_SLOTS), null);
+});
+
+test('byeConflict ignores a collision with a bench player', () => {
+  // Twelve running backs deep, two of them share a bye — that is what a bench is for.
+  const roster = Array.from({ length: 8 }, (_, i) => pl(`rb${i}`, 'RB', 9, 200 - i));
+  const conflict = byeConflict(pl('new', 'RB', 9, 1), roster, DEFAULT_SLOTS);
+  assert.equal(conflict, 'rb0', 'only the projected starter counts, and it is the best one');
+});
+
+test('byeConflict is null when nothing shares the bye', () => {
+  const roster = [pl('rb1', 'RB', 9, 200)];
+  assert.equal(byeConflict(pl('rb2', 'RB', 11, 150), roster, DEFAULT_SLOTS), null);
+});
+
+test('byeConflict is null when either bye is unknown', () => {
+  const roster = [pl('rb1', 'RB', null, 200)];
+  assert.equal(byeConflict(pl('rb2', 'RB', null, 150), roster, DEFAULT_SLOTS), null,
+    'two unknown byes are not a known collision');
+});
+
+test('byeConflict is null on an empty roster', () => {
+  assert.equal(byeConflict(pl('rb1', 'RB', 9, 150), [], DEFAULT_SLOTS), null);
 });
