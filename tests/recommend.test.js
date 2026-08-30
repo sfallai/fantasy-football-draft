@@ -434,3 +434,84 @@ test('projectionEdge compares a player only with his own position', () => {
   ];
   assert.deepEqual(sleepers(pool, { currentPick: 100 }), []);
 });
+
+test('sleepers reserves one slot for the strongest faller even when static outliers would otherwise fill every slot', () => {
+  // Regression: a projection edge is near-static, so a player who clears it keeps
+  // clearing it by the same margin pick after pick, while an ADP fall is dynamic. On
+  // a single list sorted by the common normalised strength, two strong-but-static
+  // outliers outrank a real, modest faller and fill both slots — the faller never
+  // shows. This is the case the pre-fix code got wrong.
+  const currentPick = 200;
+  const faller = p({
+    id: 'faller', position: 'QB', overallRank: 50,
+    projectedPoints: 100, adp: currentPick - SLEEPER_ADP_GAP * 1.1,
+  });
+  const makeOutlier = (id, position, edgeMultiple) => [
+    p({
+      id, position, overallRank: 100,
+      projectedPoints: 100 + SLEEPER_PROJECTION_EDGE * edgeMultiple, adp: currentPick,
+    }),
+    ...[95, 97, 103, 105].map((rank) => p({
+      id: `${id}-band${rank}`, position, overallRank: rank, projectedPoints: 100, adp: currentPick,
+    })),
+  ];
+
+  const pool = [faller, ...makeOutlier('outlierA', 'RB', 5), ...makeOutlier('outlierB', 'WR', 4)];
+  const found = sleepers(pool, { currentPick }, 2);
+  assert.deepEqual(found.map((f) => f.player.id), ['faller', 'outlierA'],
+    'a modest faller must not be crowded out by two stronger static outliers');
+});
+
+test('sleepers fills both slots with fallers when no projection outlier qualifies', () => {
+  const currentPick = 200;
+  const pool = ['a', 'b', 'c'].map((id, i) => p({
+    id, position: 'WR', overallRank: 50 + i,
+    projectedPoints: 100, adp: currentPick - SLEEPER_ADP_GAP * (3 - i),
+  }));
+  // adp gaps of 3x, 2x, 1x the threshold; only two other WRs in the pool, so
+  // MIN_BAND_NEIGHBOURS keeps the projection test from ever qualifying anyone.
+  const found = sleepers(pool, { currentPick }, 2);
+  assert.deepEqual(found.map((f) => f.player.id), ['a', 'b']);
+  assert.ok(found.every((f) => /past his ADP/.test(f.why)));
+});
+
+test('sleepers fills both slots with projection outliers when no faller qualifies', () => {
+  const currentPick = 200;
+  const strong = p({
+    id: 'strong', position: 'RB', overallRank: 100,
+    projectedPoints: 100 + SLEEPER_PROJECTION_EDGE * 3, adp: currentPick,
+  });
+  const modest = p({
+    id: 'modest', position: 'WR', overallRank: 100,
+    projectedPoints: 100 + SLEEPER_PROJECTION_EDGE * 2, adp: currentPick,
+  });
+  const bandFor = (position) => [95, 97, 103, 105].map((rank) => p({
+    id: `${position}-band${rank}`, position, overallRank: rank, projectedPoints: 100, adp: currentPick,
+  }));
+
+  const pool = [strong, modest, ...bandFor('RB'), ...bandFor('WR')];
+  const found = sleepers(pool, { currentPick }, 2);
+  assert.deepEqual(found.map((f) => f.player.id), ['strong', 'modest']);
+  assert.ok(found.every((f) => /Projects/.test(f.why)));
+});
+
+test('a player qualifying on both kinds occupies only one slot, not one in each queue', () => {
+  const currentPick = 200;
+  const both = p({
+    id: 'both', position: 'RB', overallRank: 100,
+    projectedPoints: 100 + SLEEPER_PROJECTION_EDGE * 4,
+    adp: currentPick - SLEEPER_ADP_GAP * 3,
+  });
+  const band = [95, 97, 103, 105].map((rank) => p({
+    id: `band${rank}`, position: 'RB', overallRank: rank, projectedPoints: 100, adp: currentPick,
+  }));
+  const pureFaller = p({
+    id: 'pureFaller', position: 'QB', overallRank: 50,
+    projectedPoints: 100, adp: currentPick - SLEEPER_ADP_GAP * 2,
+  });
+
+  const found = sleepers([both, pureFaller, ...band], { currentPick }, 4);
+  const ids = found.map((f) => f.player.id);
+  assert.equal(new Set(ids).size, ids.length, 'no player should appear twice');
+  assert.deepEqual([...ids].sort(), ['both', 'pureFaller'].sort());
+});

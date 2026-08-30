@@ -455,46 +455,69 @@ function projectionEdge(player, pool) {
 
 // Gambles, kept apart from the top three on purpose: mixing them in would let a flier
 // displace the best available player without the user ever choosing to take the risk.
+//
+// The two qualification kinds are scored on a common normalised scale (each claim is a
+// multiple of its own threshold), but that scale alone is not enough to pick a panel: a
+// projection edge is a near-static property of a player, so one who clears the bar keeps
+// clearing it by the same margin every pick of the draft, while an ADP fall is dynamic
+// and only grows as the draft goes on. A single list sorted by strength lets a handful of
+// static outliers occupy every slot for the whole draft and a real faller never surface.
+// Reserving one slot per kind guarantees both stories can be told, whichever is stronger
+// on the day.
 function sleepers(pool, ctx, limit = 2) {
   const exclude = ctx.excludeIds || new Set();
-  const found = [];
+  const fallers = [];
+  const outliers = [];
 
   for (const player of pool) {
     if (exclude.has(player.id)) continue;
 
-    // The two tests are measured in different units — picks on the falling test,
-    // fantasy points on the projection test — so neither raw number can order the
-    // combined list. Each claim is scored as a multiple of its own threshold, which
-    // is the same question in both units: how far past the bar is this?
-    const claims = [];
-
     const past = picksPastAdp(player, ctx.currentPick);
-    if (past !== null && past >= SLEEPER_ADP_GAP) {
-      claims.push({
+    const fallClaim = past !== null && past >= SLEEPER_ADP_GAP
+      ? {
         strength: past / SLEEPER_ADP_GAP,
         why: `Still here ${Math.round(past)} picks past his ADP of ${Math.round(player.adp)}`,
-      });
-    }
+      }
+      : null;
 
-    // No `continue` above: a player can qualify on both tests, and the panel should
-    // say whichever claim is stronger rather than whichever happened to be tried first.
     const edge = projectionEdge(player, pool);
-    if (edge !== null && edge >= SLEEPER_PROJECTION_EDGE) {
-      claims.push({
+    const edgeClaim = edge !== null && edge >= SLEEPER_PROJECTION_EDGE
+      ? {
         strength: edge / SLEEPER_PROJECTION_EDGE,
         why: `Projects ${Math.round(edge)} pts above the ${player.position}s ranked around him`,
-      });
-    }
+      }
+      : null;
 
-    if (claims.length === 0) continue;
-    const best = claims.reduce((a, b) => (b.strength > a.strength ? b : a));
-    found.push({ player, rank: best.strength, why: best.why });
+    if (!fallClaim && !edgeClaim) continue;
+
+    // A player who qualifies on both is filed under whichever claim is stronger —
+    // the same normalised comparison as before — and occupies only that one slot.
+    // Ties keep the falling claim, matching the pre-existing tie-break.
+    if (fallClaim && (!edgeClaim || fallClaim.strength >= edgeClaim.strength)) {
+      fallers.push({ player, rank: fallClaim.strength, why: fallClaim.why });
+    } else {
+      outliers.push({ player, rank: edgeClaim.strength, why: edgeClaim.why });
+    }
   }
 
-  return found
-    .sort((a, b) => b.rank - a.rank || a.player.overallRank - b.player.overallRank)
-    .slice(0, limit)
-    .map(({ player, why }) => ({ player, why }));
+  const byStrength = (a, b) => b.rank - a.rank || a.player.overallRank - b.player.overallRank;
+  fallers.sort(byStrength);
+  outliers.sort(byStrength);
+
+  // Alternate which kind fills the next slot, falling first, so a `limit` of 3 gives
+  // two of the richer kind and one of the other rather than hard-coding two slots. If
+  // the kind whose turn it is has run dry, take from the other kind instead — a slot
+  // is never left empty while any candidate, of either kind, remains.
+  const queues = [fallers, outliers];
+  const found = [];
+  let turn = 0;
+  while (found.length < limit && (fallers.length > 0 || outliers.length > 0)) {
+    const queue = queues[turn % 2].length > 0 ? queues[turn % 2] : queues[(turn + 1) % 2];
+    found.push(queue.shift());
+    turn += 1;
+  }
+
+  return found.map(({ player, why }) => ({ player, why }));
 }
 
 function recommend(pool, ctx, limit = 3) {
