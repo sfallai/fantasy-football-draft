@@ -1,8 +1,24 @@
 # Fantasy Football Draft Assistant
 
-A single-file, offline browser app for a live 10-team standard-scoring snake draft.
-Tracks every pick, manages the player pool, and recommends picks from a composite
-of BPA, positional need, and value-based drafting.
+## → https://sfallai.github.io/fantasy-football-draft/
+
+Open that link. There is nothing to install, download, or set up.
+
+A browser app for a live 10-team standard-scoring snake draft. It tracks every pick,
+manages the player pool, and recommends who to take from a composite of best-player-
+available, what your roster still needs, and value-based drafting.
+
+The player data refreshes itself every morning, so the page is current whenever you
+open it — the date it was last checked is shown at the bottom of the screen. Once the
+page has loaded it keeps working even if your connection drops mid-draft.
+
+**First time?** Confirm the league settings, click your draft position, add any
+keepers, and press **Start Draft**. Then type a name into the filter box and
+double-click the player as each pick happens — including other teams' picks.
+
+---
+
+*Everything below is for maintaining the app, not using it.*
 
 ## Draft-day checklist
 
