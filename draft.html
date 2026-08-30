@@ -197,7 +197,10 @@ table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
 .cand-list { margin-top: 6px; max-height: 200px; overflow: auto; }
 .cand { padding: 5px 6px; cursor: pointer; border-radius: 4px; }
 .cand:hover { background: #2b3140; }
-table.board td.cell { cursor: pointer; }
+/* Only a filled cell has an edit handler, so only a filled cell offers the pointer. */
+table.board td.cell.filled { cursor: pointer; }
+.cand.offlist { margin-top: 6px; border-top: 1px solid var(--border); border-radius: 0 0 4px 4px; color: var(--muted); }
+.cand-more { padding: 5px 6px; color: var(--muted); font-style: italic; }
 </style>
 </head>
 <body>
@@ -877,7 +880,18 @@ function applyPick(state, playerId) {
 // Editing replaces a player; it never empties a cell. That is deliberate:
 // currentPickNumber returns the first UNFILLED pick, so a hole in the middle of a
 // draft would make the clock mean the wrong thing and misroute every later pick.
-// A cell whose player is genuinely unknown is what the off-list sentinel is for.
+// A cell whose player is genuinely unknown takes the off-list sentinel instead —
+// `${OFF_LIST_PREFIX}${pickNumber}` — which keeps the cell filled.
+//
+// When the named player already sits at another (necessarily filled) pick, the two
+// entries are EXCHANGED rather than rejected: two picks logged in the wrong order is
+// a real draft-day mistake and had no other expression. An exchange fills exactly the
+// cells it emptied, so it moves no clock and creates no hole.
+//
+// Note: editing a keeper's cell deliberately leaves config.teams[i].keeper.playerId
+// pointing at the old player. Keepers are copied into `picks` once, by createState at
+// setup, and nothing reads config.teams[].keeper after that — but a future chunk that
+// starts reading it (a re-open of setup, a keeper report) must reconcile it here.
 function setPick(state, pickNumber, playerId) {
   const entry = state.picks[pickNumber];
   if (!entry) throw new Error(`Pick ${pickNumber} has not been made yet`);
@@ -885,19 +899,27 @@ function setPick(state, pickNumber, playerId) {
   const id = String(playerId);
   if (entry.playerId === id) return state;
 
+  let heldAt = null;
   for (const [number, other] of Object.entries(state.picks)) {
     if (Number(number) !== pickNumber && other.playerId === id) {
-      throw new Error(`Player ${playerId} is already drafted`);
+      heldAt = Number(number);
+      break;
     }
   }
 
-  return {
-    ...state,
-    // Spread the existing entry so teamIndex and isKeeper survive — a pick must never
-    // change hands, and a keeper slot stays a keeper slot.
-    picks: { ...state.picks, [pickNumber]: { ...entry, playerId: id } },
-    history: [...state.history, { pick: pickNumber, previous: entry.playerId }],
-  };
+  // Spread each existing entry so teamIndex and isKeeper stay with their pick number —
+  // a pick must never change hands, and a keeper slot stays a keeper slot.
+  const picks = { ...state.picks, [pickNumber]: { ...entry, playerId: id } };
+  const record = { pick: pickNumber, previous: entry.playerId };
+
+  if (heldAt !== null) {
+    const displaced = state.picks[heldAt];
+    picks[heldAt] = { ...displaced, playerId: entry.playerId };
+    // One history entry for the whole exchange, so one undo reverses both halves.
+    record.swap = { pick: heldAt, previous: displaced.playerId };
+  }
+
+  return { ...state, picks, history: [...state.history, record] };
 }
 
 // Consumes the current pick slot without naming a player from the pool, so a pick
@@ -916,6 +938,12 @@ function undoPick(state) {
 
   if (last.previous === null) delete picks[last.pick];
   else picks[last.pick] = { ...picks[last.pick], playerId: last.previous };
+
+  // An exchange was one action, so it comes back as one: restoring only the edited
+  // cell would leave the displaced player duplicated across two picks.
+  if (last.swap && picks[last.swap.pick]) {
+    picks[last.swap.pick] = { ...picks[last.swap.pick], playerId: last.swap.previous };
+  }
 
   return { ...state, picks, history };
 }
@@ -961,6 +989,19 @@ function playersWithOwners(state, allPlayers) {
   return allPlayers.map((pl) => ({ ...pl, ownerName: ownerByPlayerId.get(pl.id) ?? null }));
 }
 
+// The pick editor's pool. Unlike availablePlayers it keeps the drafted players, each
+// tagged with the pick that holds him, because choosing one of them EXCHANGES the two
+// picks (see setPick) — hiding them is what made a transposed pair uncorrectable.
+// A copy per player, for the same reason playersWithOwners copies: the shared pool
+// must never gain draft state that the recommendation path could see.
+function playersWithPickNumbers(state, allPlayers) {
+  const pickByPlayerId = new Map();
+  for (const [number, entry] of Object.entries(state.picks)) {
+    pickByPlayerId.set(entry.playerId, Number(number));
+  }
+  return allPlayers.map((pl) => ({ ...pl, draftedAt: pickByPlayerId.get(pl.id) ?? null }));
+}
+
 // The user's next *selection* strictly after `afterPick`. Scheduled slots that are
 // already filled (a keeper) are skipped — they are not selections the user makes,
 // and treating them as such both misreports the wait and shrinks the competitive
@@ -983,29 +1024,88 @@ function myNextPick(state) {
   return myNextPickAfter(state, pick);
 }
 
+// Bumped only when the shape of what serialize writes changes incompatibly. A file
+// stamped higher than this was written by a newer build than the one reading it.
+const STATE_VERSION = 1;
+
 function serialize(state) {
-  return JSON.stringify({ version: 1, ...state });
+  return JSON.stringify({ version: STATE_VERSION, ...state });
 }
 
 // No timestamp: the page has no clock the user trusts more than the draft itself, and
 // a round-stamped name sorts in draft order, which is how someone looks for the file.
+// The round comes from the clock, not from the cell count — keepers fill cells in
+// later rounds and used to inflate it. `e` (actions taken) is what distinguishes two
+// backups saved either side of an edit, which fill exactly the same cells.
 function backupFilename(state) {
+  const { numTeams, rounds } = state.config;
+  const current = currentPickNumber(state);
+  const round = current === null ? rounds : pickToSlot(current, numTeams).round;
   const made = Object.keys(state.picks).length;
-  const round = Math.max(1, Math.ceil(made / state.config.numTeams));
-  return `ffdraft-${state.config.numTeams}team-r${round}-p${made}.json`;
+  return `ffdraft-${numTeams}team-r${round}-p${made}-e${state.history.length}.json`;
 }
 
 // Drafts saved before pick editing stored history as bare pick numbers. Mid-draft
-// reloads have to keep working across the upgrade.
+// reloads have to keep working across the upgrade. An entry that survives here is
+// one undoPick can safely apply: a missing `previous` used to be written straight
+// back into a still-filled cell as `playerId: undefined`.
 function normalizeHistory(raw) {
-  return (raw || []).map((entry) => (
-    typeof entry === 'number' ? { pick: entry, previous: null } : entry
-  ));
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      if (typeof entry === 'number') return { pick: entry, previous: null };
+      if (!entry || typeof entry !== 'object') return null;
+      const pick = Number(entry.pick);
+      if (!Number.isFinite(pick)) return null;
+      const normalized = { pick, previous: entry.previous ?? null };
+      const { swap } = entry;
+      // The other half of an exchange, kept only when it is complete enough to undo.
+      if (swap && Number.isFinite(Number(swap.pick)) && swap.previous != null) {
+        normalized.swap = { pick: Number(swap.pick), previous: String(swap.previous) };
+      }
+      return normalized;
+    })
+    .filter(Boolean);
+}
+
+// Import is the one path by which bytes the app did not write reach the state model,
+// and whatever gets past here is persisted and then rendered. renderDraft reads
+// config.teams[myTeamIndex - 1].name unguarded, so a config that is merely truthy is
+// not enough: check the shape the renderers assume before any of it is stored.
+function validateConfig(config) {
+  if (!config || typeof config !== 'object') {
+    throw new Error('Malformed draft state: no league settings');
+  }
+  const { numTeams, rounds, myTeamIndex, teams, slots } = config;
+  if (!Number.isInteger(numTeams) || numTeams < 1) {
+    throw new Error('Malformed draft state: team count must be a positive whole number');
+  }
+  if (!Number.isInteger(rounds) || rounds < 1) {
+    throw new Error('Malformed draft state: round count must be a positive whole number');
+  }
+  if (!Array.isArray(teams) || teams.length !== numTeams) {
+    throw new Error(`Malformed draft state: expected ${numTeams} teams, found ${Array.isArray(teams) ? teams.length : 'none'}`);
+  }
+  if (teams.some((team) => !team || typeof team !== 'object')) {
+    throw new Error('Malformed draft state: every team needs a name');
+  }
+  if (!slots || typeof slots !== 'object' || Array.isArray(slots)) {
+    throw new Error('Malformed draft state: no roster slots');
+  }
+  if (!Number.isInteger(myTeamIndex) || myTeamIndex < 1 || myTeamIndex > numTeams) {
+    throw new Error(`Malformed draft state: draft position must be between 1 and ${numTeams}`);
+  }
 }
 
 function deserialize(json) {
   const raw = JSON.parse(json);
   if (!raw || !raw.config || !raw.picks) throw new Error('Malformed draft state');
+  // Absent on files written before versioning; anything above what this build knows
+  // was written by a later one, whose shape it cannot assume.
+  if (raw.version !== undefined && Number(raw.version) > STATE_VERSION) {
+    throw new Error(`This backup was saved by a newer version of the app (v${raw.version}) than this one (v${STATE_VERSION}).`);
+  }
+  validateConfig(raw.config);
   return { config: raw.config, picks: raw.picks, history: normalizeHistory(raw.history) };
 }
 
@@ -1078,8 +1178,10 @@ __exports.availablePlayers = availablePlayers;
 __exports.rosterFor = rosterFor;
 __exports.rostersByTeam = rostersByTeam;
 __exports.playersWithOwners = playersWithOwners;
+__exports.playersWithPickNumbers = playersWithPickNumbers;
 __exports.myNextPickAfter = myNextPickAfter;
 __exports.myNextPick = myNextPick;
+__exports.STATE_VERSION = STATE_VERSION;
 __exports.serialize = serialize;
 __exports.backupFilename = backupFilename;
 __exports.deserialize = deserialize;
@@ -1161,7 +1263,7 @@ const { positionalNeeds, benchDepthIfAdded } = __req('core/roster.js');
 const { replacementPoints, withVbd } = __req('core/vbd.js');
 const { maxPositiveVbd, maxOverallRank } = __req('core/recommend.js');
 const { competitiveNotes } = __req('core/competitive.js');
-const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, serialize, deserialize, backupFilename } = __req('core/state.js');
+const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename } = __req('core/state.js');
 
 let state = null;
 let allPlayers = [];
@@ -1178,6 +1280,15 @@ function scaleFromReplacement() {
   return maxPositiveVbd(withVbd(allPlayers, replacement));
 }
 
+// Baselines depend on numTeams and slots, both of which the setup screen lets the
+// user change and an imported draft brings its own copy of, so they must be
+// recomputed for the config actually in `state` — never left over from whatever
+// config (default, or a previously loaded draft) preceded it.
+function recomputeBaselines() {
+  replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
+  vbdScale = scaleFromReplacement();
+}
+
 function persist() {
   storageWorks = saveState(state);
 }
@@ -1188,11 +1299,7 @@ function root() {
 
 function startDraft(config) {
   state = createState(config);
-  // Baselines depend on numTeams and slots, both of which the setup screen lets the
-  // user change, so they must be recomputed for the config just chosen — not left
-  // over from whatever config (default or a previously loaded draft) preceded this.
-  replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
-  vbdScale = scaleFromReplacement();
+  recomputeBaselines();
   persist();
   renderDraft();
 }
@@ -1200,7 +1307,10 @@ function startDraft(config) {
 function showSetup() {
   const container = root();
   clear(container);
-  renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft);
+  // Import lives here as well as on the draft screen. Every catastrophe a backup
+  // exists for — wiped storage, another browser, another laptop — lands the user on
+  // this screen, where the draft-screen buttons do not exist yet.
+  renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport);
 }
 
 function handlePick(playerId) {
@@ -1263,7 +1373,25 @@ function handleBackup() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  // Deferred, not synchronous: several browsers have not finished reading the blob
+  // by the time click() returns, and revoking on the same tick silently produces an
+  // empty or failed download. This is the one path in the chunk nobody can test here.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// Exported for the tests: everything about an import except reading the bytes, which
+// is the one part a FileReader makes untestable.
+function applyRestoredState(restored) {
+  state = restored;
+  recomputeBaselines();
+  // The centre panel's sort, filter and position targeting are module state that
+  // outlives a draft. Without this an imported draft inherits the last one's targeting.
+  resetView();
+  // Render BEFORE persisting. A state that cannot render must not reach localStorage:
+  // it would then throw on every subsequent load, before any UI exists — including
+  // the Reset button — and only devtools could recover the page.
+  renderDraft();
+  persist();
 }
 
 function handleImport(file) {
@@ -1272,19 +1400,12 @@ function handleImport(file) {
     let restored;
     try {
       restored = deserialize(String(reader.result));
-    } catch {
-      window.alert('That file is not a saved draft.');
+    } catch (err) {
+      window.alert(`That file is not a saved draft.\n\n${err.message}`);
       return;
     }
     if (!window.confirm('Replace the current draft with this backup?')) return;
-    state = restored;
-    replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
-    vbdScale = scaleFromReplacement();
-    // The centre panel's sort, filter and position targeting are module state that
-    // outlives a draft. Without this an imported draft inherits the last one's targeting.
-    resetView();
-    persist();
-    renderDraft();
+    applyRestoredState(restored);
   };
   reader.readAsText(file);
 }
@@ -1356,7 +1477,14 @@ function renderDraft() {
   left.appendChild(el('button', { text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
   const importInput = el('input', {
     type: 'file', accept: '.json,application/json', style: { display: 'none' },
-    onChange: (e) => { if (e.target.files && e.target.files[0]) handleImport(e.target.files[0]); },
+    onChange: (e) => {
+      const file = e.target.files && e.target.files[0];
+      // Clear the control before handing the file off. A file input fires `change`
+      // only when the selection *changes*, so declining the confirm and re-picking
+      // the same file would otherwise do nothing at all and look broken.
+      e.target.value = '';
+      if (file) handleImport(file);
+    },
   }, []);
   left.appendChild(el('button', { text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
   left.appendChild(importInput);
@@ -1382,7 +1510,9 @@ function renderDraft() {
   renderBoard(right, {
     state,
     allPlayers,
-    editablePool: availablePlayers(state, allPlayers),
+    // Drafted players included, each tagged with the pick holding him: choosing one
+    // exchanges the two picks, which is the only way to fix a transposed pair.
+    editablePool: playersWithPickNumbers(state, allPlayers),
     onEditPick: handleEditPick,
   });
 }
@@ -1396,12 +1526,22 @@ function init() {
   vbdScale = scaleFromReplacement();
 
   const saved = loadState();
-  if (saved) {
+  if (!saved) {
+    showSetup();
+    return;
+  }
+
+  // A stored state that throws during render used to leave a dead page: nothing at
+  // all rendered, on this load and on every one after it, so not even Reset was
+  // reachable. Falling back to setup costs the draft but never the app.
+  try {
     state = saved;
-    replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
-    vbdScale = scaleFromReplacement();
+    recomputeBaselines();
     renderDraft();
-  } else {
+  } catch (err) {
+    clearState();
+    state = null;
+    window.alert(`The saved draft could not be opened and has been discarded.\n\n${err.message}`);
     showSetup();
   }
 }
@@ -1412,6 +1552,7 @@ function init() {
 // anything renders — so it is skipped there and the test calls init() itself.
 if (typeof process === 'undefined') init();
 
+__exports.applyRestoredState = applyRestoredState;
 __exports.init = init;
 
 });
@@ -1496,7 +1637,12 @@ function renderBoard(container, ctx) {
     const cells = [el('td', { class: 'rnd', text: `${round}${arrow}` }, [])];
 
     for (const cell of row) {
+      // Only a filled cell is editable, and only a filled cell may advertise it:
+      // `cursor: pointer` on all 150 is a false affordance on the ~145 that early
+      // in a draft have no handler at all.
+      const isFilled = Boolean(cell.player || cell.isOffList);
       const classes = ['cell'];
+      if (isFilled) classes.push('filled');
       if (cell.isMine) classes.push('mine-col');
       if (cell.isCurrent) classes.push('current');
       if (cell.isKeeper) classes.push('keeper');
@@ -1517,7 +1663,7 @@ function renderBoard(container, ctx) {
             + `#${cell.player.overallRank} overall · ${cell.player.projectedPoints} proj · `
             + `ADP ${cell.player.adp ?? '—'} · bye ${cell.player.bye ?? '—'}`
           : offListTitle,
-        onClick: cell.player || cell.isOffList
+        onClick: isFilled
           ? (e) => {
             showPopover(pickEditor(cell, ctx.editablePool, (playerId) => {
               closePopover();
@@ -2071,6 +2217,7 @@ __exports.renderMyTeam = renderMyTeam;
 __def("ui/pickeditor.js", function (__exports, __req) {
 const { el, clear } = __req('ui/dom.js');
 const { matchesQuery } = __req('core/player.js');
+const { OFF_LIST_PREFIX } = __req('core/state.js');
 
 // How many candidates to offer. A popover is a search surface, not a second player
 // table — showing the whole pool here would be unusable and duplicate the centre panel.
@@ -2087,21 +2234,57 @@ function pickEditor(cell, pool, onCommit) {
       // Blank shows nothing: matchesQuery passes everything through on an empty
       // query, which would drop the entire pool into the popover.
       if (!query.trim()) return;
-      for (const candidate of pool.filter((p) => matchesQuery(p, query)).slice(0, MAX_CANDIDATES)) {
+
+      // The player already in this cell is the one thing choosing cannot change.
+      const matches = pool.filter((p) => matchesQuery(p, query) && p.draftedAt !== cell.pick);
+
+      for (const candidate of matches.slice(0, MAX_CANDIDATES)) {
+        // A player who already sits at another pick is offered, not hidden —
+        // committing him exchanges the two picks. Say so on the row: an exchange the
+        // user did not ask for would be a nasty surprise on draft day.
+        const label = candidate.draftedAt
+          ? `${candidate.name} — swap with pick ${candidate.draftedAt}`
+          : `${candidate.name} — ${candidate.position} ${candidate.team}`;
         list.appendChild(el('div', {
           class: 'cand',
-          text: `${candidate.name} — ${candidate.position} ${candidate.team}`,
+          text: label,
           onClick: () => onCommit(candidate.id),
+        }, []));
+      }
+
+      // The pool is in overall-rank order, so silent truncation can push a
+      // low-ranked target off the end with no hint that he is there at all.
+      if (matches.length > MAX_CANDIDATES) {
+        list.appendChild(el('div', {
+          class: 'cand-more',
+          text: `${matches.length - MAX_CANDIDATES} more — keep typing to narrow this list`,
         }, []));
       }
     },
   }, []);
+
+  // Skip / off-list only ever fires at the pick on the clock (applyOffListPick reads
+  // currentPickNumber), so this is the only way to say that an EARLIER pick went to
+  // someone who is not in the pool. It fills the cell with the same sentinel rather
+  // than emptying it, so the clock is untouched.
+  const offList = el('div', {
+    class: 'cand offlist',
+    text: 'Unknown / off-list — not in this pool',
+    onClick: () => onCommit(`${OFF_LIST_PREFIX}${cell.pick}`),
+  }, []);
+
+  // Typing is the entire interaction, so the input must be live the moment the
+  // popover opens. Deferred because showPopover appends this node after we return it,
+  // and preventScroll: true because focus() otherwise scrolls the board — the same
+  // reason the centre panel's filter box defers.
+  setTimeout(() => input.focus({ preventScroll: true }), 0);
 
   return el('div', { class: 'pop editor' }, [
     el('h3', { text: `Pick ${cell.pick}` }, []),
     el('div', { class: 'meta', text: cell.player ? `Currently ${cell.player.name}` : 'Currently off-list' }, []),
     input,
     list,
+    offList,
   ]);
 }
 
@@ -2138,10 +2321,19 @@ function dismissOnOutsideClick(event) {
   closePopover();
 }
 
+// Escape is how every other dismissable overlay on the web closes, and the pick
+// editor is a keyboard surface — the input is focused, so the mouse is nowhere near
+// the "click outside" the other listener waits for. Removed in closePopover exactly
+// as the click listener is; chunk F's popover inherits both for free.
+function dismissOnEscape(event) {
+  if (event && event.key === 'Escape') closePopover();
+}
+
 function closePopover() {
   if (openNode && openNode.parentNode) openNode.parentNode.removeChild(openNode);
   openNode = null;
   document.removeEventListener('click', dismissOnOutsideClick);
+  document.removeEventListener('keydown', dismissOnEscape);
 }
 
 function showPopover(node, event) {
@@ -2159,6 +2351,10 @@ function showPopover(node, event) {
   const height = (rect && rect.height) || FALLBACK_HEIGHT;
   node.style.left = `${Math.max(0, Math.min(event.clientX + OFFSET_X, window.innerWidth - width))}px`;
   node.style.top = `${Math.max(0, Math.min(event.clientY + OFFSET_Y, window.innerHeight - height))}px`;
+
+  // Not deferred, unlike the click listener: no keystroke opened this popover, so
+  // there is nothing for an immediate arming to swallow.
+  document.addEventListener('keydown', dismissOnEscape);
 
   // Deferred, or the click that opened this popover immediately closes it.
   setTimeout(() => document.addEventListener('click', dismissOnOutsideClick), 0);
@@ -2303,7 +2499,7 @@ function playerPicker(players, initialId, onChange) {
   return wrap;
 }
 
-function renderSetup(root, initialConfig, onStart) {
+function renderSetup(root, initialConfig, onStart, onImport) {
   const players = window.PLAYERS || [];
   const config = { ...DEFAULT_CONFIG, ...initialConfig };
 
@@ -2404,6 +2600,27 @@ function renderSetup(root, initialConfig, onStart) {
   drawPositions();
   drawTeamRows();
 
+  const importInput = el('input', {
+    type: 'file', accept: '.json,application/json', style: { display: 'none' },
+    onChange: (e) => {
+      const file = e.target.files && e.target.files[0];
+      // Clear the control before handing the file off: a file input fires `change`
+      // only when the selection changes, so declining the confirm and re-picking the
+      // same file would otherwise do nothing and look broken.
+      e.target.value = '';
+      if (file && onImport) onImport(file);
+    },
+  }, []);
+  const importRow = onImport
+    ? el('div', { class: 'field', style: { marginTop: '12px' } }, [
+      el('button', {
+        text: 'Import backup', onClick: () => importInput.click(),
+      }, []),
+      el('div', { class: 'meta', text: 'Restore a draft saved with Save backup — on any machine.' }, []),
+      importInput,
+    ])
+    : null;
+
   root.appendChild(el('div', { class: 'panel setup' }, [
     el('h1', { text: 'Draft Assistant — Setup' }, []),
     errorBox,
@@ -2441,6 +2658,12 @@ function renderSetup(root, initialConfig, onStart) {
         tbody,
       ]),
     ]),
+
+    // Restoring a backup has to be reachable from HERE. Every catastrophe the backup
+    // exists for — wiped storage, a different browser, a different laptop — puts the
+    // user on the setup screen, and the draft screen's Import button does not exist
+    // until a draft is already running.
+    importRow,
 
     el('button', {
       class: 'primary',
