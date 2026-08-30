@@ -118,6 +118,19 @@ export function rostersByTeam(state, allPlayers) {
   return out;
 }
 
+// The table shows drafted players too, greyed and unpickable, so the user can see
+// where someone went instead of wondering whether they mistyped the name. Returns a
+// copy per player: mutating the shared pool would leak owner names into the
+// recommendation path, which must never see a drafted player at all.
+export function playersWithOwners(state, allPlayers) {
+  const ownerByPlayerId = new Map();
+  for (const entry of Object.values(state.picks)) {
+    const team = state.config.teams[entry.teamIndex - 1];
+    if (team) ownerByPlayerId.set(entry.playerId, team.name);
+  }
+  return allPlayers.map((pl) => ({ ...pl, ownerName: ownerByPlayerId.get(pl.id) ?? null }));
+}
+
 // The user's next *selection* strictly after `afterPick`. Scheduled slots that are
 // already filled (a keeper) are skipped — they are not selections the user makes,
 // and treating them as such both misreports the wait and shrinks the competitive

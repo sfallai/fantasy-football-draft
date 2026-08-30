@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   STORAGE_KEY, DEFAULT_CONFIG, createState, currentPickNumber, applyPick, undoPick,
   availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter,
-  applyOffListPick, isOffListId, saveState, loadState, clearState,
+  applyOffListPick, isOffListId, saveState, loadState, clearState, playersWithOwners,
 } from '../src/core/state.js';
 
 const PLAYERS = Array.from({ length: 200 }, (_, i) => ({
@@ -258,4 +258,53 @@ test('saveState/clearState swallow errors and loadState returns null when storag
   assert.equal(saveState(state, throwingStorage), false, 'a swallowed error is still reported');
   assert.doesNotThrow(() => clearState(throwingStorage));
   assert.equal(loadState(throwingStorage), null);
+});
+
+test('playersWithOwners labels a drafted player with the team that took him', () => {
+  const players = [
+    { id: 'a', name: 'A', position: 'RB' },
+    { id: 'b', name: 'B', position: 'WR' },
+  ];
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+
+  const out = playersWithOwners(state, players);
+  assert.equal(out.length, 2, 'every player is listed, drafted or not');
+  assert.equal(out.find((p) => p.id === 'a').ownerName, 'Team 1');
+  assert.equal(out.find((p) => p.id === 'b').ownerName, null, 'undrafted players own nothing');
+});
+
+test('playersWithOwners preserves input order', () => {
+  const players = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  const state = createState({ numTeams: 2, rounds: 2 });
+  assert.deepEqual(playersWithOwners(state, players).map((p) => p.id), ['a', 'b', 'c']);
+});
+
+test('playersWithOwners does not mutate the players it is given', () => {
+  const players = [{ id: 'a' }];
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  playersWithOwners(state, players);
+  assert.equal('ownerName' in players[0], false);
+});
+
+test('playersWithOwners survives an off-list pick', () => {
+  // An off-list pick's id matches no player. It must not throw and must not
+  // invent a row.
+  const players = [{ id: 'a' }];
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyOffListPick(state);
+  const out = playersWithOwners(state, players);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].ownerName, null);
+});
+
+test('playersWithOwners labels a keeper with his team', () => {
+  const players = [{ id: 'k' }];
+  const state = createState({
+    numTeams: 2,
+    rounds: 2,
+    teams: [{ name: 'Alpha', keeper: { playerId: 'k', round: 1 } }, { name: 'Beta', keeper: null }],
+  });
+  assert.equal(playersWithOwners(state, players)[0].ownerName, 'Alpha');
 });
