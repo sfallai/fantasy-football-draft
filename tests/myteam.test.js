@@ -57,22 +57,44 @@ test('needSummary says "depth only", not "set", for a non-FLEX-eligible position
   assert.equal(qb.label, 'depth only');
 });
 
-test('a roster of 1 QB, 2 RB, 2 WR, 1 TE renders "set" only on the set row', () => {
+test('a full roster in the last rounds renders "set" only on set rows', () => {
   // The wording collision this correction fixes: before it, a filled TE (still
   // ranked, tier 'low') and a filled QB (out of the ranking, tier 'bench') both said
   // "set", so the word stopped meaning "out of the ranking". Pin the whole scenario:
-  // no ranked row may say "set", and the one genuinely set row still does.
+  // no ranked row may say "set", and the genuinely set rows still do.
+  //
+  // The fixture carries a K and a DEF, and the round is late enough that they are
+  // live needs, because a filled K/DEF is the case that made the earlier version of
+  // this test vacuous: positionalNeeds gives them the 'none' tier and never 'bench',
+  // so `set` was false while needLabel still printed "K set" — a "set" row that was
+  // ranked, and sorted above four genuinely-set rows.
   const roster = [
     p('q', 'QB'), p('r1', 'RB'), p('r2', 'RB'), p('w1', 'WR'), p('w2', 'WR'), p('t', 'TE'),
+    p('k', 'K'), p('d', 'DEF'),
   ];
-  const summary = needSummary(roster, DEFAULT_SLOTS, 5, 15);
+  const summary = needSummary(roster, DEFAULT_SLOTS, 14, 15);
 
   const ranked = summary.filter((n) => !n.set);
   assert.ok(ranked.every((n) => !n.label.includes('set')), 'no ranked row ever says "set"');
 
-  const qb = summary.find((n) => n.position === 'QB');
-  assert.equal(qb.set, true);
-  assert.equal(qb.label, 'QB set');
+  for (const position of ['QB', 'K', 'DEF']) {
+    const row = summary.find((n) => n.position === position);
+    assert.equal(row.set, true, `${position} is set`);
+    assert.equal(row.label, `${position} set`);
+  }
+
+  // And a set row can never sort above a ranked one.
+  const lastRanked = summary.map((n) => n.set).lastIndexOf(false);
+  const firstSet = summary.map((n) => n.set).indexOf(true);
+  assert.ok(firstSet === -1 || firstSet > lastRanked, 'every set row sorts below every ranked row');
+});
+
+test('an unfilled K in the late rounds is a ranked need, not "set"', () => {
+  // The other half of the K/DEF branch: `set` must follow the roster, not the position.
+  const k = needSummary([], DEFAULT_SLOTS, 14, 15).find((n) => n.position === 'K');
+  assert.equal(k.tier, 'high');
+  assert.equal(k.set, false);
+  assert.equal(k.label, 'K needed');
 });
 
 test('needSummary defers K and DEF until late', () => {

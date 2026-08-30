@@ -25,16 +25,27 @@ export function needSummary(roster, slots, round, totalRounds) {
   const counts = countByPosition(roster);
 
   return ALL_POSITIONS
-    .map((position) => ({
-      position,
-      tier: needs[position],
-      // 'bench' means every startable slot at this position is full, so another
-      // player there cannot enter the lineup. It stays in the list as a
-      // confirmation — "QB set" — but is no longer a ranked need. The tier itself
-      // stays in positionalNeeds because scorePlayer uses it to devalue surplus picks.
-      set: needs[position] === 'bench',
-      label: needLabel(position, needs[position], counts[position], slots[position] || 0, totalRounds),
-    }))
+    .map((position) => {
+      const tier = needs[position];
+      const have = counts[position];
+      const required = slots[position] || 0;
+      return {
+        position,
+        tier,
+        // "Set" means every startable slot at this position is full, so another player
+        // there cannot enter the lineup. For the skill positions that is exactly the
+        // 'bench' tier. K and DEF never reach 'bench' — positionalNeeds drops a filled
+        // one straight to 'none' — so they need the second clause, or a full kicker
+        // would print "K set" on a *ranked* row and sort above genuinely-set rows.
+        //
+        // The fix belongs here and not in positionalNeeds: retiering a filled K/DEF to
+        // 'bench' would raise its NEED_MULTIPLIER from 0.45 to 0.7, making a surplus
+        // kicker *less* penalised in scorePlayer and fighting BENCH_DECAY_STREAMED.
+        // The tier is a scoring input; `set` is a display fact about the lineup.
+        set: tier === 'bench' || ((position === 'K' || position === 'DEF') && have >= required),
+        label: needLabel(position, tier, have, required, totalRounds),
+      };
+    })
     .sort((a, b) => {
       // Set positions sink below every ranked tier, including 'none' — a satisfied
       // position ranks below one whose need has not even arrived yet.
