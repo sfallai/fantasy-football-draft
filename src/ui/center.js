@@ -1,5 +1,6 @@
 import { el, clear, POSITION_COLORS, formatPick } from './dom.js';
 import { recommend } from '../core/recommend.js';
+import { isRookie } from '../core/player.js';
 
 export const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 export const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -128,34 +129,47 @@ function recommendationCard(rec) {
   ]);
 }
 
-function playerTable(pool, onPick) {
-  // No row cap: the spec asks for all remaining players, and capping the list
-  // silently hides the bottom of the pool in the unfiltered view.
-  const rows = filterByPosition(sortPlayers(pool, view.sortKey), view.filter)
-    .filter((pl) => !view.query || pl.name.toLowerCase().includes(view.query.toLowerCase()))
-    .map((pl) => el('tr', { onDblclick: () => onPick(pl.id) }, [
-      el('td', { text: String(pl.overallRank) }, []),
-      el('td', { text: pl.name }, []),
-      el('td', { text: pl.position, style: { color: POSITION_COLORS[pl.position] } }, []),
-      el('td', { text: pl.team }, []),
-      el('td', { text: String(pl.projectedPoints) }, []),
-      el('td', { text: String(Math.round(pl.vbd)) }, []),
-      el('td', { text: pl.adp === null ? '—' : String(pl.adp) }, []),
-      el('td', { text: pl.bye === null ? '—' : String(pl.bye) }, []),
-    ]));
+function playerTable(tablePlayers, onPick) {
+  const rows = filterByPosition(sortPlayers(tablePlayers, view.sortKey), view.filter)
+    .filter((pl) => matchesQuery(pl, view.query))
+    .map((pl) => {
+      const taken = pl.ownerName !== null && pl.ownerName !== undefined;
+      const name = el('td', { class: 'pname', title: pl.name }, [
+        el('span', { text: pl.name }, []),
+        isRookie(pl) ? el('span', { class: 'rookie', text: 'R' }, []) : null,
+      ]);
+      return el('tr', {
+        class: taken ? 'taken' : '',
+        // Only an available player can be drafted, and only on a double click.
+        onDblclick: taken ? null : () => onPick(pl.id),
+      }, [
+        el('td', { text: String(pl.overallRank) }, []),
+        name,
+        el('td', { text: pl.position, style: { color: POSITION_COLORS[pl.position] } }, []),
+        el('td', { text: pl.team }, []),
+        el('td', { class: 'age', text: pl.age === null || pl.age === undefined ? '' : String(pl.age) }, []),
+        el('td', { text: String(pl.projectedPoints) }, []),
+        el('td', { text: String(Math.round(pl.vbd)) }, []),
+        el('td', { text: pl.adp === null ? '—' : String(pl.adp) }, []),
+        el('td', { text: pl.bye === null ? '—' : String(pl.bye) }, []),
+        el('td', { class: 'owner', text: taken ? pl.ownerName : '' }, []),
+      ]);
+    });
 
   const header = (label, key) => el('th', {
     text: view.sortKey === key ? `${label} ▾` : label,
     onClick: key ? () => { view.sortKey = key; rerender(); } : null,
   }, []);
 
-  return el('table', { class: 'players' }, [
-    el('thead', {}, [el('tr', {}, [
-      header('#', 'overallRank'), header('Player', null), header('Pos', 'position'),
-      header('Tm', null), header('Proj', null), header('VBD', 'vbd'),
-      header('ADP', 'adp'), header('Bye', null),
-    ])]),
-    el('tbody', {}, rows),
+  return el('div', { class: 'tablewrap' }, [
+    el('table', { class: 'players' }, [
+      el('thead', {}, [el('tr', {}, [
+        header('#', 'overallRank'), header('Player', null), header('Pos', 'position'),
+        header('Tm', null), header('Age', null), header('Proj', null), header('VBD', 'vbd'),
+        header('ADP', 'adp'), header('Bye', null), header('Drafted By', null),
+      ])]),
+      el('tbody', {}, rows),
+    ]),
   ]);
 }
 
@@ -167,7 +181,7 @@ export function renderCenter(container, ctx, handlers) {
   clear(container);
 
   const {
-    pool, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
+    pool, tablePlayers, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
     vbdScale,
   } = ctx;
 
@@ -212,12 +226,12 @@ export function renderCenter(container, ctx, handlers) {
       onInput: (e) => {
         view.query = e.target.value;
         const table = container.querySelector('table.players');
-        if (table) table.replaceWith(playerTable(pool, handlers.onPick));
+        if (table) table.replaceWith(playerTable(tablePlayers, handlers.onPick));
       },
     }, []),
   ]);
 
-  container.appendChild(el('h2', { text: `Available (${pool.length})` }, []));
+  container.appendChild(el('h2', { text: `Players (${pool.length} available)` }, []));
   container.appendChild(filters);
-  container.appendChild(playerTable(pool, handlers.onPick));
+  container.appendChild(playerTable(tablePlayers, handlers.onPick));
 }

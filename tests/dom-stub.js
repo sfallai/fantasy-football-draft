@@ -1,7 +1,7 @@
 // A dependency-free stand-in for the DOM surface that src/ui/dom.js's el() touches:
 // document.createElement, document.createTextNode, and on nodes className,
 // textContent, style, setAttribute, dataset, addEventListener, appendChild
-// (which also sets parentNode on the appended child, as a real DOM does).
+// (which also sets parentNode on the appended child, as a real DOM does), and focus.
 // Not a test file itself — the tests/**/*.test.js glob does not pick this up.
 
 function makeElement(tag) {
@@ -15,6 +15,7 @@ function makeElement(tag) {
     childNodes: [],
     children: [],
     listeners: {},
+    focused: false,
     setAttribute(name, value) {
       node.attributes[name] = value;
     },
@@ -26,6 +27,9 @@ function makeElement(tag) {
       if (child.nodeType === 1) node.children.push(child);
       child.parentNode = node;
       return child;
+    },
+    focus() {
+      node.focused = true;
     },
   };
 
