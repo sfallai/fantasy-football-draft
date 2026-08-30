@@ -320,45 +320,37 @@ with grade and projected points. The ranking is presented as a preseason
 projection ordering, not a predicted final standing, and no win-loss record is
 invented — the schedule is not in the data.
 
-### G — Refresh button
+### G — Refresh button — SUPERSEDED
 
 *Note: button to refresh the player list on draft day.*
 
-A **Refresh data** button fetches from ESPN and updates `projectedPoints`,
-`overallRank`, `positionRank`, `team`, and `bye`.
+Replaced by `2026-08-30-distribution-design.md`. The button existed because a file
+sent to someone goes stale and its author cannot push a fix. Hosting the app removes
+both problems: a page rebuilt nightly by CI is already current when a user opens it,
+and the data is served from an origin the author controls, so the CORS block that made
+an in-page ADP refresh impossible no longer applies.
 
-- **ADP is not refreshed** and stays as baked in, because FFC is unreachable
-  from the browser. The UI says so rather than implying a full refresh.
-- **`age`, `experience`, and `prior` are not refreshed.** They do not change
-  during a season, and refreshing them would mean 400 requests from the page.
-- **VBD baselines and the VBD scale are recomputed** after a refresh. Both are
-  derived from the pool at draft start and would otherwise be stale.
-- **Any player already on a roster is preserved** even if he falls out of the
-  new top 400, so a refresh can never orphan a pick.
+What survives is a line telling the user how fresh the data is. The AWS Lambda proxy,
+the paste-the-JSON fallback and the merge-versus-rebuild hazard all go away with the
+button.
 
-Two traps in this chunk, both found while implementing chunk A and recorded here
-because neither is visible from chunk G's own code.
+### H — Guided tour
 
-**A refresh must merge, not rebuild.** `age`, `experience`, and `prior` come from
-responses that the in-page refresh does not make — that is the finding which
-justified chunk A in the first place. A refresh that rebuilds each record from a
-fresh `kona_player_info` response therefore sets all three to `null` for every
-player, and **no existing test catches it**: the schema test reads
-`data/players.json`, not the in-page refresh result, and `null` is a legal value
-for all three fields. Chunk G needs an explicit test that a refresh preserves
-`age`, `experience`, and `prior` on every player it touches.
+*From the distribution conversation, 2026-08-30. Agreed in shape, not yet designed.*
 
-**One existing test will fail the moment chunk G lands.** `tests/build.test.js`
-asserts `doesNotMatch(html, /\bfetch\s*\(/, 'no network access at runtime')`
-against the built page. Chunk G puts `fetch(` into `src/`, so that assertion
-breaks by design. It encodes a real invariant, so narrow it rather than delete
-it: the page must remain offline *by default*, reaching the network only on an
-explicit click.
+A **"First time? Show me around"** control that dims the page, rings one section at a
+time and explains it, with **Next** to advance. Skippable, and remembered once seen.
+No dependencies — an overlay and a highlight ring.
 
-**`experience` is a rookie flag, not a career length.** ESPN counts the current
-rookie class as 0 and the previous one as 2, so any later feature tempted to
-render "3rd-year WR" from this field would be off by one for a whole draft class.
-Deriving the rookie badge is all this field supports.
+Agreed scope: **both the setup screen and the draft screen.** Setup is where a
+newcomer is stuck alone before the draft; the draft screen has far more surface —
+recommendations, sleepers, the board, click-to-edit — and needs its own step list.
+
+Deliberately undesigned so far: what the draft-screen steps are, and whether the tour
+should offer itself unprompted on a first visit or wait to be asked. Both want a
+proper design pass before implementation.
+
+Build order agreed: distribution, then H, then F.
 
 ## Carried forward from chunk E
 
