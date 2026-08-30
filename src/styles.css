@@ -95,6 +95,7 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 .pos-counts { margin-top: 14px; color: var(--muted); font-size: 12px; letter-spacing: 0.02em; white-space: pre-wrap; }
 .needs { margin-top: 14px; }
 .need-row { display: flex; justify-content: space-between; padding: 3px 0; }
+.need-row.set { color: var(--muted); }
 .tier { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
 .tier-high { color: #f87171; font-weight: 600; }
 .tier-medium { color: var(--accent); }

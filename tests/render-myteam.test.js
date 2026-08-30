@@ -54,3 +54,31 @@ test('renderMyTeam renders an unfilled slot row with no meta child', () => {
     assert.deepEqual(row.children.map((c) => c.className), ['label', 'name empty']);
   }
 });
+
+test('renderMyTeam renders a set need row with the set class and no tier chip', () => {
+  // One QB fills the only QB slot, so QB is 'set' — a confirmation, not a ranking.
+  const container = document.createElement('div');
+  const qb = { id: 'q', name: 'Filled QB', team: 'XX', position: 'QB', projectedPoints: 100 };
+  renderMyTeam(container, buildContext([qb]));
+
+  const needsSection = container.children.find((c) => c.className === 'needs');
+  const rows = needsSection.children.filter((c) => c.className.startsWith('need-row'));
+  const qbRow = rows.find((row) => row.children[0].textContent === 'QB set');
+
+  assert.ok(qbRow, 'expected a "QB set" need row');
+  assert.equal(qbRow.className, 'need-row set');
+  assert.equal(qbRow.children.length, 1, 'a set row has no tier chip');
+});
+
+test('renderMyTeam renders a ranked need row with a tier chip and no set class', () => {
+  const container = document.createElement('div');
+  renderMyTeam(container, buildContext([]));
+
+  const needsSection = container.children.find((c) => c.className === 'needs');
+  const rows = needsSection.children.filter((c) => c.className.startsWith('need-row'));
+  const rbRow = rows.find((row) => row.children[0].textContent === 'RB1 needed');
+
+  assert.ok(rbRow, 'expected an "RB1 needed" need row');
+  assert.equal(rbRow.className, 'need-row');
+  assert.deepEqual(rbRow.children.map((c) => c.className), ['', 'tier tier-high']);
+});

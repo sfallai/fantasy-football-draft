@@ -53,26 +53,39 @@ test('needSummary defers K and DEF until late', () => {
   assert.equal(late.label, 'K needed');
 });
 
-test('needSummary drops a position whose startable slots are all full', () => {
-  // QB is a one-slot position, so a second QB can never enter the lineup. Listing
-  // QB as a need at that point is noise; the position-count line still shows you
-  // have two.
-  const roster = [p('q1', 'QB'), p('q2', 'QB')];
-  const summary = needSummary(roster, DEFAULT_SLOTS, 5, 15);
-  assert.equal(summary.find((n) => n.position === 'QB'), undefined);
+test('needSummary keeps a bench-tier position but marks it set, not ranked', () => {
+  // QB has no FLEX fallback, so a filled QB always lands in the 'bench' tier. It
+  // stays in the list as a confirmation, not a ranked need.
+  const summary = needSummary([p('q1', 'QB')], DEFAULT_SLOTS, 5, 15);
+  const qb = summary.find((n) => n.position === 'QB');
+  assert.ok(qb, 'a set position still appears in the list');
+  assert.equal(qb.set, true);
+  assert.equal(qb.label, 'QB set');
 });
 
-test('needSummary keeps a position a FLEX slot can still start', () => {
+test('needSummary sorts a set position after every other entry, even a "none" tier', () => {
+  // K and DEF sit at 'none' this early — a need not yet reached. QB is 'bench' — a
+  // need already satisfied. Satisfied ranks below "not yet reached", so QB must sort
+  // after K and DEF here, not merely after the 'high' tiers.
+  const summary = needSummary([p('q1', 'QB')], DEFAULT_SLOTS, 5, 15);
+  const qbIndex = summary.findIndex((n) => n.position === 'QB');
+  assert.equal(qbIndex, summary.length - 1, 'the set QB sorts dead last');
+  assert.ok(summary.slice(0, -1).every((n) => !n.set), 'every entry before it is unranked, not set');
+});
+
+test('needSummary keeps a FLEX-coverable position ranked, not set', () => {
   // Two RBs fill both dedicated RB slots, but a FLEX slot can still start a third,
-  // so RB lands in 'low' rather than 'bench' and stays in the list.
+  // so RB lands in 'low' rather than 'bench' and stays ranked.
   const roster = [p('r1', 'RB'), p('r2', 'RB')];
   const rb = needSummary(roster, DEFAULT_SLOTS, 5, 15).find((n) => n.position === 'RB');
-  assert.ok(rb, 'a FLEX slot can still start a third RB, so it is not bench');
   assert.equal(rb.tier, 'low');
+  assert.equal(rb.set, false);
 });
 
-test('needSummary still lists every position on an empty roster', () => {
-  assert.equal(needSummary([], DEFAULT_SLOTS, 1, 15).length, 6);
+test('needSummary lists every position on an empty roster, none of them set', () => {
+  const summary = needSummary([], DEFAULT_SLOTS, 1, 15);
+  assert.equal(summary.length, 6);
+  assert.ok(summary.every((n) => !n.set));
 });
 
 test('positionCountLine reports every position, including the ones at zero', () => {

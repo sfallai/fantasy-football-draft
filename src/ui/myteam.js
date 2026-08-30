@@ -10,6 +10,9 @@ function needLabel(position, tier, have, required, totalRounds) {
   }
   if (tier === 'high') return required > 1 ? `${position}1 needed` : `${position} needed`;
   if (tier === 'medium') return `${position}${have + 1} needed`;
+  // 'bench' means every startable slot at this position is full: this is a plain
+  // confirmation, not a weak recommendation to keep drafting there.
+  if (tier === 'bench') return `${position} set`;
   if (have >= required && required > 0) {
     return position === 'QB' || position === 'TE'
       ? `${position} set — depth only`
@@ -26,15 +29,20 @@ export function needSummary(roster, slots, round, totalRounds) {
     .map((position) => ({
       position,
       tier: needs[position],
+      // 'bench' means every startable slot at this position is full, so another
+      // player there cannot enter the lineup. It stays in the list as a
+      // confirmation — "QB set" — but is no longer a ranked need. The tier itself
+      // stays in positionalNeeds because scorePlayer uses it to devalue surplus picks.
+      set: needs[position] === 'bench',
       label: needLabel(position, needs[position], counts[position], slots[position] || 0, totalRounds),
     }))
-    // `bench` means every startable slot at this position is full, so another player
-    // there cannot enter the lineup. Ranking it as a need is noise — the position-count
-    // line above still shows how many you hold. The tier itself stays in
-    // positionalNeeds because scorePlayer uses it to devalue surplus picks.
-    .filter((need) => need.tier !== 'bench')
-    .sort((a, b) => NEED_TIERS.indexOf(a.tier) - NEED_TIERS.indexOf(b.tier)
-      || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position));
+    .sort((a, b) => {
+      // Set positions sink below every ranked tier, including 'none' — a satisfied
+      // position ranks below one whose need has not even arrived yet.
+      if (a.set !== b.set) return a.set ? 1 : -1;
+      return NEED_TIERS.indexOf(a.tier) - NEED_TIERS.indexOf(b.tier)
+        || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position);
+    });
 }
 
 // Two spaces between entries: at 12px a single space runs "QB:1 RB:2" together.
@@ -61,12 +69,14 @@ export function renderMyTeam(container, ctx) {
 
   const needs = el('div', { class: 'needs' }, [el('h2', { text: 'Positional Needs' }, [])]);
   for (const need of needSummary(roster, slots, round, totalRounds)) {
-    needs.appendChild(el('div', { class: 'need-row' }, [
+    // A set position is not a ranking any more, so it gets no tier chip and a
+    // muted label instead of its position color (.need-row.set in styles.css).
+    needs.appendChild(el('div', { class: need.set ? 'need-row set' : 'need-row' }, [
       el('span', {
         text: need.label,
-        style: { color: POSITION_COLORS[need.position] },
+        style: { color: need.set ? null : POSITION_COLORS[need.position] },
       }, []),
-      el('span', { class: `tier tier-${need.tier}`, text: need.tier }, []),
+      need.set ? null : el('span', { class: `tier tier-${need.tier}`, text: need.tier }, []),
     ]));
   }
   container.appendChild(needs);
