@@ -114,6 +114,12 @@ function sleeperCard(gamble, myRoster, slots) {
       ]),
       el('span', { class: 'meta', text: `${pl.position} · ${pl.team} · #${pl.overallRank}` }, []),
     ]),
+    // The same two numbers a recommendation card carries. A sleeper is the pick a user
+    // is most likely to second-guess, so it must not be the one card that hides them.
+    el('div', {
+      class: 'meta',
+      text: `VBD ${formatVbd(pl.vbd)}${pl.adp === null || pl.adp === undefined ? '' : ` · ADP ${Math.round(pl.adp)}`}`,
+    }, []),
     el('div', { class: 'why', text: gamble.why }, []),
     byeWarning(pl, myRoster, slots),
   ]);
@@ -220,7 +226,7 @@ export function renderCenter(container, ctx, handlers) {
 
   const {
     pool, tablePlayers, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
-    vbdScale, myRoster, slots,
+    vbdScale, poolSize, myRoster, slots,
   } = ctx;
 
   container.appendChild(el('div', { class: 'pick-info' }, [
@@ -263,10 +269,10 @@ export function renderCenter(container, ctx, handlers) {
 
   if (isMyPick && pool.length) {
     // The same selection drives the table and the recommendations — one control, one
-    // meaning. vbdScale stays the whole-pool value passed in ctx, so narrowing the
-    // input here cannot change what a VBD point is worth.
+    // meaning. vbdScale and poolSize stay the whole-pool values passed in ctx, so
+    // narrowing the input here cannot change what a VBD point or a rank is worth.
     const targeted = filterByPositions(pool, view.positions);
-    const recs = recommend(targeted, { needs, surplus, currentPick, nextPick, round, vbdScale }, 3);
+    const recs = recommend(targeted, { needs, surplus, currentPick, nextPick, round, vbdScale, poolSize }, 3);
 
     scroll.appendChild(el('h2', {
       text: view.positions.length ? `Recommended — ${view.positions.join(', ')}` : 'Recommended',

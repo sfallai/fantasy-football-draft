@@ -6,7 +6,7 @@ import { renderBoard } from './board.js';
 import { pickToSlot } from '../core/snake.js';
 import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
-import { maxPositiveVbd } from '../core/recommend.js';
+import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
 import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners } from '../core/state.js';
 
@@ -15,6 +15,9 @@ let allPlayers = [];
 let replacement = null;
 // Fixed for the whole draft, exactly like `replacement` — see recommend().
 let vbdScale = 1;
+// The BPA denominator, also fixed for the whole draft: a position filter narrows the
+// pool recommend() sees, and deriving this from that pool would move the denominator.
+let poolSize = 1;
 // False once a save has failed, so the user is warned before they trust a refresh.
 let storageWorks = true;
 
@@ -167,6 +170,7 @@ function renderDraft() {
     pickingTeamName: pickingTeam ? config.teams[pickingTeam - 1].name : '',
     notes,
     vbdScale,
+    poolSize,
   }, { onPick: handlePick, onUndo: handleUndo, onOffList: handleOffListPick });
 
   renderBoard(right, { state, allPlayers });
@@ -174,6 +178,9 @@ function renderDraft() {
 
 export function init() {
   allPlayers = window.PLAYERS || [];
+  // Depends only on the shipped pool, so unlike vbdScale it never needs recomputing
+  // when the league config changes.
+  poolSize = maxOverallRank(allPlayers);
   replacement = replacementPoints(allPlayers, DEFAULT_CONFIG.numTeams, DEFAULT_CONFIG.slots);
   vbdScale = scaleFromReplacement();
 
