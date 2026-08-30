@@ -31,6 +31,19 @@ export function needSummary(roster, slots, round, totalRounds) {
       || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position));
 }
 
+// Team and bye belong on the row, not in a title attribute — a tooltip you have to
+// hover for is no use when you are scanning the roster for a bye-week clash on the clock.
+export function slotMeta(player) {
+  if (!player) return '';
+  return `${player.team} · ${player.bye === null || player.bye === undefined ? 'no bye' : `bye ${player.bye}`}`;
+}
+
+// Two spaces between entries: at 12px a single space runs "QB:1 RB:2" together.
+export function positionCountLine(roster) {
+  const counts = countByPosition(roster);
+  return ALL_POSITIONS.map((position) => `${position}:${counts[position]}`).join('  ');
+}
+
 export function renderMyTeam(container, ctx) {
   const { roster, slots, round, totalRounds, teamName } = ctx;
   clear(container);
