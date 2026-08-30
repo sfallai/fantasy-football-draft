@@ -181,10 +181,20 @@ Both thresholds are exported constants, tuned against the shipped pool the way
 available `pool`, respect position targeting, and exclude anyone already in the
 top-3 recommendations — a player cannot be both the safe pick and the gamble.
 
-**Need suppression.** `needSummary` in `src/ui/myteam.js` omits any position
-whose tier is `bench` — every starting slot there is full, so ranking it as a
-need is noise. The `bench` tier itself stays in `positionalNeeds`, because
-`scorePlayer` still uses it to decay surplus picks.
+**Need suppression.** A position whose startable slots are all full stops being
+*ranked* among your needs, but keeps its row as a confirmation. `needSummary` in
+`src/ui/myteam.js` still returns all six positions; a `bench`-tier entry is
+marked `set`, labelled plainly (`QB set`), sorted below every unset entry, and
+rendered without a tier chip.
+
+Dropping the row entirely was the first design, and it was wrong: it removed the
+one place that told you a position was handled. Sorting it out of the ranking is
+what the note asked for — stop telling me to prioritise it — while "QB set" still
+answers "do I have a quarterback?" at a glance.
+
+A `set` row sorts below even `none`, because `none` on a K or DEF is a need you
+have not reached yet, while `set` is finished. The `bench` tier itself stays in
+`positionalNeeds`, because `scorePlayer` uses it to decay surplus picks.
 
 **Bye conflicts.** A new pure helper reports, for a candidate player, whether
 drafting him would put him on the same bye week as a projected starter *at the

@@ -271,66 +271,89 @@ git commit -m "feat(roster): flag a bye clash with a same-position starter"
 
 ---
 
-### Task 3: Stop ranking positions whose starters are full
+### Task 3: Stop *ranking* a position whose starters are full
+
+The row stays — it is the only place that confirms a position is handled — but it
+leaves the ranking. Superseded the original "drop the row" design after review.
 
 **Files:**
-- Modify: `src/ui/myteam.js` (`needSummary`)
+- Modify: `src/ui/myteam.js` (`needLabel`, `needSummary`, `renderMyTeam`)
+- Modify: `src/styles.css`
 - Test: `tests/myteam.test.js`
 
 **Interfaces:**
-- Consumes: nothing new.
-- Produces: `needSummary` no longer returns rows whose tier is `bench`.
+- Produces: `needSummary` entries gain `set: boolean` (true when tier is `bench`);
+  `set` entries sort last and render without a tier chip.
+
+Measured against the real engine before writing these, since the tiers are not obvious:
+
+```
+empty roster -> QB: high,  RB: high
+1 QB         -> QB: bench, RB: high     <- one QB already fills the only QB slot
+2 RB         -> QB: high,  RB: low      <- a FLEX slot can still start a third RB
+```
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/myteam.test.js`:
-
 ```js
-test('needSummary drops a position whose startable slots are all full', () => {
-  // QB is a one-slot position, so a second QB can never enter the lineup. Listing
-  // QB as a need at that point is noise; the position-count line still shows you
-  // have two.
-  const roster = [p('q1', 'QB'), p('q2', 'QB')];
-  const summary = needSummary(roster, DEFAULT_SLOTS, 5, 15);
-  assert.equal(summary.find((n) => n.position === 'QB'), undefined);
+test('a position whose starters are full keeps its row, marked set', () => {
+  const summary = needSummary([p('q1', 'QB')], DEFAULT_SLOTS, 5, 15);
+  const qb = summary.find((n) => n.position === 'QB');
+  assert.ok(qb, 'the row survives — it is what confirms you have a quarterback');
+  assert.equal(qb.set, true);
+  assert.equal(qb.label, 'QB set');
 });
 
-test('needSummary keeps a position that can still start someone', () => {
+test('set positions sort below everything still needed', () => {
   const summary = needSummary([p('q1', 'QB')], DEFAULT_SLOTS, 5, 15);
-  assert.ok(summary.find((n) => n.position === 'QB'), 'one QB with a FLEX-less slot is still set, not benched');
+  const firstSet = summary.findIndex((n) => n.set);
+  assert.ok(firstSet > 0);
+  assert.ok(summary.slice(firstSet).every((n) => n.set),
+    'once the set rows start, nothing unset follows — including none-tier K/DEF, '
+    + 'which are needs you have not reached yet rather than needs you have met');
+});
+
+test('a position that can still start someone is not set', () => {
+  const rb = needSummary([p('a', 'RB'), p('b', 'RB')], DEFAULT_SLOTS, 5, 15)
+    .find((n) => n.position === 'RB');
+  assert.equal(rb.tier, 'low');
+  assert.equal(rb.set, false);
 });
 
 test('needSummary still lists every position on an empty roster', () => {
-  assert.equal(needSummary([], DEFAULT_SLOTS, 1, 15).length, 6);
+  const summary = needSummary([], DEFAULT_SLOTS, 1, 15);
+  assert.equal(summary.length, 6);
+  assert.equal(summary.some((n) => n.set), false);
 });
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `node --test tests/myteam.test.js`
-Expected: FAIL on the first test — QB is still present with tier `bench`.
+Run: `node --test tests/myteam.test.js` — FAIL, `set` is undefined and the label reads
+`QB set — depth only`.
 
 - [ ] **Step 3: Implement**
 
-In `src/ui/myteam.js`, add one filter to `needSummary`'s chain, before the `.sort(...)`:
+In `needLabel`, return `` `${position} set` `` for the `bench` tier — replacing both the
+`QB set — depth only` and `FLEX / bench depth` wordings, whose "depth" framing reads as a
+weak suggestion to keep drafting there.
 
-```js
-    // `bench` means every startable slot at this position is full, so another player
-    // there cannot enter the lineup. Ranking it as a need is noise — the position-count
-    // line above still shows how many you hold. The tier itself stays in
-    // positionalNeeds because scorePlayer uses it to devalue surplus picks.
-    .filter((need) => need.tier !== 'bench')
-```
+In `needSummary`, add `set: needs[position] === 'bench'` to each entry, and sort unset
+entries first (by `NEED_TIERS`) with every `set` entry after them.
+
+In `renderMyTeam`, a `set` row renders its label with class `need-row set` and **no** tier
+chip — it is no longer a ranking. Add `.need-row.set { color: var(--muted); }` to
+`src/styles.css`.
 
 - [ ] **Step 4: Verify**
 
-Run: `npm test` — only build-freshness may fail.
+`npm test` — only the build-freshness test may fail.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/ui/myteam.js tests/myteam.test.js
-git commit -m "feat(myteam): stop ranking a position whose starters are full"
+git add src/ui/myteam.js src/styles.css tests/myteam.test.js
+git commit -m "feat(myteam): keep a filled position visible but out of the ranking"
 ```
 
 ---
