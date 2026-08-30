@@ -183,6 +183,42 @@ test('Available only is on by default and hides drafted players', () => {
   assert.equal(bodyRows(container).length, 2, 'and the drafted player comes back');
 });
 
+// Backlog: "Filter by name, always show result but no selectable if already
+// drafted (if on team show team)". Available only must govern browsing only —
+// an active query overrides it so a search never comes back empty just because
+// the match happens to be drafted.
+test('Available only hides a drafted player when there is no query', () => {
+  const container = render([player(), player({ id: 'p2', name: 'Taken Guy', ownerName: 'Team 3' })]);
+  assert.equal(button(container, 'Available only').className, 'selected', 'on by default');
+  assert.equal(bodyRows(container).length, 1, 'the drafted player has no row');
+});
+
+test('a query overrides Available only and surfaces a matching drafted player', () => {
+  const container = render([player(), player({ id: 'p2', name: 'Taken Guy', ownerName: 'Team 3' })]);
+  const input = find(container, (n) => n.tagName === 'input')[0];
+  input.listeners.input[0]({ target: { value: 'Taken' } });
+
+  const rows = bodyRows(container);
+  assert.equal(rows.length, 1, 'the drafted player has a row despite the toggle being on');
+  assert.equal(rows[0].className, 'taken', 'and it is marked taken');
+  assert.equal((rows[0].listeners.dblclick || []).length, 0, 'so it cannot be double-clicked into a pick');
+  const owner = find(rows[0], (n) => n.className === 'owner')[0];
+  assert.equal(owner.textContent, 'Team 3', 'and it names the owning team');
+});
+
+test('a query still hides drafted players that do not match it', () => {
+  const container = render([
+    player({ name: 'Available Guy' }),
+    player({ id: 'p2', name: 'Taken Guy', ownerName: 'Team 3' }),
+  ]);
+  const input = find(container, (n) => n.tagName === 'input')[0];
+  input.listeners.input[0]({ target: { value: 'Available' } });
+
+  const rows = bodyRows(container);
+  assert.equal(rows.length, 1, 'only the match is shown');
+  assert.ok(find(rows[0], (n) => n.textContent === 'Available Guy').length);
+});
+
 test('the glossary button is present and opens on click', () => {
   const container = render([player()]);
   const help = button(container, '?');

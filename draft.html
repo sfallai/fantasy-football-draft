@@ -1290,9 +1290,14 @@ function isTaken(player) {
 
 // The rows the table will actually show, in order — also what the heading counts.
 function visiblePlayers(tablePlayers) {
+  // Backlog requirement: "Filter by name, always show result but no selectable if
+  // already drafted (if on team show team)". Available only is a browsing aid for
+  // the unfiltered list; the moment a query narrows the pool, its matches — drafted
+  // or not — must all surface, so the toggle only applies when there is no query.
+  const hasQuery = view.query.trim().length > 0;
   return filterByPosition(sortPlayers(tablePlayers, view.sortKey), view.filter)
     .filter((pl) => matchesQuery(pl, view.query))
-    .filter((pl) => !view.availableOnly || !isTaken(pl));
+    .filter((pl) => hasQuery || !view.availableOnly || !isTaken(pl));
 }
 
 function recommendationCard(rec) {
@@ -1460,11 +1465,31 @@ function renderCenter(container, ctx, handlers) {
     `Players (${visiblePlayers(tablePlayers).length} shown · ${pool.length} available)`;
   const heading = el('h2', { text: headingText() }, []);
 
+  // Deliberately its own button rather than another position chip: chunk D turns
+  // the position row into a multi-select, and folding this in would collide.
+  const availableOnlyBtn = el('button', {
+    class: view.availableOnly ? 'selected' : '',
+    text: 'Available only',
+    onClick: () => { view.availableOnly = !view.availableOnly; rerender(); },
+  }, []);
+
+  // A query overrides the toggle (see visiblePlayers), so the button should say so
+  // rather than implying a filter that isn't actually happening while you search.
+  function syncAvailableOnlyBtn() {
+    const hasQuery = Boolean(view.query.trim());
+    availableOnlyBtn.setAttribute('title', hasQuery
+      ? 'Ignored while a search is active — matches are always shown, drafted or not'
+      : 'Hide players who have already been drafted');
+    availableOnlyBtn.style.opacity = hasQuery ? '0.6' : '';
+  }
+  syncAvailableOnlyBtn();
+
   function redrawTable() {
     const wrap = container.querySelector('.tablewrap');
     if (wrap) wrap.replaceWith(playerTable(tablePlayers, handlers.onPick));
     // The count is a count of what is on screen, so it moves with the table.
     heading.textContent = headingText();
+    syncAvailableOnlyBtn();
   }
 
   const filterInput = el('input', {
@@ -1480,14 +1505,7 @@ function renderCenter(container, ctx, handlers) {
     }, [])),
     filterInput,
     el('button', { text: '✕', title: 'Clear the filter', onClick: () => { view.query = ''; rerender(); } }, []),
-    // Deliberately its own button rather than another position chip: chunk D turns
-    // the position row into a multi-select, and folding this in would collide.
-    el('button', {
-      class: view.availableOnly ? 'selected' : '',
-      text: 'Available only',
-      title: 'Hide players who have already been drafted',
-      onClick: () => { view.availableOnly = !view.availableOnly; rerender(); },
-    }, []),
+    availableOnlyBtn,
     el('button', { text: '?', title: 'What do these mean?', onClick: (e) => showPopover(glossaryPopover(), e) }, []),
   ]);
 
