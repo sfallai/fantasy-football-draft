@@ -171,8 +171,14 @@ export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Ma
   });
 }
 
+// A stalled upstream would otherwise hang the fetch indefinitely — and with it the
+// CI job, which has no timeout of its own short enough to matter, all the way out
+// to Actions' 6-hour default. That can run into the next day's scheduled trigger.
 async function getJson(url, headers = {}) {
-  const res = await fetch(url, { headers: { 'User-Agent': UA, ...headers } });
+  const res = await fetch(url, {
+    headers: { 'User-Agent': UA, ...headers },
+    signal: AbortSignal.timeout(15000),
+  });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
   return res.json();
 }

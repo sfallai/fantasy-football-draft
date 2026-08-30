@@ -10,9 +10,18 @@ on:
 permissions:
   contents: write
 
+# A manual "Run workflow" click during the scheduled run would otherwise race it to
+# commit and push — the second to finish gets rejected. Only one refresh at a time.
+concurrency:
+  group: refresh-player-data
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    # Belt and suspenders alongside the per-request timeouts in fetch-players.mjs: a
+    # stall that timeouts don't catch (retry loops, DNS) should still not run to
+    # Actions' 6-hour default and risk overlapping tomorrow's scheduled run.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -47,5 +56,10 @@ jobs:
             echo "no change to commit"
           else
             git commit -m "chore(data): daily refresh"
+            # A push landing between checkout and here (a manual run overlapping the
+            # schedule, or someone pushing by hand) would otherwise reject this push
+            # and skip the day's refresh entirely — worst of all on draft morning.
+            # Safe to rebase unconditionally: this commit only touches generated files.
+            git pull --rebase
             git push
           fi
