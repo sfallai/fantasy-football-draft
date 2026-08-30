@@ -212,6 +212,15 @@ test('generated data/players.json matches the schema and covers all positions', 
     assert.equal(typeof p.projectedPoints, 'number');
     assert.ok(p.adp === null || typeof p.adp === 'number');
     assert.ok(p.bye === null || typeof p.bye === 'number');
+    assert.ok(p.age === null || typeof p.age === 'number', `${p.name} age`);
+    assert.ok(p.experience === null || typeof p.experience === 'number', `${p.name} experience`);
+    assert.ok(
+      p.prior === null
+        || (typeof p.prior.points === 'number'
+          && typeof p.prior.games === 'number'
+          && typeof p.prior.ppg === 'number'),
+      `${p.name} prior`,
+    );
   }
 
   const ranks = players.map((p) => p.overallRank).sort((a, b) => a - b);
@@ -227,4 +236,19 @@ test('generated data/players.json matches the schema and covers all positions', 
     + `(expected at least ${floor}) — the projections source is probably broken; `
     + 'run `git checkout data/players.json` to restore the committed file',
   );
+
+  // The athlete endpoint is separate from the fantasy API and can fail wholesale without
+  // failing the fetch — by design. That silence is exactly what needs a tripwire: every
+  // per-player check above passes when every age is null.
+  const skill = players.filter((p) => p.position !== 'DEF');
+  const aged = skill.filter((p) => p.age !== null).length;
+  assert.ok(
+    aged >= Math.floor(skill.length * 0.8),
+    `only ${aged} of ${skill.length} non-defense players have an age (expected at least `
+    + `${Math.floor(skill.length * 0.8)}) — the athlete lookups probably failed; `
+    + 'run `git checkout data/players.json` to restore the committed file',
+  );
+
+  const rookies = skill.filter((p) => p.experience !== null && p.experience <= 1).length;
+  assert.ok(rookies > 0, 'no rookies in the pool — experience is not being read correctly');
 });

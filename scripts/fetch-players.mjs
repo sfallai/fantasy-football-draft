@@ -10,6 +10,9 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) fantasy-football-dra
 const ESPN_PLAYERS = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}/segments/0/leaguedefaults/1?view=kona_player_info`;
 const ESPN_TEAMS = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}?view=proTeamSchedules_wl`;
 const FFC_ADP = `https://fantasyfootballcalculator.com/api/v1/adp/standard?teams=10&year=${SEASON}&position=all`;
+const ESPN_ATHLETE = (id) => `https://sports.core.api.espn.com/v3/sports/football/nfl/athletes/${id}`;
+// Polite to the endpoint and still finishes 400 lookups in well under a minute.
+const ATHLETE_CONCURRENCY = 8;
 
 const ESPN_FILTER = JSON.stringify({
   players: {
@@ -160,6 +163,17 @@ async function getJson(url, headers = {}) {
   return res.json();
 }
 
+// Age and experience are nice to have; the draft is not. A failed lookup returns null and
+// that player simply has no age, rather than the whole morning's fetch dying on one 404.
+async function fetchAthlete(id) {
+  try {
+    const res = await fetch(ESPN_ATHLETE(id), { headers: { 'User-Agent': UA } });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   console.log('Fetching ESPN players...');
   const espn = await getJson(ESPN_PLAYERS, { 'x-fantasy-filter': ESPN_FILTER });
@@ -168,14 +182,30 @@ async function main() {
   console.log('Fetching FFC ADP...');
   const ffc = await getJson(FFC_ADP);
 
-  const players = mergePlayers(espn, teams, ffc);
+  // Defenses have no athlete record — their id is derived from the team abbreviation.
+  const athleteIds = espn.players
+    .map((entry) => entry.player)
+    .filter((p) => POSITION_BY_ID[p.defaultPositionId] && p.defaultPositionId !== 16)
+    .map((p) => String(p.id));
+
+  console.log(`Fetching age and experience for ${athleteIds.length} players...`);
+  const athleteResponses = await mapWithConcurrency(athleteIds, ATHLETE_CONCURRENCY, fetchAthlete);
+  const athletesById = new Map(athleteIds.map((id, i) => [id, athleteResponses[i]]));
+  const foundAthletes = athleteResponses.filter(Boolean).length;
+  console.log(`  ${foundAthletes}/${athleteIds.length} athlete lookups succeeded`);
+
+  const players = mergePlayers(espn, teams, ffc, athletesById);
   const withAdp = players.filter((p) => p.adp !== null).length;
+  const withAge = players.filter((p) => p.age !== null).length;
+  const withPrior = players.filter((p) => p.prior !== null).length;
+  const rookies = players.filter((p) => p.experience !== null && p.experience <= 1).length;
 
   const out = fileURLToPath(new URL('../data/players.json', import.meta.url));
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, JSON.stringify(players, null, 0) + '\n');
 
-  console.log(`Wrote ${players.length} players to data/players.json (${withAdp} with ADP)`);
+  console.log(`Wrote ${players.length} players to data/players.json (${withAdp} with ADP, `
+    + `${withAge} with age, ${withPrior} with a prior season, ${rookies} rookies)`);
   console.log(`FFC sample: ${ffc.meta.total_drafts} drafts, ${ffc.meta.start_date}..${ffc.meta.end_date}`);
 }
 
