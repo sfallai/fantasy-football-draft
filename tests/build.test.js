@@ -120,3 +120,10 @@ test('draft.html matches a fresh build of the committed src/ — run `node scrip
 
   assert.equal(rebuilt, committed, 'draft.html does not match src/ — run `node scripts/build.mjs`');
 });
+
+test('the repository root redirects to the built page', () => {
+  // GitHub Pages serves a directory; without this the shared URL ends /draft.html.
+  const root = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(root, /url=draft\.html/);
+  assert.match(root, /<a href="draft\.html"/, 'and a link, for anyone the redirect fails for');
+});
