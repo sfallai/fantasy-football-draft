@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  NEED_MULTIPLIER, maxPositiveVbd, scorePlayer, reasonsFor, recommend,
+  NEED_MULTIPLIER, maxPositiveVbd, scorePlayer, reasonsFor, recommend, sleepers,
 } from '../src/core/recommend.js';
 import { replacementPoints, withVbd } from '../src/core/vbd.js';
 import { DEFAULT_SLOTS, positionalNeeds, benchDepthIfAdded, assignSlots, countByPosition } from '../src/core/roster.js';
@@ -318,4 +318,55 @@ test('bench cover is spread across the positions that actually start, vs ADP riv
     m[b.position] = (m[b.position] || 0) + 1; return m;
   }, {})));
   assert.ok(mostAtOnePosition <= 3, `bench stacked ${mostAtOnePosition} deep at one position`);
+});
+
+test('sleepers flags a player still available well past his ADP', () => {
+  const pool = [
+    { id: 'a', name: 'Faller', position: 'WR', overallRank: 50, projectedPoints: 120, vbd: 10, adp: 30 },
+    { id: 'b', name: 'On Time', position: 'WR', overallRank: 51, projectedPoints: 119, vbd: 9, adp: 52 },
+  ];
+  const found = sleepers(pool, { currentPick: 55 });
+  assert.equal(found.length, 1);
+  assert.equal(found[0].player.id, 'a', '25 picks past ADP clears the 15-pick gap');
+  assert.match(found[0].why, /past his ADP/);
+});
+
+test('sleepers ignores a player with no ADP on the falling test', () => {
+  // A null ADP is missing data, not evidence that the market forgot him.
+  const pool = [{ id: 'a', position: 'WR', overallRank: 50, projectedPoints: 120, vbd: 10, adp: null }];
+  assert.deepEqual(sleepers(pool, { currentPick: 200 }), []);
+});
+
+test('sleepers flags a player out-projecting the players ranked around him', () => {
+  const pool = [
+    { id: 'star', position: 'RB', overallRank: 100, projectedPoints: 160, vbd: 5, adp: 100 },
+    ...Array.from({ length: 10 }, (_, i) => ({
+      id: `f${i}`, position: 'RB', overallRank: 95 + i + (i >= 5 ? 1 : 0),
+      projectedPoints: 100, vbd: 0, adp: 95 + i,
+    })),
+  ];
+  const found = sleepers(pool, { currentPick: 100 });
+  assert.equal(found[0].player.id, 'star', '60 points over the local median clears the 15-point edge');
+  assert.match(found[0].why, /projects/i);
+});
+
+test('sleepers never repeats a player already in the top three', () => {
+  // A player cannot be both the safe pick and the gamble.
+  const pool = [{ id: 'a', position: 'WR', overallRank: 50, projectedPoints: 120, vbd: 10, adp: 30 }];
+  assert.deepEqual(sleepers(pool, { currentPick: 55, excludeIds: new Set(['a']) }), []);
+});
+
+test('sleepers honours its limit and puts the biggest faller first', () => {
+  const pool = [
+    { id: 'small', position: 'WR', overallRank: 50, projectedPoints: 100, vbd: 1, adp: 33 },
+    { id: 'big', position: 'WR', overallRank: 51, projectedPoints: 100, vbd: 1, adp: 10 },
+    { id: 'mid', position: 'WR', overallRank: 52, projectedPoints: 100, vbd: 1, adp: 20 },
+  ];
+  const found = sleepers(pool, { currentPick: 55 }, 2);
+  assert.equal(found.length, 2);
+  assert.equal(found[0].player.id, 'big');
+});
+
+test('sleepers returns nothing from an empty pool', () => {
+  assert.deepEqual(sleepers([], { currentPick: 10 }), []);
 });

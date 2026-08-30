@@ -101,6 +101,67 @@ export function reasonsFor(player, pool, ctx) {
   return reasons.slice(0, 2);
 }
 
+// A sleeper is a gamble, so the bar is deliberately higher than the "Value" reason
+// already shown on recommendation cards (ADP_VALUE_GAP, 8 picks). Anything lower and
+// the two lists would say the same thing about the same player.
+export const SLEEPER_ADP_GAP = 15;
+// How many overall ranks either side to compare a player's projection against.
+export const SLEEPER_RANK_BAND = 20;
+export const SLEEPER_PROJECTION_EDGE = 15;
+
+// Enough neighbours that a median means something; below this the band is too sparse
+// near the very top or bottom of the pool to judge anyone against.
+const MIN_BAND_NEIGHBOURS = 3;
+
+function picksPastAdp(player, currentPick) {
+  if (player.adp === null || player.adp === undefined) return null;
+  return currentPick - player.adp;
+}
+
+function projectionEdge(player, pool) {
+  const near = pool.filter((x) => x.id !== player.id
+    && Math.abs(x.overallRank - player.overallRank) <= SLEEPER_RANK_BAND / 2);
+  if (near.length < MIN_BAND_NEIGHBOURS) return null;
+  const points = near.map((x) => x.projectedPoints).sort((a, b) => a - b);
+  const median = points[Math.floor(points.length / 2)];
+  return player.projectedPoints - median;
+}
+
+// Gambles, kept apart from the top three on purpose: mixing them in would let a flier
+// displace the best available player without the user ever choosing to take the risk.
+export function sleepers(pool, ctx, limit = 2) {
+  const exclude = ctx.excludeIds || new Set();
+  const found = [];
+
+  for (const player of pool) {
+    if (exclude.has(player.id)) continue;
+
+    const past = picksPastAdp(player, ctx.currentPick);
+    if (past !== null && past >= SLEEPER_ADP_GAP) {
+      found.push({
+        player,
+        rank: past,
+        why: `Still here ${Math.round(past)} picks past his ADP of ${Math.round(player.adp)}`,
+      });
+      continue;
+    }
+
+    const edge = projectionEdge(player, pool);
+    if (edge !== null && edge >= SLEEPER_PROJECTION_EDGE) {
+      found.push({
+        player,
+        rank: edge,
+        why: `Projects ${Math.round(edge)} pts above the players ranked around him`,
+      });
+    }
+  }
+
+  return found
+    .sort((a, b) => b.rank - a.rank || a.player.overallRank - b.player.overallRank)
+    .slice(0, limit)
+    .map(({ player, why }) => ({ player, why }));
+}
+
 export function recommend(pool, ctx, limit = 3) {
   if (pool.length === 0) return [];
 
