@@ -360,6 +360,25 @@ rookie class as 0 and the previous one as 2, so any later feature tempted to
 render "3rd-year WR" from this field would be off by one for a whole draft class.
 Deriving the rookie badge is all this field supports.
 
+## Carried forward from chunk E
+
+**An unhandled throw in `renderDraft` now costs the user their draft.** `init` wraps the
+restore path and falls back to `clearState()` plus the setup screen, so a corrupt saved
+state cannot brick the app. The breadth is deliberate — but it means any exception raised
+during `recomputeBaselines` or `renderDraft`, including a transient bug a later chunk
+introduces, wipes storage. Anything touching that path should be sure it cannot throw.
+
+**A backup is user-supplied bytes, and `deserialize` is the only gate.** It validates the
+config's shape and rejects an unknown `version`. Chunk G changes the player-record schema;
+when it does, bump the version and decide what an older backup means, rather than letting
+one through to fail somewhere less obvious.
+
+**The pick editor's candidate pool comes from `availablePlayers` plus the drafted players
+it offers as swaps.** It recomputes on every render, so a refreshed `allPlayers` flows
+through with no extra wiring — *provided chunk G merges records by `id`*. If ids churn,
+`pickedIds` stops matching, drafted players reappear as candidates, and the editor becomes
+a dead end rather than raising a clean error.
+
 ## Carried forward from chunk D
 
 **Chunk E's import path must call `resetView()`.** `view` (sort key, targeted positions,
