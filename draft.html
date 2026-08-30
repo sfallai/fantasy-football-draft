@@ -136,8 +136,18 @@ table.players { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.players th { position: sticky; top: 0; background: var(--panel); text-align: left; padding: 4px 6px; font-size: 11px; color: var(--muted); cursor: pointer; border-bottom: 1px solid var(--border); }
 table.players td { padding: 3px 6px; border-bottom: 1px solid #22262f; }
 table.players tr:hover td { background: #22262f; }
+.tablewrap { overflow-x: auto; }
+table.players tr.taken td { color: #545b6b; }
+table.players tr.taken:hover td { background: transparent; }
+table.players td.owner { color: var(--muted); font-style: italic; white-space: nowrap; }
+table.players td.pname { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rookie { font-size: 9px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 3px; margin-left: 5px; vertical-align: middle; }
 .filters { display: flex; gap: 6px; align-items: center; margin: 10px 0 6px; flex-wrap: wrap; }
 .filters button.selected { background: var(--accent); color: #1a1205; }
+.pop { position: fixed; z-index: 30; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-width: 300px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+.pop h3 { margin: 0 0 6px; font-size: 13px; }
+.pop dt { color: var(--accent); font-weight: 600; margin-top: 6px; }
+.pop dd { margin: 0; color: var(--muted); }
 
 /* ---- Board ---- */
 table.board { border-collapse: collapse; font-size: 11px; width: 100%; table-layout: fixed; }
@@ -1198,6 +1208,8 @@ __exports.renderBoard = renderBoard;
 __def("ui/center.js", function (__exports, __req) {
 const { el, clear, POSITION_COLORS, formatPick } = __req('ui/dom.js');
 const { recommend } = __req('core/recommend.js');
+const { isRookie, priorSummary } = __req('core/player.js');
+const { showPopover } = __req('ui/popover.js');
 
 const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -1246,65 +1258,6 @@ function formatVbd(vbd) {
 // Module-level view state so a re-render keeps the user's sort/filter/search choices.
 const view = { sortKey: 'overallRank', filter: 'ALL', query: '' };
 
-function pickEntry(pool, onPick, onUndo, onOffList) {
-  const input = el('input', {
-    type: 'text', placeholder: 'Type a player name, then Enter…', autocomplete: 'off',
-  }, []);
-  const list = el('div', { class: 'suggest-list', style: { display: 'none' } }, []);
-  let matches = [];
-  let active = 0;
-
-  function close() {
-    list.style.display = 'none';
-    clear(list);
-    matches = [];
-    active = 0;
-  }
-
-  function draw() {
-    clear(list);
-    matches.forEach((pl, i) => {
-      list.appendChild(el('div', {
-        class: i === active ? 'active' : '',
-        text: `${pl.name} — ${pl.position} ${pl.team} (#${pl.overallRank})`,
-        onMousedown: (e) => { e.preventDefault(); onPick(pl.id); close(); input.value = ''; },
-      }, []));
-    });
-    list.style.display = matches.length ? 'block' : 'none';
-  }
-
-  input.addEventListener('input', () => {
-    matches = input.value.trim() ? pool.filter((pl) => matchesQuery(pl, input.value)).slice(0, 8) : [];
-    active = 0;
-    draw();
-  });
-
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown') { active = Math.min(active + 1, matches.length - 1); draw(); e.preventDefault(); }
-    else if (e.key === 'ArrowUp') { active = Math.max(active - 1, 0); draw(); e.preventDefault(); }
-    else if (e.key === 'Enter' && matches[active]) {
-      onPick(matches[active].id);
-      input.value = '';
-      close();
-      e.preventDefault();
-    } else if (e.key === 'Escape') close();
-  });
-
-  const wrap = el('div', { class: 'pickbar' }, [
-    el('div', { class: 'suggest', style: { flex: '1' } }, [input, list]),
-    el('button', { text: 'Undo', onClick: onUndo }, []),
-    el('button', {
-      text: 'Skip / off-list',
-      title: 'Someone drafted a player who is not in this list — consume the pick slot',
-      onClick: onOffList,
-    }, []),
-  ]);
-
-  // Focus is restored after each render so the user can type pick after pick without reaching for the mouse.
-  setTimeout(() => input.focus(), 0);
-  return wrap;
-}
-
 function recommendationCard(rec) {
   const pl = rec.player;
   return el('div', {
@@ -1326,34 +1279,80 @@ function recommendationCard(rec) {
   ]);
 }
 
-function playerTable(pool, onPick) {
-  // No row cap: the spec asks for all remaining players, and capping the list
-  // silently hides the bottom of the pool in the unfiltered view.
-  const rows = filterByPosition(sortPlayers(pool, view.sortKey), view.filter)
-    .filter((pl) => !view.query || pl.name.toLowerCase().includes(view.query.toLowerCase()))
-    .map((pl) => el('tr', { onDblclick: () => onPick(pl.id) }, [
-      el('td', { text: String(pl.overallRank) }, []),
-      el('td', { text: pl.name }, []),
-      el('td', { text: pl.position, style: { color: POSITION_COLORS[pl.position] } }, []),
-      el('td', { text: pl.team }, []),
-      el('td', { text: String(pl.projectedPoints) }, []),
-      el('td', { text: String(Math.round(pl.vbd)) }, []),
-      el('td', { text: pl.adp === null ? '—' : String(pl.adp) }, []),
-      el('td', { text: pl.bye === null ? '—' : String(pl.bye) }, []),
-    ]));
+function playerTable(tablePlayers, onPick) {
+  const rows = filterByPosition(sortPlayers(tablePlayers, view.sortKey), view.filter)
+    .filter((pl) => matchesQuery(pl, view.query))
+    .map((pl) => {
+      const taken = pl.ownerName !== null && pl.ownerName !== undefined;
+      const name = el('td', {
+        class: 'pname', title: pl.name,
+        onClick: (e) => { e.stopPropagation(); showPopover(playerPopover(pl), e); },
+      }, [
+        el('span', { text: pl.name }, []),
+        isRookie(pl) ? el('span', { class: 'rookie', text: 'R' }, []) : null,
+      ]);
+      return el('tr', {
+        class: taken ? 'taken' : '',
+        // Only an available player can be drafted, and only on a double click.
+        onDblclick: taken ? null : () => onPick(pl.id),
+      }, [
+        el('td', { text: String(pl.overallRank) }, []),
+        name,
+        el('td', { text: pl.position, style: { color: POSITION_COLORS[pl.position] } }, []),
+        el('td', { text: pl.team }, []),
+        el('td', { class: 'age', text: pl.age === null || pl.age === undefined ? '' : String(pl.age) }, []),
+        el('td', { text: String(pl.projectedPoints) }, []),
+        el('td', { text: String(Math.round(pl.vbd)) }, []),
+        el('td', { text: pl.adp === null ? '—' : String(pl.adp) }, []),
+        el('td', { text: pl.bye === null ? '—' : String(pl.bye) }, []),
+        el('td', { class: 'owner', text: taken ? pl.ownerName : '' }, []),
+      ]);
+    });
 
   const header = (label, key) => el('th', {
     text: view.sortKey === key ? `${label} ▾` : label,
     onClick: key ? () => { view.sortKey = key; rerender(); } : null,
   }, []);
 
-  return el('table', { class: 'players' }, [
-    el('thead', {}, [el('tr', {}, [
-      header('#', 'overallRank'), header('Player', null), header('Pos', 'position'),
-      header('Tm', null), header('Proj', null), header('VBD', 'vbd'),
-      header('ADP', 'adp'), header('Bye', null),
-    ])]),
-    el('tbody', {}, rows),
+  return el('div', { class: 'tablewrap' }, [
+    el('table', { class: 'players' }, [
+      el('thead', {}, [el('tr', {}, [
+        header('#', 'overallRank'), header('Player', null), header('Pos', 'position'),
+        header('Tm', null), header('Age', null), header('Proj', null), header('VBD', 'vbd'),
+        header('ADP', 'adp'), header('Bye', null), header('Drafted By', null),
+      ])]),
+      el('tbody', {}, rows),
+    ]),
+  ]);
+}
+
+const GLOSSARY = [
+  ['BPA', 'Best player available — the raw overall ranking, ignoring what you already have.'],
+  ['VBD', 'Value based drafting — points above the last starter at this position. Compares across positions.'],
+  ['ADP', 'Average draft pick — where this player usually goes. Far past it is value; well before it is a reach.'],
+  ['Bye', 'The week this player does not play.'],
+  ['Need', 'high: no starter yet · medium: a starting slot open · depth: bench only · not needed: slots full.'],
+  ['R', 'Rookie — no prior NFL season on record.'],
+];
+
+function glossaryPopover() {
+  return el('div', { class: 'pop' }, [
+    el('h3', { text: 'What the columns mean' }, []),
+    el('dl', {}, GLOSSARY.flatMap(([term, meaning]) => [
+      el('dt', { text: term }, []),
+      el('dd', { text: meaning }, []),
+    ])),
+  ]);
+}
+
+function playerPopover(pl) {
+  const prior = priorSummary(pl);
+  return el('div', { class: 'pop' }, [
+    el('h3', { text: pl.name }, []),
+    el('div', { text: `${pl.position} · ${pl.team} · #${pl.overallRank} overall${pl.age === null || pl.age === undefined ? '' : ` · age ${pl.age}`}` }, []),
+    el('div', { style: { marginTop: '8px', color: '#8b93a5' }, text: 'Last season' }, []),
+    // A rookie has no prior line, and saying so is better than printing zeroes.
+    el('div', { text: prior || (isRookie(pl) ? 'Rookie — no NFL season yet' : 'No prior season on record') }, []),
   ]);
 }
 
@@ -1365,7 +1364,7 @@ function renderCenter(container, ctx, handlers) {
   clear(container);
 
   const {
-    pool, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
+    pool, tablePlayers, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
     vbdScale,
   } = ctx;
 
@@ -1387,7 +1386,14 @@ function renderCenter(container, ctx, handlers) {
     }, []) : null,
   ]));
 
-  container.appendChild(pickEntry(pool, handlers.onPick, handlers.onUndo, handlers.onOffList));
+  container.appendChild(el('div', { class: 'pickbar' }, [
+    el('button', { text: 'Undo', onClick: handlers.onUndo }, []),
+    el('button', {
+      text: 'Skip / off-list',
+      title: 'Someone drafted a player who is not in this list — consume the pick slot',
+      onClick: handlers.onOffList,
+    }, []),
+  ]));
 
   for (const note of notes || []) {
     container.appendChild(el('div', { class: 'notes', text: note }, []));
@@ -1399,25 +1405,34 @@ function renderCenter(container, ctx, handlers) {
     for (const rec of recs) container.appendChild(recommendationCard(rec));
   }
 
+  function redrawTable() {
+    const wrap = container.querySelector('.tablewrap');
+    if (wrap) wrap.replaceWith(playerTable(tablePlayers, handlers.onPick));
+  }
+
+  const filterInput = el('input', {
+    type: 'text', placeholder: 'Filter by name or team…', value: view.query, autocomplete: 'off',
+    onInput: (e) => { view.query = e.target.value; redrawTable(); },
+  }, []);
+
   const filters = el('div', { class: 'filters' }, [
     ...POSITION_FILTERS.map((position) => el('button', {
       class: view.filter === position ? 'selected' : '',
       text: position,
       onClick: () => { view.filter = position; rerender(); },
     }, [])),
-    el('input', {
-      type: 'text', placeholder: 'filter list…', value: view.query,
-      onInput: (e) => {
-        view.query = e.target.value;
-        const table = container.querySelector('table.players');
-        if (table) table.replaceWith(playerTable(pool, handlers.onPick));
-      },
-    }, []),
+    filterInput,
+    el('button', { text: '✕', title: 'Clear the filter', onClick: () => { view.query = ''; rerender(); } }, []),
+    el('button', { text: '?', title: 'What do these columns mean?', onClick: (e) => showPopover(glossaryPopover(), e) }, []),
   ]);
 
-  container.appendChild(el('h2', { text: `Available (${pool.length})` }, []));
+  container.appendChild(el('h2', { text: `Players (${pool.length} available)` }, []));
   container.appendChild(filters);
-  container.appendChild(playerTable(pool, handlers.onPick));
+  container.appendChild(playerTable(tablePlayers, handlers.onPick));
+
+  // Focus is restored after each render so the user can filter pick after pick
+  // without reaching for the mouse.
+  setTimeout(() => filterInput.focus(), 0);
 }
 
 __exports.SORT_KEYS = SORT_KEYS;
