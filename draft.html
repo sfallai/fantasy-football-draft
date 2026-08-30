@@ -239,6 +239,29 @@ __exports.needCountsBetween = needCountsBetween;
 __exports.competitiveNotes = competitiveNotes;
 
 });
+__def("core/player.js", function (__exports, __req) {
+// ESPN's `experience` counts the current rookie class as 0 and the previous one as 2,
+// so it cannot be trusted as a years-played number. Requiring no prior season is what
+// makes this independent of whichever convention ESPN is using in a given year.
+function isRookie(player) {
+  return player.experience !== null
+    && player.experience !== undefined
+    && player.experience <= 1
+    && !player.prior;
+}
+
+// A rookie has no prior season, and that absence is informative — so return null
+// rather than a line of zeroes the reader would have to decode.
+function priorSummary(player) {
+  const prior = player && player.prior;
+  if (!prior) return null;
+  return `${prior.points} pts in ${prior.games} games · ${prior.ppg} ppg`;
+}
+
+__exports.isRookie = isRookie;
+__exports.priorSummary = priorSummary;
+
+});
 __def("core/recommend.js", function (__exports, __req) {
 // BPA rank sets the baseline ordering; VBD adjusts within tiers; need applies a
 // multiplier small enough that it breaks ties without overriding real value gaps.
@@ -683,6 +706,19 @@ function rostersByTeam(state, allPlayers) {
   return out;
 }
 
+// The table shows drafted players too, greyed and unpickable, so the user can see
+// where someone went instead of wondering whether they mistyped the name. Returns a
+// copy per player: mutating the shared pool would leak owner names into the
+// recommendation path, which must never see a drafted player at all.
+function playersWithOwners(state, allPlayers) {
+  const ownerByPlayerId = new Map();
+  for (const entry of Object.values(state.picks)) {
+    const team = state.config.teams[entry.teamIndex - 1];
+    if (team) ownerByPlayerId.set(entry.playerId, team.name);
+  }
+  return allPlayers.map((pl) => ({ ...pl, ownerName: ownerByPlayerId.get(pl.id) ?? null }));
+}
+
 // The user's next *selection* strictly after `afterPick`. Scheduled slots that are
 // already filled (a keeper) are skipped — they are not selections the user makes,
 // and treating them as such both misreports the wait and shrinks the competitive
@@ -782,6 +818,7 @@ __exports.undoPick = undoPick;
 __exports.availablePlayers = availablePlayers;
 __exports.rosterFor = rosterFor;
 __exports.rostersByTeam = rostersByTeam;
+__exports.playersWithOwners = playersWithOwners;
 __exports.myNextPickAfter = myNextPickAfter;
 __exports.myNextPick = myNextPick;
 __exports.serialize = serialize;
@@ -1047,6 +1084,7 @@ const { slotToPick } = __req('core/snake.js');
 const { assignSlots, positionalNeeds } = __req('core/roster.js');
 const { currentPickNumber, rosterFor, isOffListId } = __req('core/state.js');
 const { slotRow } = __req('ui/slotrow.js');
+const { showPopover, closePopover } = __req('ui/popover.js');
 
 function boardCells(state, allPlayers) {
   const { numTeams, rounds, myTeamIndex } = state.config;
@@ -1075,13 +1113,6 @@ function boardCells(state, allPlayers) {
   return grid;
 }
 
-let openPopover = null;
-
-function closePopover() {
-  if (openPopover && openPopover.parentNode) openPopover.parentNode.removeChild(openPopover);
-  openPopover = null;
-}
-
 function showRosterPopover(event, state, allPlayers, teamIndex) {
   closePopover();
   const { slots, rounds } = state.config;
@@ -1099,11 +1130,7 @@ function showRosterPopover(event, state, allPlayers, teamIndex) {
     ])),
   ]);
 
-  pop.style.left = `${Math.min(event.clientX, window.innerWidth - 280)}px`;
-  pop.style.top = `${Math.min(event.clientY, window.innerHeight - 400)}px`;
-  document.body.appendChild(pop);
-  openPopover = pop;
-  setTimeout(() => document.addEventListener('click', closePopover, { once: true }), 0);
+  showPopover(pop, event);
 }
 
 function renderBoard(container, ctx) {
@@ -1176,13 +1203,13 @@ const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 
-function searchPlayers(pool, query, limit = 8) {
+// Name or team, so typing "CIN" surfaces a quarterback and his receiver together.
+// A blank query matches everything: the table shows the full pool until you type.
+function matchesQuery(player, query) {
   const needle = String(query || '').trim().toLowerCase();
-  if (!needle) return [];
-  return pool
-    .filter((pl) => pl.name.toLowerCase().includes(needle) || pl.team.toLowerCase().includes(needle))
-    .sort((a, b) => a.overallRank - b.overallRank)
-    .slice(0, limit);
+  if (!needle) return true;
+  return player.name.toLowerCase().includes(needle)
+    || player.team.toLowerCase().includes(needle);
 }
 
 function sortPlayers(pool, key) {
@@ -1247,7 +1274,7 @@ function pickEntry(pool, onPick, onUndo, onOffList) {
   }
 
   input.addEventListener('input', () => {
-    matches = searchPlayers(pool, input.value);
+    matches = input.value.trim() ? pool.filter((pl) => matchesQuery(pl, input.value)).slice(0, 8) : [];
     active = 0;
     draw();
   });
@@ -1395,7 +1422,7 @@ function renderCenter(container, ctx, handlers) {
 
 __exports.SORT_KEYS = SORT_KEYS;
 __exports.POSITION_FILTERS = POSITION_FILTERS;
-__exports.searchPlayers = searchPlayers;
+__exports.matchesQuery = matchesQuery;
 __exports.sortPlayers = sortPlayers;
 __exports.filterByPosition = filterByPosition;
 __exports.formatVbd = formatVbd;
@@ -1533,6 +1560,31 @@ function renderMyTeam(container, ctx) {
 __exports.needSummary = needSummary;
 __exports.positionCountLine = positionCountLine;
 __exports.renderMyTeam = renderMyTeam;
+
+});
+__def("ui/popover.js", function (__exports, __req) {
+// One module owns the open popover, so a second panel opening one closes the first.
+// Two independent copies of this state let the board's roster popover and the centre
+// panel's player detail sit on screen at the same time, each unaware of the other.
+let openNode = null;
+
+function closePopover() {
+  if (openNode && openNode.parentNode) openNode.parentNode.removeChild(openNode);
+  openNode = null;
+}
+
+function showPopover(node, event) {
+  closePopover();
+  node.style.left = `${Math.min(event.clientX, window.innerWidth - 280)}px`;
+  node.style.top = `${Math.min(event.clientY, window.innerHeight - 400)}px`;
+  document.body.appendChild(node);
+  openNode = node;
+  // Deferred, or the click that opened this popover immediately closes it.
+  setTimeout(() => document.addEventListener('click', closePopover, { once: true }), 0);
+}
+
+__exports.closePopover = closePopover;
+__exports.showPopover = showPopover;
 
 });
 __def("ui/setup.js", function (__exports, __req) {

@@ -3,6 +3,7 @@ import { slotToPick } from '../core/snake.js';
 import { assignSlots, positionalNeeds } from '../core/roster.js';
 import { currentPickNumber, rosterFor, isOffListId } from '../core/state.js';
 import { slotRow } from './slotrow.js';
+import { showPopover, closePopover } from './popover.js';
 
 export function boardCells(state, allPlayers) {
   const { numTeams, rounds, myTeamIndex } = state.config;
@@ -31,13 +32,6 @@ export function boardCells(state, allPlayers) {
   return grid;
 }
 
-let openPopover = null;
-
-function closePopover() {
-  if (openPopover && openPopover.parentNode) openPopover.parentNode.removeChild(openPopover);
-  openPopover = null;
-}
-
 function showRosterPopover(event, state, allPlayers, teamIndex) {
   closePopover();
   const { slots, rounds } = state.config;
@@ -55,11 +49,7 @@ function showRosterPopover(event, state, allPlayers, teamIndex) {
     ])),
   ]);
 
-  pop.style.left = `${Math.min(event.clientX, window.innerWidth - 280)}px`;
-  pop.style.top = `${Math.min(event.clientY, window.innerHeight - 400)}px`;
-  document.body.appendChild(pop);
-  openPopover = pop;
-  setTimeout(() => document.addEventListener('click', closePopover, { once: true }), 0);
+  showPopover(pop, event);
 }
 
 export function renderBoard(container, ctx) {
