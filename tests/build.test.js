@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { transformModule, bundle } from '../scripts/build.mjs';
 
 test('transformModule rewrites a named import into a registry lookup', () => {
@@ -72,4 +73,19 @@ test('draft.html was rebuilt from the committed data/players.json', () => {
     html.includes(`window.PLAYERS = ${JSON.stringify(JSON.parse(players))};`),
     'draft.html does not match data/players.json — run `node scripts/build.mjs`',
   );
+});
+
+test('draft.html matches a fresh build of the committed src/ — run `node scripts/build.mjs`', () => {
+  // Mirrors how scripts/build.mjs's own main() assembles its inputs, so a src/
+  // change with no rebuild fails this test instead of shipping a stale artifact.
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const srcDir = join(root, 'src');
+  const players = JSON.parse(readFileSync(join(root, 'data', 'players.json'), 'utf8'));
+  const css = readFileSync(join(srcDir, 'styles.css'), 'utf8');
+  const html = readFileSync(join(srcDir, 'index.html'), 'utf8');
+
+  const rebuilt = bundle({ srcDir, entry: 'ui/app.js', players, css, html });
+  const committed = readFileSync(join(root, 'draft.html'), 'utf8');
+
+  assert.equal(rebuilt, committed, 'draft.html does not match src/ — run `node scripts/build.mjs`');
 });

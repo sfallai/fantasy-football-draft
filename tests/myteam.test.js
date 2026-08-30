@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { needSummary, slotMeta, positionCountLine } from '../src/ui/myteam.js';
+import { needSummary, positionCountLine } from '../src/ui/myteam.js';
 import { DEFAULT_SLOTS } from '../src/core/roster.js';
 
 const p = (id, position) => ({
@@ -47,21 +47,6 @@ test('needSummary defers K and DEF until late', () => {
   const late = needSummary([], DEFAULT_SLOTS, 13, 15).find((n) => n.position === 'K');
   assert.equal(late.tier, 'high');
   assert.equal(late.label, 'K needed');
-});
-
-test('slotMeta shows the team and bye week', () => {
-  assert.equal(slotMeta({ team: 'DET', bye: 6 }), 'DET · bye 6');
-});
-
-test('slotMeta says so when a player has no bye on record', () => {
-  // A free agent has no pro team, so no bye. An em-dash here would read as
-  // "week —", which is worse than saying there isn't one.
-  assert.equal(slotMeta({ team: 'FA', bye: null }), 'FA · no bye');
-});
-
-test('slotMeta is empty for an unfilled slot', () => {
-  assert.equal(slotMeta(null), '');
-  assert.equal(slotMeta(undefined), '');
 });
 
 test('positionCountLine reports every position, including the ones at zero', () => {

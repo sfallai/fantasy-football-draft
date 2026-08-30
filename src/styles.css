@@ -88,11 +88,11 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 
 /* ---- My team ---- */
 .slot { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); }
-.slot .label { color: var(--muted); font-size: 12px; width: 46px; flex: none; }
+.slot .label { color: var(--muted); font-size: 12px; width: 40px; flex: none; }
 .slot .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slot .name.empty { color: #4b5263; font-style: italic; }
 .slot .meta { color: var(--muted); font-size: 11px; flex: none; white-space: nowrap; }
-.pos-counts { margin-top: 14px; color: var(--muted); font-size: 12px; letter-spacing: 0.02em; }
+.pos-counts { margin-top: 14px; color: var(--muted); font-size: 12px; letter-spacing: 0.02em; white-space: pre-wrap; }
 .needs { margin-top: 14px; }
 .need-row { display: flex; justify-content: space-between; padding: 3px 0; }
 .tier { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }

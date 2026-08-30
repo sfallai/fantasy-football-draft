@@ -94,11 +94,11 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 
 /* ---- My team ---- */
 .slot { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); }
-.slot .label { color: var(--muted); font-size: 12px; width: 46px; flex: none; }
+.slot .label { color: var(--muted); font-size: 12px; width: 40px; flex: none; }
 .slot .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slot .name.empty { color: #4b5263; font-style: italic; }
 .slot .meta { color: var(--muted); font-size: 11px; flex: none; white-space: nowrap; }
-.pos-counts { margin-top: 14px; color: var(--muted); font-size: 12px; letter-spacing: 0.02em; }
+.pos-counts { margin-top: 14px; color: var(--muted); font-size: 12px; letter-spacing: 0.02em; white-space: pre-wrap; }
 .needs { margin-top: 14px; }
 .need-row { display: flex; justify-content: space-between; padding: 3px 0; }
 .tier { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -1046,6 +1046,7 @@ const { el, clear, POSITION_COLORS, abbreviate } = __req('ui/dom.js');
 const { slotToPick } = __req('core/snake.js');
 const { assignSlots, positionalNeeds } = __req('core/roster.js');
 const { currentPickNumber, rosterFor, isOffListId } = __req('core/state.js');
+const { slotRow } = __req('ui/slotrow.js');
 
 function boardCells(state, allPlayers) {
   const { numTeams, rounds, myTeamIndex } = state.config;
@@ -1090,14 +1091,7 @@ function showRosterPopover(event, state, allPlayers, teamIndex) {
 
   const pop = el('div', { class: 'roster-pop' }, [
     el('div', { style: { fontWeight: '600', marginBottom: '6px' }, text: state.config.teams[teamIndex - 1].name }, []),
-    ...assignSlots(roster, slots).map((slot) => el('div', { class: 'slot' }, [
-      el('span', { class: 'label', text: slot.label }, []),
-      el('span', {
-        class: `name${slot.player ? '' : ' empty'}`,
-        text: slot.player ? slot.player.name : 'empty',
-        style: slot.player ? { color: POSITION_COLORS[slot.player.position] } : {},
-      }, []),
-    ])),
+    ...assignSlots(roster, slots).map((slot) => slotRow(slot)),
     el('div', { style: { marginTop: '6px', color: '#8b93a5' }, text: 'Needs' }, []),
     ...Object.keys(needs).map((pos) => el('div', { class: 'need-row' }, [
       el('span', { text: pos, style: { color: POSITION_COLORS[pos] } }, []),
@@ -1469,6 +1463,7 @@ __exports.formatPick = formatPick;
 __def("ui/myteam.js", function (__exports, __req) {
 const { el, clear, POSITION_COLORS } = __req('ui/dom.js');
 const { assignSlots, positionalNeeds, countByPosition, ALL_POSITIONS, NEED_TIERS, LATE_ROUND_WINDOW } = __req('core/roster.js');
+const { slotRow } = __req('ui/slotrow.js');
 
 function needLabel(position, tier, have, required, totalRounds) {
   if (position === 'K' || position === 'DEF') {
@@ -1500,14 +1495,8 @@ function needSummary(roster, slots, round, totalRounds) {
       || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position));
 }
 
-// Team and bye belong on the row, not in a title attribute — a tooltip you have to
-// hover for is no use when you are scanning the roster for a bye-week clash on the clock.
-function slotMeta(player) {
-  if (!player) return '';
-  return `${player.team} · ${player.bye === null || player.bye === undefined ? 'no bye' : `bye ${player.bye}`}`;
-}
-
 // Two spaces between entries: at 12px a single space runs "QB:1 RB:2" together.
+// (.pos-counts sets white-space: pre-wrap so the run of spaces survives to the page.)
 function positionCountLine(roster) {
   const counts = countByPosition(roster);
   return ALL_POSITIONS.map((position) => `${position}:${counts[position]}`).join('  ');
@@ -1520,17 +1509,7 @@ function renderMyTeam(container, ctx) {
   container.appendChild(el('h2', { text: `My Team — ${teamName}` }, []));
 
   for (const slot of assignSlots(roster, slots)) {
-    const player = slot.player;
-    container.appendChild(el('div', { class: 'slot' }, [
-      el('span', { class: 'label', text: slot.label }, []),
-      el('span', {
-        class: `name${player ? '' : ' empty'}`,
-        text: player ? player.name : 'empty',
-        style: player ? { color: POSITION_COLORS[player.position] } : {},
-        title: player ? `${player.position} · ${player.projectedPoints} proj` : '',
-      }, []),
-      el('span', { class: 'meta', text: slotMeta(player) }, []),
-    ]));
+    container.appendChild(slotRow(slot));
   }
 
   container.appendChild(el('div', {
@@ -1552,7 +1531,6 @@ function renderMyTeam(container, ctx) {
 }
 
 __exports.needSummary = needSummary;
-__exports.slotMeta = slotMeta;
 __exports.positionCountLine = positionCountLine;
 __exports.renderMyTeam = renderMyTeam;
 
@@ -1854,6 +1832,34 @@ __exports.resizeTeams = resizeTeams;
 __exports.buildConfig = buildConfig;
 __exports.validateConfig = validateConfig;
 __exports.renderSetup = renderSetup;
+
+});
+__def("ui/slotrow.js", function (__exports, __req) {
+const { el, POSITION_COLORS } = __req('ui/dom.js');
+
+// Team and bye belong on the row, not in a title attribute — a tooltip you have to
+// hover for is no use when you are scanning the roster for a bye-week clash on the clock.
+function playerMeta(player) {
+  if (!player) return '';
+  return `${player.team} · ${player.bye === null || player.bye === undefined ? 'no bye' : `bye ${player.bye}`}`;
+}
+
+function slotRow(slot) {
+  const player = slot.player;
+  return el('div', { class: 'slot' }, [
+    el('span', { class: 'label', text: slot.label }, []),
+    el('span', {
+      class: `name${player ? '' : ' empty'}`,
+      text: player ? player.name : 'empty',
+      style: player ? { color: POSITION_COLORS[player.position] } : {},
+      title: player ? `${player.name} — ${player.position} · ${player.projectedPoints} proj` : '',
+    }, []),
+    player ? el('span', { class: 'meta', text: playerMeta(player) }, []) : null,
+  ]);
+}
+
+__exports.playerMeta = playerMeta;
+__exports.slotRow = slotRow;
 
 });
 __req("ui/app.js");

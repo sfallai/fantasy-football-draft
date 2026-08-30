@@ -1,5 +1,6 @@
 import { el, clear, POSITION_COLORS } from './dom.js';
 import { assignSlots, positionalNeeds, countByPosition, ALL_POSITIONS, NEED_TIERS, LATE_ROUND_WINDOW } from '../core/roster.js';
+import { slotRow } from './slotrow.js';
 
 function needLabel(position, tier, have, required, totalRounds) {
   if (position === 'K' || position === 'DEF') {
@@ -31,14 +32,8 @@ export function needSummary(roster, slots, round, totalRounds) {
       || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position));
 }
 
-// Team and bye belong on the row, not in a title attribute — a tooltip you have to
-// hover for is no use when you are scanning the roster for a bye-week clash on the clock.
-export function slotMeta(player) {
-  if (!player) return '';
-  return `${player.team} · ${player.bye === null || player.bye === undefined ? 'no bye' : `bye ${player.bye}`}`;
-}
-
 // Two spaces between entries: at 12px a single space runs "QB:1 RB:2" together.
+// (.pos-counts sets white-space: pre-wrap so the run of spaces survives to the page.)
 export function positionCountLine(roster) {
   const counts = countByPosition(roster);
   return ALL_POSITIONS.map((position) => `${position}:${counts[position]}`).join('  ');
@@ -51,17 +46,7 @@ export function renderMyTeam(container, ctx) {
   container.appendChild(el('h2', { text: `My Team — ${teamName}` }, []));
 
   for (const slot of assignSlots(roster, slots)) {
-    const player = slot.player;
-    container.appendChild(el('div', { class: 'slot' }, [
-      el('span', { class: 'label', text: slot.label }, []),
-      el('span', {
-        class: `name${player ? '' : ' empty'}`,
-        text: player ? player.name : 'empty',
-        style: player ? { color: POSITION_COLORS[player.position] } : {},
-        title: player ? `${player.position} · ${player.projectedPoints} proj` : '',
-      }, []),
-      el('span', { class: 'meta', text: slotMeta(player) }, []),
-    ]));
+    container.appendChild(slotRow(slot));
   }
 
   container.appendChild(el('div', {

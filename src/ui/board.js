@@ -2,6 +2,7 @@ import { el, clear, POSITION_COLORS, abbreviate } from './dom.js';
 import { slotToPick } from '../core/snake.js';
 import { assignSlots, positionalNeeds } from '../core/roster.js';
 import { currentPickNumber, rosterFor, isOffListId } from '../core/state.js';
+import { slotRow } from './slotrow.js';
 
 export function boardCells(state, allPlayers) {
   const { numTeams, rounds, myTeamIndex } = state.config;
@@ -46,14 +47,7 @@ function showRosterPopover(event, state, allPlayers, teamIndex) {
 
   const pop = el('div', { class: 'roster-pop' }, [
     el('div', { style: { fontWeight: '600', marginBottom: '6px' }, text: state.config.teams[teamIndex - 1].name }, []),
-    ...assignSlots(roster, slots).map((slot) => el('div', { class: 'slot' }, [
-      el('span', { class: 'label', text: slot.label }, []),
-      el('span', {
-        class: `name${slot.player ? '' : ' empty'}`,
-        text: slot.player ? slot.player.name : 'empty',
-        style: slot.player ? { color: POSITION_COLORS[slot.player.position] } : {},
-      }, []),
-    ])),
+    ...assignSlots(roster, slots).map((slot) => slotRow(slot)),
     el('div', { style: { marginTop: '6px', color: '#8b93a5' }, text: 'Needs' }, []),
     ...Object.keys(needs).map((pos) => el('div', { class: 'need-row' }, [
       el('span', { text: pos, style: { color: POSITION_COLORS[pos] } }, []),
