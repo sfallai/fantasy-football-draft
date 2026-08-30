@@ -56,6 +56,40 @@ export function priorSeasonLine(player, priorSeason) {
   return { points, games, ppg };
 }
 
+// The athlete endpoint is a different service from the fantasy API and answers with a
+// different shape. Every field is treated as absent unless it arrives as the right type,
+// so a changed response degrades to nulls instead of writing "unknown" into the data.
+export function athleteFields(athlete) {
+  const age = athlete && typeof athlete.age === 'number' ? athlete.age : null;
+  const years = athlete && athlete.experience && typeof athlete.experience.years === 'number'
+    ? athlete.experience.years
+    : null;
+  return { age, experience: years };
+}
+
+// 400 requests, a few at a time. Workers pull from a shared cursor rather than being
+// handed fixed slices, so one slow response cannot leave a worker idle while others queue.
+export async function mapWithConcurrency(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+
+  const worker = async () => {
+    while (true) {
+      // Claiming the index and advancing the cursor happen with no await between them,
+      // so two workers can never be handed the same item.
+      const i = next;
+      next += 1;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i], i);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker),
+  );
+  return out;
+}
+
 export function mergePlayers(espnJson, teamsJson, ffcJson) {
   const teamsById = new Map();
   for (const t of teamsJson.settings.proTeams) {

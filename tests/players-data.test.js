@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeName, mergePlayers, priorSeasonLine } from '../scripts/fetch-players.mjs';
+import { normalizeName, mergePlayers, priorSeasonLine, athleteFields, mapWithConcurrency } from '../scripts/fetch-players.mjs';
 
 test('normalizeName strips punctuation, case, and suffixes', () => {
   assert.equal(normalizeName("Ka'imi Fairbairn"), 'kaimifairbairn');
@@ -93,6 +93,45 @@ test('priorSeasonLine never divides by zero for a player who logged no games', (
     { seasonId: 2025, statSourceId: 0, statSplitTypeId: 0, appliedTotal: 0, appliedAverage: 0 },
   ] };
   assert.deepEqual(priorSeasonLine(shelved, 2025), { points: 0, games: 0, ppg: 0 });
+});
+
+test('athleteFields extracts age and experience years', () => {
+  assert.deepEqual(
+    athleteFields({ age: 24, experience: { years: 4 } }),
+    { age: 24, experience: 4 },
+  );
+});
+
+test('athleteFields returns nulls rather than throwing on a failed or odd response', () => {
+  const empty = { age: null, experience: null };
+  assert.deepEqual(athleteFields(null), empty, 'the request failed');
+  assert.deepEqual(athleteFields({}), empty, 'the response had neither field');
+  assert.deepEqual(athleteFields({ age: 'unknown', experience: {} }), empty, 'wrong types');
+});
+
+test('mapWithConcurrency resolves in input order, not completion order', async () => {
+  const out = await mapWithConcurrency([30, 1, 15], 3, async (n) => {
+    await new Promise((r) => setTimeout(r, n));
+    return n * 2;
+  });
+  assert.deepEqual(out, [60, 2, 30]);
+});
+
+test('mapWithConcurrency never runs more than the limit at once', async () => {
+  let running = 0;
+  let peak = 0;
+  await mapWithConcurrency(Array.from({ length: 20 }, (_, i) => i), 4, async () => {
+    running += 1;
+    peak = Math.max(peak, running);
+    await new Promise((r) => setTimeout(r, 1));
+    running -= 1;
+    return null;
+  });
+  assert.ok(peak <= 4, `peak concurrency was ${peak}, expected at most 4`);
+});
+
+test('mapWithConcurrency handles an empty list without hanging', async () => {
+  assert.deepEqual(await mapWithConcurrency([], 4, async () => 1), []);
 });
 
 test('generated data/players.json matches the schema and covers all positions', () => {
