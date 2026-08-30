@@ -249,7 +249,7 @@ test('generated data/players.json matches the schema and covers all positions', 
     projecting >= floor,
     `only ${projecting} of ${players.length} players have a non-zero projection `
     + `(expected at least ${floor}) — the projections source is probably broken; `
-    + 'run `git checkout data/players.json` to restore the committed file',
+    + 'run `git checkout data/players.json data/fetched-at.json` to restore the committed files',
   );
 
   // The athlete endpoint is separate from the fantasy API and can fail wholesale without
@@ -261,7 +261,7 @@ test('generated data/players.json matches the schema and covers all positions', 
     aged >= Math.floor(skill.length * 0.8),
     `only ${aged} of ${skill.length} non-defense players have an age (expected at least `
     + `${Math.floor(skill.length * 0.8)}) — the athlete lookups probably failed; `
-    + 'run `git checkout data/players.json` to restore the committed file',
+    + 'run `git checkout data/players.json data/fetched-at.json` to restore the committed files',
   );
 
   // prior has the largest silent-failure surface of the three new fields: if ESPN narrows
@@ -273,7 +273,23 @@ test('generated data/players.json matches the schema and covers all positions', 
     withPrior >= priorFloor,
     `only ${withPrior} of ${players.length} players have a prior season (expected at least `
     + `${priorFloor}) — the prior-season stats filter probably changed; `
-    + 'run `git checkout data/players.json` to restore the committed file',
+    + 'run `git checkout data/players.json data/fetched-at.json` to restore the committed files',
+  );
+
+  // Fantasy Football Calculator is the shakiest source in this file: a separate host
+  // from ESPN, the only one of the three with no CORS headers, no versioned contract,
+  // and currently supplying ADP for roughly half the pool. If its response shape
+  // changes while still returning 200, mergePlayers quietly writes null for every
+  // player, every per-player check above still passes (null is legal), and the site
+  // ships with no ADP or value signal at all — silently, and unattended, since this
+  // runs from a daily cron with no human watching.
+  const withAdp = players.filter((p) => p.adp !== null).length;
+  const adpFloor = Math.floor(players.length * 0.4);
+  assert.ok(
+    withAdp >= adpFloor,
+    `only ${withAdp} of ${players.length} players have an ADP (expected at least `
+    + `${adpFloor}) — Fantasy Football Calculator's response shape probably changed; `
+    + 'run `git checkout data/players.json data/fetched-at.json` to restore the committed files',
   );
 
   // A rookie has no prior season by definition — that's what makes this predicate
