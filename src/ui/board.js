@@ -66,7 +66,7 @@ export function renderBoard(container, ctx) {
       class: teamIndex === myTeamIndex ? 'mine' : '',
       text: teams[teamIndex - 1].name,
       title: 'Click for this team\'s roster and needs',
-      onClick: (e) => { e.stopPropagation(); showRosterPopover(e, state, allPlayers, teamIndex); },
+      onClick: (e) => showRosterPopover(e, state, allPlayers, teamIndex),
     }, []));
   }
 
