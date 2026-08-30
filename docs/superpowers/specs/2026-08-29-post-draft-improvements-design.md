@@ -318,6 +318,23 @@ rookie class as 0 and the previous one as 2, so any later feature tempted to
 render "3rd-year WR" from this field would be off by one for a whole draft class.
 Deriving the rookie badge is all this field supports.
 
+## Carried forward from chunk D
+
+**Chunk E's import path must call `resetView()`.** `view` (sort key, targeted positions,
+query, available-only) is module state in `src/ui/center.js`, cleared today only by
+`handleReset`. An imported draft that skipped it would silently inherit the previous
+draft's position targeting — and therefore its filtered recommendations.
+
+**`SLEEPER_ADP_GAP` of 15 fires rarely in a tight draft.** Simulating against the shipped
+pool, a room that deviates only a few picks from ADP produced at most three qualifying
+fallers across 160 picks. The threshold was set by reasoning, not by data, and deserves
+revisiting against a real draft log rather than a simulation.
+
+**A sleeper's projection edge is static; its ADP fall is dynamic.** That asymmetry is why
+the panel reserves one slot per qualification kind rather than ranking both on one scale —
+without it, one near-static outlier holds a slot at every pick of every draft. Anything
+later that touches sleeper selection needs to keep that property.
+
 ## Carried forward from chunk C
 
 Two things the chunk C review surfaced that later chunks will meet.
