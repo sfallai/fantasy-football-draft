@@ -76,7 +76,18 @@ export function applyPick(state, playerId) {
 // Editing replaces a player; it never empties a cell. That is deliberate:
 // currentPickNumber returns the first UNFILLED pick, so a hole in the middle of a
 // draft would make the clock mean the wrong thing and misroute every later pick.
-// A cell whose player is genuinely unknown is what the off-list sentinel is for.
+// A cell whose player is genuinely unknown takes the off-list sentinel instead —
+// `${OFF_LIST_PREFIX}${pickNumber}` — which keeps the cell filled.
+//
+// When the named player already sits at another (necessarily filled) pick, the two
+// entries are EXCHANGED rather than rejected: two picks logged in the wrong order is
+// a real draft-day mistake and had no other expression. An exchange fills exactly the
+// cells it emptied, so it moves no clock and creates no hole.
+//
+// Note: editing a keeper's cell deliberately leaves config.teams[i].keeper.playerId
+// pointing at the old player. Keepers are copied into `picks` once, by createState at
+// setup, and nothing reads config.teams[].keeper after that — but a future chunk that
+// starts reading it (a re-open of setup, a keeper report) must reconcile it here.
 export function setPick(state, pickNumber, playerId) {
   const entry = state.picks[pickNumber];
   if (!entry) throw new Error(`Pick ${pickNumber} has not been made yet`);
@@ -84,19 +95,27 @@ export function setPick(state, pickNumber, playerId) {
   const id = String(playerId);
   if (entry.playerId === id) return state;
 
+  let heldAt = null;
   for (const [number, other] of Object.entries(state.picks)) {
     if (Number(number) !== pickNumber && other.playerId === id) {
-      throw new Error(`Player ${playerId} is already drafted`);
+      heldAt = Number(number);
+      break;
     }
   }
 
-  return {
-    ...state,
-    // Spread the existing entry so teamIndex and isKeeper survive — a pick must never
-    // change hands, and a keeper slot stays a keeper slot.
-    picks: { ...state.picks, [pickNumber]: { ...entry, playerId: id } },
-    history: [...state.history, { pick: pickNumber, previous: entry.playerId }],
-  };
+  // Spread each existing entry so teamIndex and isKeeper stay with their pick number —
+  // a pick must never change hands, and a keeper slot stays a keeper slot.
+  const picks = { ...state.picks, [pickNumber]: { ...entry, playerId: id } };
+  const record = { pick: pickNumber, previous: entry.playerId };
+
+  if (heldAt !== null) {
+    const displaced = state.picks[heldAt];
+    picks[heldAt] = { ...displaced, playerId: entry.playerId };
+    // One history entry for the whole exchange, so one undo reverses both halves.
+    record.swap = { pick: heldAt, previous: displaced.playerId };
+  }
+
+  return { ...state, picks, history: [...state.history, record] };
 }
 
 // Consumes the current pick slot without naming a player from the pool, so a pick
@@ -115,6 +134,12 @@ export function undoPick(state) {
 
   if (last.previous === null) delete picks[last.pick];
   else picks[last.pick] = { ...picks[last.pick], playerId: last.previous };
+
+  // An exchange was one action, so it comes back as one: restoring only the edited
+  // cell would leave the displaced player duplicated across two picks.
+  if (last.swap && picks[last.swap.pick]) {
+    picks[last.swap.pick] = { ...picks[last.swap.pick], playerId: last.swap.previous };
+  }
 
   return { ...state, picks, history };
 }
@@ -158,6 +183,19 @@ export function playersWithOwners(state, allPlayers) {
     if (team) ownerByPlayerId.set(entry.playerId, team.name);
   }
   return allPlayers.map((pl) => ({ ...pl, ownerName: ownerByPlayerId.get(pl.id) ?? null }));
+}
+
+// The pick editor's pool. Unlike availablePlayers it keeps the drafted players, each
+// tagged with the pick that holds him, because choosing one of them EXCHANGES the two
+// picks (see setPick) — hiding them is what made a transposed pair uncorrectable.
+// A copy per player, for the same reason playersWithOwners copies: the shared pool
+// must never gain draft state that the recommendation path could see.
+export function playersWithPickNumbers(state, allPlayers) {
+  const pickByPlayerId = new Map();
+  for (const [number, entry] of Object.entries(state.picks)) {
+    pickByPlayerId.set(entry.playerId, Number(number));
+  }
+  return allPlayers.map((pl) => ({ ...pl, draftedAt: pickByPlayerId.get(pl.id) ?? null }));
 }
 
 // The user's next *selection* strictly after `afterPick`. Scheduled slots that are

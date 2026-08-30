@@ -4,7 +4,7 @@ import {
   STORAGE_KEY, DEFAULT_CONFIG, createState, currentPickNumber, applyPick, undoPick,
   availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter,
   applyOffListPick, isOffListId, saveState, loadState, clearState, playersWithOwners,
-  setPick, deserialize, backupFilename,
+  setPick, serialize, deserialize, backupFilename, playersWithPickNumbers, OFF_LIST_PREFIX,
 } from '../src/core/state.js';
 
 const PLAYERS = Array.from({ length: 200 }, (_, i) => ({
@@ -328,11 +328,88 @@ test('setPick keeps the pick on the same team', () => {
   assert.equal(state.picks[2].teamIndex, before);
 });
 
-test('setPick refuses a player already drafted somewhere else', () => {
+// Two picks logged in the wrong order is a real draft-day mistake, and it used to
+// have no expression at all: setPick threw `already drafted`, and clearing a cell
+// would have moved the clock backwards. Exchanging the two entries fixes it without
+// touching currentPickNumber — both cells stay filled, so there is never a hole.
+test('setPick exchanges the two picks when the player is already at another pick', () => {
   let state = createState({ numTeams: 2, rounds: 2 });
   state = applyPick(state, 'a');
   state = applyPick(state, 'b');
-  assert.throws(() => setPick(state, 1, 'b'), /already drafted/);
+  const swapped = setPick(state, 1, 'b');
+  assert.equal(swapped.picks[1].playerId, 'b');
+  assert.equal(swapped.picks[2].playerId, 'a', 'the displaced player takes the other cell');
+});
+
+test('an exchange leaves both picks with their own team', () => {
+  // The whole point of the invariant: a pick belongs to the manager whose slot it
+  // is, and correcting the order must never move a player onto the wrong roster.
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  const swapped = setPick(state, 1, 'b');
+  assert.equal(swapped.picks[1].teamIndex, state.picks[1].teamIndex);
+  assert.equal(swapped.picks[2].teamIndex, state.picks[2].teamIndex);
+  assert.notEqual(swapped.picks[1].teamIndex, swapped.picks[2].teamIndex, 'two managers, still');
+});
+
+test('an exchange leaves a keeper flag on the pick number it belongs to', () => {
+  let state = createState({
+    numTeams: 2, rounds: 2,
+    teams: [{ name: 'A', keeper: { playerId: 'k', round: 1 } }, { name: 'B', keeper: null }],
+  });
+  // Pick 1 is A's keeper; pick 2 is B's ordinary selection.
+  state = applyPick(state, 'x');
+  const swapped = setPick(state, 1, 'x');
+  assert.equal(swapped.picks[1].playerId, 'x');
+  assert.equal(swapped.picks[1].isKeeper, true, 'the keeper slot is still the keeper slot');
+  assert.equal(swapped.picks[2].playerId, 'k');
+  assert.equal(swapped.picks[2].isKeeper, false, 'and the ordinary pick did not become one');
+});
+
+test('an exchange does not move the clock or leave a hole', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  const before = currentPickNumber(state);
+  const swapped = setPick(state, 1, 'b');
+  assert.equal(currentPickNumber(swapped), before);
+  assert.equal(Object.keys(swapped.picks).length, 2);
+});
+
+test('one undo reverses the whole exchange, not half of it', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  state = setPick(state, 1, 'b');
+  state = undoPick(state);
+  assert.equal(state.picks[1].playerId, 'a');
+  assert.equal(state.picks[2].playerId, 'b', 'the displaced pick came back too');
+  assert.equal(currentPickNumber(state), 3, 'and undoing an exchange un-makes no pick');
+});
+
+test('an exchange survives a save and reload, undo included', () => {
+  // myTeamIndex explicitly, because the round trip through deserialize validates the
+  // config against the renderers' assumptions and DEFAULT_CONFIG's 4 is out of a
+  // two-team league. createState does not clamp it; the setup screen rejects it.
+  let state = createState({ numTeams: 2, rounds: 2, myTeamIndex: 1 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  state = setPick(state, 1, 'b');
+  const reloaded = deserialize(serialize(state));
+  assert.equal(reloaded.picks[1].playerId, 'b');
+  const undone = undoPick(reloaded);
+  assert.equal(undone.picks[1].playerId, 'a');
+  assert.equal(undone.picks[2].playerId, 'b');
+});
+
+test('setPick does not mutate the state it is given during an exchange', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  setPick(state, 1, 'b');
+  assert.equal(state.picks[1].playerId, 'a');
+  assert.equal(state.picks[2].playerId, 'b');
 });
 
 test('setPick allows re-setting a pick to the player it already holds', () => {
