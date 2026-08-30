@@ -51,6 +51,32 @@ test('bundle inlines $ substitution patterns literally', () => {
   assert.ok(out.includes("Ja'$&Marr $` $' $1 Chase"), 'player data survives verbatim');
 });
 
+test('bundle inlines the fetched-at stamp beside the player data', () => {
+  const srcDir = fileURLToPath(new URL('../src', import.meta.url));
+  const out = bundle({
+    srcDir, entry: 'ui/app.js', players: [{ id: '1', name: 'A' }],
+    css: '', html: 'X/*<!--STYLES-->*/Y/*<!--DATA-->*/Z/*<!--SCRIPT-->*/W',
+    fetchedAt: '2026-08-30T11:00:00.000Z',
+  });
+  assert.ok(out.includes('window.DATA_FETCHED_AT = "2026-08-30T11:00:00.000Z";'));
+});
+
+test('bundle omits the stamp rather than writing undefined', () => {
+  // A fresh clone has no data/fetched-at.json. The page must still build.
+  const srcDir = fileURLToPath(new URL('../src', import.meta.url));
+  const out = bundle({
+    srcDir, entry: 'ui/app.js', players: [{ id: '1', name: 'A' }],
+    css: '', html: 'X/*<!--STYLES-->*/Y/*<!--DATA-->*/Z/*<!--SCRIPT-->*/W',
+  });
+  assert.ok(out.includes('window.DATA_FETCHED_AT = null;'));
+  // Scoped to the stamp assignment, not the whole bundle: real src/ legitimately
+  // contains `=== undefined` checks (dom.js, player.js, ...) that a bundle-wide
+  // /undefined/ regex would trip on regardless of this feature — do not widen this
+  // back to matching the whole bundle.
+  assert.doesNotMatch(out, /DATA_FETCHED_AT = undefined/,
+    'a missing default would inline the literal `undefined` here');
+});
+
 test('built draft.html is self-contained and has no module syntax left', () => {
   const path = new URL('../draft.html', import.meta.url);
   assert.ok(existsSync(path), 'run `node scripts/build.mjs` first');
@@ -84,7 +110,12 @@ test('draft.html matches a fresh build of the committed src/ — run `node scrip
   const css = readFileSync(join(srcDir, 'styles.css'), 'utf8');
   const html = readFileSync(join(srcDir, 'index.html'), 'utf8');
 
-  const rebuilt = bundle({ srcDir, entry: 'ui/app.js', players, css, html });
+  // A fresh clone has never fetched. Build anyway; the page simply omits the line.
+  let fetchedAt = null;
+  const stampPath = join(root, 'data', 'fetched-at.json');
+  if (existsSync(stampPath)) fetchedAt = JSON.parse(readFileSync(stampPath, 'utf8')).fetchedAt;
+
+  const rebuilt = bundle({ srcDir, entry: 'ui/app.js', players, css, html, fetchedAt });
   const committed = readFileSync(join(root, 'draft.html'), 'utf8');
 
   assert.equal(rebuilt, committed, 'draft.html does not match src/ — run `node scripts/build.mjs`');

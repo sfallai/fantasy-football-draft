@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,7 +47,7 @@ function listModules(dir) {
   return files;
 }
 
-export function bundle({ srcDir, entry, players, css, html }) {
+export function bundle({ srcDir, entry, players, css, html, fetchedAt = null }) {
   const modules = listModules(srcDir).map((file) => {
     const key = relative(srcDir, file).split(/[\\/]/).join('/');
     return { key, code: transformModule(readFileSync(file, 'utf8'), key) };
@@ -77,7 +77,8 @@ export function bundle({ srcDir, entry, players, css, html }) {
     '})();',
   ].join('\n');
 
-  const dataScript = `window.PLAYERS = ${JSON.stringify(players)};`;
+  const dataScript = `window.PLAYERS = ${JSON.stringify(players)};`
+    + `window.DATA_FETCHED_AT = ${JSON.stringify(fetchedAt)};`;
 
   // Function replacements, not strings: a string replacement would treat $&, $`, $'
   // and $n inside a player name or CSS rule as substitution patterns.
@@ -92,7 +93,12 @@ function main() {
   const css = readFileSync(join(SRC, 'styles.css'), 'utf8');
   const html = readFileSync(join(SRC, 'index.html'), 'utf8');
 
-  const out = bundle({ srcDir: SRC, entry: 'ui/app.js', players, css, html });
+  // A fresh clone has never fetched. Build anyway; the page simply omits the line.
+  let fetchedAt = null;
+  const stampPath = join(ROOT, 'data', 'fetched-at.json');
+  if (existsSync(stampPath)) fetchedAt = JSON.parse(readFileSync(stampPath, 'utf8')).fetchedAt;
+
+  const out = bundle({ srcDir: SRC, entry: 'ui/app.js', players, css, html, fetchedAt });
   writeFileSync(join(ROOT, 'draft.html'), out);
   console.log(`Wrote draft.html (${(out.length / 1024).toFixed(0)} KB, ${players.length} players)`);
 }

@@ -195,3 +195,5 @@ table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
 table.board td.cell.filled { cursor: pointer; }
 .cand.offlist { margin-top: 6px; border-top: 1px solid var(--border); border-radius: 0 0 4px 4px; color: var(--muted); }
 .cand-more { padding: 5px 6px; color: var(--muted); font-style: italic; }
+
+.freshness { color: var(--muted); font-size: 11px; padding: 6px 12px; text-align: right; }

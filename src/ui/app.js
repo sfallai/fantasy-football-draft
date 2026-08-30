@@ -1,4 +1,4 @@
-import { el, clear } from './dom.js';
+import { el, clear, formatFetchedAt } from './dom.js';
 import { renderSetup } from './setup.js';
 import { renderMyTeam } from './myteam.js';
 import { renderCenter, resetView } from './center.js';
@@ -42,6 +42,14 @@ function root() {
   return document.getElementById('app');
 }
 
+// Shown on both screens: someone deciding whether to trust these rankings needs the
+// answer before they start a draft, not only during one.
+function appendFreshness(container) {
+  const stamp = formatFetchedAt(window.DATA_FETCHED_AT);
+  if (!stamp) return;
+  container.appendChild(el('div', { class: 'freshness', text: `Player data as of ${stamp}` }, []));
+}
+
 function startDraft(config) {
   state = createState(config);
   recomputeBaselines();
@@ -56,6 +64,7 @@ function showSetup() {
   // exists for — wiped storage, another browser, another laptop — lands the user on
   // this screen, where the draft-screen buttons do not exist yet.
   renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport);
+  appendFreshness(container);
 }
 
 function handlePick(playerId) {
@@ -260,6 +269,8 @@ function renderDraft() {
     editablePool: playersWithPickNumbers(state, allPlayers),
     onEditPick: handleEditPick,
   });
+
+  appendFreshness(container);
 }
 
 export function init() {

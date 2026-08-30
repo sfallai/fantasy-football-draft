@@ -318,6 +318,21 @@ test('two picks logged in the wrong order are exchanged from the board editor', 
   assert.equal(owner('Ja Marr Chase'), 'Rival');
 });
 
+test('the page says how fresh its player data is', () => {
+  window.DATA_FETCHED_AT = '2026-08-30T11:00:00.000Z';
+  init();
+  const line = find(document.body, (n) => n.className === 'freshness')[0];
+  assert.ok(line, 'the stamp renders');
+  assert.match(line.textContent, /30 Aug/);
+});
+
+test('a page built without a stamp shows no freshness line at all', () => {
+  // Better silence than "Player data as of Invalid Date".
+  window.DATA_FETCHED_AT = null;
+  init();
+  assert.equal(find(document.body, (n) => n.className === 'freshness').length, 0);
+});
+
 test('an earlier pick can be marked off-list from the board editor', () => {
   // applyOffListPick only fires at the clock, so once pick 2 exists there was no way
   // to say pick 1 went to someone outside the pool. The cell stays filled.
