@@ -44,10 +44,16 @@ function root() {
 
 // Shown on both screens: someone deciding whether to trust these rankings needs the
 // answer before they start a draft, not only during one.
-function appendFreshness(container) {
+//
+// `card` matches this to the 900px centred `.setup` card it sits beside — without it
+// the line is `container`'s sibling and right-aligns to the browser window instead of
+// the card, which reads as a mistake next to a panel that has visibly stopped short
+// of the edge.
+function appendFreshness(container, { card = false } = {}) {
   const stamp = formatFetchedAt(window.DATA_FETCHED_AT);
   if (!stamp) return;
-  container.appendChild(el('div', { class: 'freshness', text: `Player data as of ${stamp}` }, []));
+  const line = el('div', { class: 'freshness', text: `Player data as of ${stamp}` }, []);
+  container.appendChild(card ? el('div', { class: 'freshness-card' }, [line]) : line);
 }
 
 function startDraft(config) {
@@ -64,7 +70,7 @@ function showSetup() {
   // exists for — wiped storage, another browser, another laptop — lands the user on
   // this screen, where the draft-screen buttons do not exist yet.
   renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport);
-  appendFreshness(container);
+  appendFreshness(container, { card: true });
 }
 
 function handlePick(playerId) {
@@ -270,7 +276,14 @@ function renderDraft() {
     onEditPick: handleEditPick,
   });
 
-  appendFreshness(container);
+  // Inside the right-hand panel, not after `.layout`: `.layout` is `height: 100vh`
+  // with no page scroll by design (the centre panel owns its own internal scroll so
+  // the pick controls never leave the viewport — see the comments on `.panel.center`
+  // in styles.css). A sibling of `.layout` lands at y ≈ 100vh, invisible without
+  // scrolling and reintroducing exactly the page-level scrollbar that design avoids.
+  // The right panel already has `overflow: auto`, so the line scrolls into view with
+  // the board it sits under instead.
+  appendFreshness(right);
 }
 
 export function init() {

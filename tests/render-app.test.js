@@ -318,16 +318,33 @@ test('two picks logged in the wrong order are exchanged from the board editor', 
   assert.equal(owner('Ja Marr Chase'), 'Rival');
 });
 
-test('the page says how fresh its player data is', () => {
+// Both call sites are pinned deliberately with start()/stored.clear() rather than
+// relying on whatever screen a preceding test happened to leave behind — that used to
+// mean this always exercised renderDraft, never showSetup, and reordering an earlier
+// test could silently flip which one ran with no test noticing.
+test('the page says how fresh its player data is, on the draft screen', () => {
+  start();
   window.DATA_FETCHED_AT = '2026-08-30T11:00:00.000Z';
   init();
-  const line = find(document.body, (n) => n.className === 'freshness')[0];
-  assert.ok(line, 'the stamp renders');
+  const { right } = panels();
+  const line = find(right, (n) => n.className === 'freshness')[0];
+  assert.ok(line, 'the stamp renders inside the right-hand panel, under the board');
+  assert.match(line.textContent, /30 Aug/);
+});
+
+test('the page says how fresh its player data is, on the setup screen', () => {
+  stored.clear();
+  window.DATA_FETCHED_AT = '2026-08-30T11:00:00.000Z';
+  init();
+  const line = find(appRoot, (n) => n.className === 'freshness')[0];
+  assert.ok(line, 'the stamp renders on setup too');
   assert.match(line.textContent, /30 Aug/);
 });
 
 test('a page built without a stamp shows no freshness line at all', () => {
-  // Better silence than "Player data as of Invalid Date".
+  // Better silence than "Player data as of Invalid Date". Covers the draft screen;
+  // showSetup shares the same early-return in appendFreshness.
+  start();
   window.DATA_FETCHED_AT = null;
   init();
   assert.equal(find(document.body, (n) => n.className === 'freshness').length, 0);

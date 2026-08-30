@@ -197,3 +197,7 @@ table.board td.cell.filled { cursor: pointer; }
 .cand-more { padding: 5px 6px; color: var(--muted); font-style: italic; }
 
 .freshness { color: var(--muted); font-size: 11px; padding: 6px 12px; text-align: right; }
+/* Matches .setup's own box (max-width: 900px; margin: 32px auto) so the line's right
+   edge lines up with the card's, not the browser window's — .freshness is a sibling
+   of .setup, not a child, so it needs its own copy of the same width and centering. */
+.freshness-card { max-width: 900px; margin: 0 auto; }
