@@ -8,7 +8,7 @@ import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
 import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
-import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, serialize, deserialize, backupFilename } from '../core/state.js';
+import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename } from '../core/state.js';
 
 let state = null;
 let allPlayers = [];
@@ -25,6 +25,15 @@ function scaleFromReplacement() {
   return maxPositiveVbd(withVbd(allPlayers, replacement));
 }
 
+// Baselines depend on numTeams and slots, both of which the setup screen lets the
+// user change and an imported draft brings its own copy of, so they must be
+// recomputed for the config actually in `state` — never left over from whatever
+// config (default, or a previously loaded draft) preceded it.
+function recomputeBaselines() {
+  replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
+  vbdScale = scaleFromReplacement();
+}
+
 function persist() {
   storageWorks = saveState(state);
 }
@@ -35,11 +44,7 @@ function root() {
 
 function startDraft(config) {
   state = createState(config);
-  // Baselines depend on numTeams and slots, both of which the setup screen lets the
-  // user change, so they must be recomputed for the config just chosen — not left
-  // over from whatever config (default or a previously loaded draft) preceded this.
-  replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
-  vbdScale = scaleFromReplacement();
+  recomputeBaselines();
   persist();
   renderDraft();
 }
@@ -47,7 +52,10 @@ function startDraft(config) {
 function showSetup() {
   const container = root();
   clear(container);
-  renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft);
+  // Import lives here as well as on the draft screen. Every catastrophe a backup
+  // exists for — wiped storage, another browser, another laptop — lands the user on
+  // this screen, where the draft-screen buttons do not exist yet.
+  renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport);
 }
 
 function handlePick(playerId) {
@@ -110,7 +118,25 @@ function handleBackup() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  // Deferred, not synchronous: several browsers have not finished reading the blob
+  // by the time click() returns, and revoking on the same tick silently produces an
+  // empty or failed download. This is the one path in the chunk nobody can test here.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// Exported for the tests: everything about an import except reading the bytes, which
+// is the one part a FileReader makes untestable.
+export function applyRestoredState(restored) {
+  state = restored;
+  recomputeBaselines();
+  // The centre panel's sort, filter and position targeting are module state that
+  // outlives a draft. Without this an imported draft inherits the last one's targeting.
+  resetView();
+  // Render BEFORE persisting. A state that cannot render must not reach localStorage:
+  // it would then throw on every subsequent load, before any UI exists — including
+  // the Reset button — and only devtools could recover the page.
+  renderDraft();
+  persist();
 }
 
 function handleImport(file) {
@@ -119,19 +145,12 @@ function handleImport(file) {
     let restored;
     try {
       restored = deserialize(String(reader.result));
-    } catch {
-      window.alert('That file is not a saved draft.');
+    } catch (err) {
+      window.alert(`That file is not a saved draft.\n\n${err.message}`);
       return;
     }
     if (!window.confirm('Replace the current draft with this backup?')) return;
-    state = restored;
-    replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
-    vbdScale = scaleFromReplacement();
-    // The centre panel's sort, filter and position targeting are module state that
-    // outlives a draft. Without this an imported draft inherits the last one's targeting.
-    resetView();
-    persist();
-    renderDraft();
+    applyRestoredState(restored);
   };
   reader.readAsText(file);
 }
@@ -203,7 +222,14 @@ function renderDraft() {
   left.appendChild(el('button', { text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
   const importInput = el('input', {
     type: 'file', accept: '.json,application/json', style: { display: 'none' },
-    onChange: (e) => { if (e.target.files && e.target.files[0]) handleImport(e.target.files[0]); },
+    onChange: (e) => {
+      const file = e.target.files && e.target.files[0];
+      // Clear the control before handing the file off. A file input fires `change`
+      // only when the selection *changes*, so declining the confirm and re-picking
+      // the same file would otherwise do nothing at all and look broken.
+      e.target.value = '';
+      if (file) handleImport(file);
+    },
   }, []);
   left.appendChild(el('button', { text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
   left.appendChild(importInput);
@@ -229,7 +255,9 @@ function renderDraft() {
   renderBoard(right, {
     state,
     allPlayers,
-    editablePool: availablePlayers(state, allPlayers),
+    // Drafted players included, each tagged with the pick holding him: choosing one
+    // exchanges the two picks, which is the only way to fix a transposed pair.
+    editablePool: playersWithPickNumbers(state, allPlayers),
     onEditPick: handleEditPick,
   });
 }
@@ -243,12 +271,22 @@ export function init() {
   vbdScale = scaleFromReplacement();
 
   const saved = loadState();
-  if (saved) {
+  if (!saved) {
+    showSetup();
+    return;
+  }
+
+  // A stored state that throws during render used to leave a dead page: nothing at
+  // all rendered, on this load and on every one after it, so not even Reset was
+  // reachable. Falling back to setup costs the draft but never the app.
+  try {
     state = saved;
-    replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
-    vbdScale = scaleFromReplacement();
+    recomputeBaselines();
     renderDraft();
-  } else {
+  } catch (err) {
+    clearState();
+    state = null;
+    window.alert(`The saved draft could not be opened and has been discarded.\n\n${err.message}`);
     showSetup();
   }
 }

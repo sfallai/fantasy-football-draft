@@ -132,7 +132,7 @@ function playerPicker(players, initialId, onChange) {
   return wrap;
 }
 
-export function renderSetup(root, initialConfig, onStart) {
+export function renderSetup(root, initialConfig, onStart, onImport) {
   const players = window.PLAYERS || [];
   const config = { ...DEFAULT_CONFIG, ...initialConfig };
 
@@ -233,6 +233,27 @@ export function renderSetup(root, initialConfig, onStart) {
   drawPositions();
   drawTeamRows();
 
+  const importInput = el('input', {
+    type: 'file', accept: '.json,application/json', style: { display: 'none' },
+    onChange: (e) => {
+      const file = e.target.files && e.target.files[0];
+      // Clear the control before handing the file off: a file input fires `change`
+      // only when the selection changes, so declining the confirm and re-picking the
+      // same file would otherwise do nothing and look broken.
+      e.target.value = '';
+      if (file && onImport) onImport(file);
+    },
+  }, []);
+  const importRow = onImport
+    ? el('div', { class: 'field', style: { marginTop: '12px' } }, [
+      el('button', {
+        text: 'Import backup', onClick: () => importInput.click(),
+      }, []),
+      el('div', { class: 'meta', text: 'Restore a draft saved with Save backup — on any machine.' }, []),
+      importInput,
+    ])
+    : null;
+
   root.appendChild(el('div', { class: 'panel setup' }, [
     el('h1', { text: 'Draft Assistant — Setup' }, []),
     errorBox,
@@ -270,6 +291,12 @@ export function renderSetup(root, initialConfig, onStart) {
         tbody,
       ]),
     ]),
+
+    // Restoring a backup has to be reachable from HERE. Every catastrophe the backup
+    // exists for — wiped storage, a different browser, a different laptop — puts the
+    // user on the setup screen, and the draft screen's Import button does not exist
+    // until a draft is already running.
+    importRow,
 
     el('button', {
       class: 'primary',
