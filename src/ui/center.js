@@ -1,6 +1,7 @@
 import { el, clear, POSITION_COLORS, formatPick } from './dom.js';
 import { recommend } from '../core/recommend.js';
-import { isRookie } from '../core/player.js';
+import { isRookie, priorSummary } from '../core/player.js';
+import { showPopover } from './popover.js';
 
 export const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 export const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -49,65 +50,6 @@ export function formatVbd(vbd) {
 // Module-level view state so a re-render keeps the user's sort/filter/search choices.
 const view = { sortKey: 'overallRank', filter: 'ALL', query: '' };
 
-function pickEntry(pool, onPick, onUndo, onOffList) {
-  const input = el('input', {
-    type: 'text', placeholder: 'Type a player name, then Enter…', autocomplete: 'off',
-  }, []);
-  const list = el('div', { class: 'suggest-list', style: { display: 'none' } }, []);
-  let matches = [];
-  let active = 0;
-
-  function close() {
-    list.style.display = 'none';
-    clear(list);
-    matches = [];
-    active = 0;
-  }
-
-  function draw() {
-    clear(list);
-    matches.forEach((pl, i) => {
-      list.appendChild(el('div', {
-        class: i === active ? 'active' : '',
-        text: `${pl.name} — ${pl.position} ${pl.team} (#${pl.overallRank})`,
-        onMousedown: (e) => { e.preventDefault(); onPick(pl.id); close(); input.value = ''; },
-      }, []));
-    });
-    list.style.display = matches.length ? 'block' : 'none';
-  }
-
-  input.addEventListener('input', () => {
-    matches = input.value.trim() ? pool.filter((pl) => matchesQuery(pl, input.value)).slice(0, 8) : [];
-    active = 0;
-    draw();
-  });
-
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown') { active = Math.min(active + 1, matches.length - 1); draw(); e.preventDefault(); }
-    else if (e.key === 'ArrowUp') { active = Math.max(active - 1, 0); draw(); e.preventDefault(); }
-    else if (e.key === 'Enter' && matches[active]) {
-      onPick(matches[active].id);
-      input.value = '';
-      close();
-      e.preventDefault();
-    } else if (e.key === 'Escape') close();
-  });
-
-  const wrap = el('div', { class: 'pickbar' }, [
-    el('div', { class: 'suggest', style: { flex: '1' } }, [input, list]),
-    el('button', { text: 'Undo', onClick: onUndo }, []),
-    el('button', {
-      text: 'Skip / off-list',
-      title: 'Someone drafted a player who is not in this list — consume the pick slot',
-      onClick: onOffList,
-    }, []),
-  ]);
-
-  // Focus is restored after each render so the user can type pick after pick without reaching for the mouse.
-  setTimeout(() => input.focus(), 0);
-  return wrap;
-}
-
 function recommendationCard(rec) {
   const pl = rec.player;
   return el('div', {
@@ -134,7 +76,10 @@ function playerTable(tablePlayers, onPick) {
     .filter((pl) => matchesQuery(pl, view.query))
     .map((pl) => {
       const taken = pl.ownerName !== null && pl.ownerName !== undefined;
-      const name = el('td', { class: 'pname', title: pl.name }, [
+      const name = el('td', {
+        class: 'pname', title: pl.name,
+        onClick: (e) => { e.stopPropagation(); showPopover(playerPopover(pl), e); },
+      }, [
         el('span', { text: pl.name }, []),
         isRookie(pl) ? el('span', { class: 'rookie', text: 'R' }, []) : null,
       ]);
@@ -173,6 +118,36 @@ function playerTable(tablePlayers, onPick) {
   ]);
 }
 
+const GLOSSARY = [
+  ['BPA', 'Best player available — the raw overall ranking, ignoring what you already have.'],
+  ['VBD', 'Value based drafting — points above the last starter at this position. Compares across positions.'],
+  ['ADP', 'Average draft pick — where this player usually goes. Far past it is value; well before it is a reach.'],
+  ['Bye', 'The week this player does not play.'],
+  ['Need', 'high: no starter yet · medium: a starting slot open · depth: bench only · not needed: slots full.'],
+  ['R', 'Rookie — no prior NFL season on record.'],
+];
+
+function glossaryPopover() {
+  return el('div', { class: 'pop' }, [
+    el('h3', { text: 'What the columns mean' }, []),
+    el('dl', {}, GLOSSARY.flatMap(([term, meaning]) => [
+      el('dt', { text: term }, []),
+      el('dd', { text: meaning }, []),
+    ])),
+  ]);
+}
+
+function playerPopover(pl) {
+  const prior = priorSummary(pl);
+  return el('div', { class: 'pop' }, [
+    el('h3', { text: pl.name }, []),
+    el('div', { text: `${pl.position} · ${pl.team} · #${pl.overallRank} overall${pl.age === null || pl.age === undefined ? '' : ` · age ${pl.age}`}` }, []),
+    el('div', { style: { marginTop: '8px', color: '#8b93a5' }, text: 'Last season' }, []),
+    // A rookie has no prior line, and saying so is better than printing zeroes.
+    el('div', { text: prior || (isRookie(pl) ? 'Rookie — no NFL season yet' : 'No prior season on record') }, []),
+  ]);
+}
+
 // Set by renderCenter so the sort/filter controls can redraw without the caller's help.
 let rerender = () => {};
 
@@ -203,7 +178,14 @@ export function renderCenter(container, ctx, handlers) {
     }, []) : null,
   ]));
 
-  container.appendChild(pickEntry(pool, handlers.onPick, handlers.onUndo, handlers.onOffList));
+  container.appendChild(el('div', { class: 'pickbar' }, [
+    el('button', { text: 'Undo', onClick: handlers.onUndo }, []),
+    el('button', {
+      text: 'Skip / off-list',
+      title: 'Someone drafted a player who is not in this list — consume the pick slot',
+      onClick: handlers.onOffList,
+    }, []),
+  ]));
 
   for (const note of notes || []) {
     container.appendChild(el('div', { class: 'notes', text: note }, []));
@@ -215,23 +197,32 @@ export function renderCenter(container, ctx, handlers) {
     for (const rec of recs) container.appendChild(recommendationCard(rec));
   }
 
+  function redrawTable() {
+    const wrap = container.querySelector('.tablewrap');
+    if (wrap) wrap.replaceWith(playerTable(tablePlayers, handlers.onPick));
+  }
+
+  const filterInput = el('input', {
+    type: 'text', placeholder: 'Filter by name or team…', value: view.query, autocomplete: 'off',
+    onInput: (e) => { view.query = e.target.value; redrawTable(); },
+  }, []);
+
   const filters = el('div', { class: 'filters' }, [
     ...POSITION_FILTERS.map((position) => el('button', {
       class: view.filter === position ? 'selected' : '',
       text: position,
       onClick: () => { view.filter = position; rerender(); },
     }, [])),
-    el('input', {
-      type: 'text', placeholder: 'filter list…', value: view.query,
-      onInput: (e) => {
-        view.query = e.target.value;
-        const table = container.querySelector('table.players');
-        if (table) table.replaceWith(playerTable(tablePlayers, handlers.onPick));
-      },
-    }, []),
+    filterInput,
+    el('button', { text: '✕', title: 'Clear the filter', onClick: () => { view.query = ''; rerender(); } }, []),
+    el('button', { text: '?', title: 'What do these columns mean?', onClick: (e) => showPopover(glossaryPopover(), e) }, []),
   ]);
 
   container.appendChild(el('h2', { text: `Players (${pool.length} available)` }, []));
   container.appendChild(filters);
   container.appendChild(playerTable(tablePlayers, handlers.onPick));
+
+  // Focus is restored after each render so the user can filter pick after pick
+  // without reaching for the mouse.
+  setTimeout(() => filterInput.focus(), 0);
 }

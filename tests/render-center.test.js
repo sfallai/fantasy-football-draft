@@ -84,3 +84,48 @@ test('age renders, and is blank for a defense', () => {
   const cells = find(container, (n) => n.className === 'age');
   assert.deepEqual(cells.map((c) => c.textContent), ['24', '']);
 });
+
+test('the pick-entry box is gone and the filter is the only text input', () => {
+  const container = render([player()]);
+  const inputs = find(container, (n) => n.tagName === 'input');
+  assert.equal(inputs.length, 1, 'one text input, not two');
+  assert.equal(inputs[0].attributes.placeholder, 'Filter by name or team…');
+});
+
+test('Undo and Skip survive the removal of the pick box', () => {
+  const container = render([player()]);
+  const labels = find(container, (n) => n.tagName === 'button').map((b) => b.textContent);
+  assert.ok(labels.includes('Undo'));
+  assert.ok(labels.includes('Skip / off-list'));
+});
+
+test('the clear button empties the filter', () => {
+  const container = render([player()]);
+  const clearBtn = find(container, (n) => n.tagName === 'button' && n.textContent === '✕')[0];
+  assert.ok(clearBtn, 'a clear control exists');
+  assert.equal(typeof clearBtn.listeners.click[0], 'function');
+});
+
+test('the glossary button is present and opens on click', () => {
+  const container = render([player()]);
+  const help = find(container, (n) => n.tagName === 'button' && n.textContent === '?')[0];
+  assert.ok(help);
+  assert.equal(typeof help.listeners.click[0], 'function');
+});
+
+test('a player name is clickable for detail', () => {
+  const container = render([player()]);
+  const nameCell = find(container, (n) => n.className === 'pname')[0];
+  assert.equal(typeof nameCell.listeners.click[0], 'function');
+});
+
+// Correction: the spec requires the filter input to stay keyboard-first — focused
+// after every render — now that pickEntry (which used to own that focus call) is gone.
+test('the filter input is focused after a render', async () => {
+  const container = render([player()]);
+  const inputs = find(container, (n) => n.tagName === 'input');
+  assert.equal(inputs.length, 1);
+  // The focus call is deferred (setTimeout 0), same as pickEntry's used to be.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(inputs[0].focused, true);
+});
