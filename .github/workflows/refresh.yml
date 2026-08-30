@@ -1,0 +1,51 @@
+name: Refresh player data
+
+on:
+  schedule:
+    # 11:00 UTC daily. ADP moves through preseason, the job takes about two minutes,
+    # and the commit is conditional, so quiet days cost nothing.
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Fetch fresh player data
+        run: npm run fetch
+
+      # Before the tests, not after: build.test.js asserts draft.html matches a fresh
+      # build of the committed data, so testing between a fetch and a rebuild would
+      # fail every run. Nothing ships unless the suite passes below.
+      - name: Rebuild the page
+        run: npm run build
+
+      # The gate. Chunk A's tripwires — age coverage, prior-season coverage, rookies
+      # present, no impossible game counts — fail here if upstream changed shape.
+      # A failure means no commit, so the site keeps serving the last good build.
+      - name: Validate before anything ships
+        run: npm test
+
+      - name: Commit if anything changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/players.json data/fetched-at.json draft.html
+          # An explicit if, not `git diff --quiet && ...`. Actions runs `bash -e`, and
+          # that command exits 1 precisely when there ARE changes — as the last command
+          # of an && list that aborts the step on the days the job matters most.
+          if git diff --staged --quiet; then
+            echo "no change to commit"
+          else
+            git commit -m "chore(data): daily refresh"
+            git push
+          fi
