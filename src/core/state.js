@@ -220,29 +220,88 @@ export function myNextPick(state) {
   return myNextPickAfter(state, pick);
 }
 
+// Bumped only when the shape of what serialize writes changes incompatibly. A file
+// stamped higher than this was written by a newer build than the one reading it.
+export const STATE_VERSION = 1;
+
 export function serialize(state) {
-  return JSON.stringify({ version: 1, ...state });
+  return JSON.stringify({ version: STATE_VERSION, ...state });
 }
 
 // No timestamp: the page has no clock the user trusts more than the draft itself, and
 // a round-stamped name sorts in draft order, which is how someone looks for the file.
+// The round comes from the clock, not from the cell count — keepers fill cells in
+// later rounds and used to inflate it. `e` (actions taken) is what distinguishes two
+// backups saved either side of an edit, which fill exactly the same cells.
 export function backupFilename(state) {
+  const { numTeams, rounds } = state.config;
+  const current = currentPickNumber(state);
+  const round = current === null ? rounds : pickToSlot(current, numTeams).round;
   const made = Object.keys(state.picks).length;
-  const round = Math.max(1, Math.ceil(made / state.config.numTeams));
-  return `ffdraft-${state.config.numTeams}team-r${round}-p${made}.json`;
+  return `ffdraft-${numTeams}team-r${round}-p${made}-e${state.history.length}.json`;
 }
 
 // Drafts saved before pick editing stored history as bare pick numbers. Mid-draft
-// reloads have to keep working across the upgrade.
+// reloads have to keep working across the upgrade. An entry that survives here is
+// one undoPick can safely apply: a missing `previous` used to be written straight
+// back into a still-filled cell as `playerId: undefined`.
 function normalizeHistory(raw) {
-  return (raw || []).map((entry) => (
-    typeof entry === 'number' ? { pick: entry, previous: null } : entry
-  ));
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      if (typeof entry === 'number') return { pick: entry, previous: null };
+      if (!entry || typeof entry !== 'object') return null;
+      const pick = Number(entry.pick);
+      if (!Number.isFinite(pick)) return null;
+      const normalized = { pick, previous: entry.previous ?? null };
+      const { swap } = entry;
+      // The other half of an exchange, kept only when it is complete enough to undo.
+      if (swap && Number.isFinite(Number(swap.pick)) && swap.previous != null) {
+        normalized.swap = { pick: Number(swap.pick), previous: String(swap.previous) };
+      }
+      return normalized;
+    })
+    .filter(Boolean);
+}
+
+// Import is the one path by which bytes the app did not write reach the state model,
+// and whatever gets past here is persisted and then rendered. renderDraft reads
+// config.teams[myTeamIndex - 1].name unguarded, so a config that is merely truthy is
+// not enough: check the shape the renderers assume before any of it is stored.
+function validateConfig(config) {
+  if (!config || typeof config !== 'object') {
+    throw new Error('Malformed draft state: no league settings');
+  }
+  const { numTeams, rounds, myTeamIndex, teams, slots } = config;
+  if (!Number.isInteger(numTeams) || numTeams < 1) {
+    throw new Error('Malformed draft state: team count must be a positive whole number');
+  }
+  if (!Number.isInteger(rounds) || rounds < 1) {
+    throw new Error('Malformed draft state: round count must be a positive whole number');
+  }
+  if (!Array.isArray(teams) || teams.length !== numTeams) {
+    throw new Error(`Malformed draft state: expected ${numTeams} teams, found ${Array.isArray(teams) ? teams.length : 'none'}`);
+  }
+  if (teams.some((team) => !team || typeof team !== 'object')) {
+    throw new Error('Malformed draft state: every team needs a name');
+  }
+  if (!slots || typeof slots !== 'object' || Array.isArray(slots)) {
+    throw new Error('Malformed draft state: no roster slots');
+  }
+  if (!Number.isInteger(myTeamIndex) || myTeamIndex < 1 || myTeamIndex > numTeams) {
+    throw new Error(`Malformed draft state: draft position must be between 1 and ${numTeams}`);
+  }
 }
 
 export function deserialize(json) {
   const raw = JSON.parse(json);
   if (!raw || !raw.config || !raw.picks) throw new Error('Malformed draft state');
+  // Absent on files written before versioning; anything above what this build knows
+  // was written by a later one, whose shape it cannot assume.
+  if (raw.version !== undefined && Number(raw.version) > STATE_VERSION) {
+    throw new Error(`This backup was saved by a newer version of the app (v${raw.version}) than this one (v${STATE_VERSION}).`);
+  }
+  validateConfig(raw.config);
   return { config: raw.config, picks: raw.picks, history: normalizeHistory(raw.history) };
 }
 

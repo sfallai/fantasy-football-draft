@@ -490,3 +490,108 @@ test('backupFilename names the league and round so two files never collide', () 
   assert.match(name, /\.json$/);
   assert.match(name, /r1/, 'the round it was taken at, so a later backup sorts after an earlier one');
 });
+
+// A backup is the only path by which bytes the app did not write reach the state
+// model. deserialize is the gate: what it lets through gets persisted and rendered.
+const goodBackup = (over) => JSON.stringify({
+  version: 1,
+  config: { ...DEFAULT_CONFIG, numTeams: 2, rounds: 2, myTeamIndex: 1, teams: [{ name: 'A' }, { name: 'B' }] },
+  picks: {},
+  history: [],
+  ...over,
+});
+
+test('deserialize accepts a well-formed backup', () => {
+  const state = deserialize(goodBackup());
+  assert.equal(state.config.numTeams, 2);
+  assert.deepEqual(state.history, []);
+});
+
+test('deserialize rejects a config with no teams array', () => {
+  const raw = JSON.parse(goodBackup());
+  delete raw.config.teams;
+  assert.throws(() => deserialize(JSON.stringify(raw)), /team/i);
+});
+
+test('deserialize rejects a teams array of the wrong length', () => {
+  const raw = JSON.parse(goodBackup());
+  raw.config.teams = [{ name: 'A' }];
+  assert.throws(() => deserialize(JSON.stringify(raw)), /team/i);
+});
+
+test('deserialize rejects a myTeamIndex outside the league', () => {
+  assert.throws(() => deserialize(goodBackup({
+    config: { ...DEFAULT_CONFIG, numTeams: 2, rounds: 2, myTeamIndex: 9, teams: [{ name: 'A' }, { name: 'B' }] },
+  })), /draft position/i);
+});
+
+test('deserialize rejects missing roster slots', () => {
+  const raw = JSON.parse(goodBackup());
+  raw.config.slots = null;
+  assert.throws(() => deserialize(JSON.stringify(raw)), /slot/i);
+});
+
+test('deserialize rejects a non-positive team or round count', () => {
+  const raw = JSON.parse(goodBackup());
+  raw.config.rounds = 0;
+  assert.throws(() => deserialize(JSON.stringify(raw)), /round/i);
+});
+
+test('deserialize rejects a version it does not understand', () => {
+  // Chunk G changes the player schema. A file from that future version must say so
+  // rather than half-load.
+  assert.throws(() => deserialize(goodBackup({ version: 99 })), /newer version/i);
+});
+
+test('deserialize normalises a history entry with no previous', () => {
+  // A hand-edited or truncated file used to make undoPick write playerId: undefined
+  // into a still-filled cell.
+  const state = deserialize(goodBackup({
+    picks: { 1: { playerId: 'a', teamIndex: 1, isKeeper: false } },
+    history: [{ pick: 1 }],
+  }));
+  assert.deepEqual(state.history, [{ pick: 1, previous: null }]);
+});
+
+test('deserialize drops a history entry that is not an entry at all', () => {
+  const state = deserialize(goodBackup({ history: [null, 'nonsense', { pick: 1, previous: null }] }));
+  assert.deepEqual(state.history, [{ pick: 1, previous: null }]);
+});
+
+test('backupFilename distinguishes two backups taken either side of an edit', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  const before = backupFilename(state);
+  state = setPick(state, 1, 'b');
+  assert.notEqual(backupFilename(state), before, 'the same cells are filled, but the draft differs');
+});
+
+test('backupFilename reports the round on the clock, not one inflated by keepers', () => {
+  const state = createState({
+    numTeams: 2, rounds: 3,
+    teams: [{ name: 'A', keeper: { playerId: 'k', round: 3 } }, { name: 'B', keeper: null }],
+  });
+  // One cell filled, but it is a round-3 keeper and the clock is still on pick 1.
+  assert.match(backupFilename(state), /-r1-/);
+});
+
+test('playersWithPickNumbers tags a drafted player with the pick that holds him', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'p1');
+  const tagged = playersWithPickNumbers(state, PLAYERS.slice(0, 3));
+  assert.equal(tagged[0].draftedAt, 1);
+  assert.equal(tagged[1].draftedAt, null);
+  assert.notEqual(tagged[0], PLAYERS[0], 'a copy — the shared pool must not gain draft state');
+});
+
+test('setPick can mark an earlier pick off-list without leaving a hole', () => {
+  // applyOffListPick only ever fires at the clock, so before this the only way to
+  // say "pick 1 was someone not in my pool" was to have said it at the time.
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  state = setPick(state, 1, `${OFF_LIST_PREFIX}1`);
+  assert.equal(state.picks[1].playerId, `${OFF_LIST_PREFIX}1`);
+  assert.equal(currentPickNumber(state), 3, 'the cell is still filled, so the clock has not moved');
+  assert.equal(undoPick(state).picks[1].playerId, 'a');
+});
