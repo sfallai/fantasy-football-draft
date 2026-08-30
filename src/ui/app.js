@@ -8,7 +8,7 @@ import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
 import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
-import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners } from '../core/state.js';
+import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners } from '../core/state.js';
 
 let state = null;
 let allPlayers = [];
@@ -66,6 +66,17 @@ function handlePick(playerId) {
 function handleOffListPick() {
   try {
     state = applyOffListPick(state);
+  } catch (err) {
+    window.alert(err.message);
+    return;
+  }
+  persist();
+  renderDraft();
+}
+
+function handleEditPick(pickNumber, playerId) {
+  try {
+    state = setPick(state, pickNumber, playerId);
   } catch (err) {
     window.alert(err.message);
     return;
@@ -173,7 +184,12 @@ function renderDraft() {
     poolSize,
   }, { onPick: handlePick, onUndo: handleUndo, onOffList: handleOffListPick });
 
-  renderBoard(right, { state, allPlayers });
+  renderBoard(right, {
+    state,
+    allPlayers,
+    editablePool: availablePlayers(state, allPlayers),
+    onEditPick: handleEditPick,
+  });
 }
 
 export function init() {

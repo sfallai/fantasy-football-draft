@@ -4,6 +4,7 @@ import { assignSlots, positionalNeeds } from '../core/roster.js';
 import { currentPickNumber, rosterFor, isOffListId } from '../core/state.js';
 import { slotRow } from './slotrow.js';
 import { showPopover, closePopover } from './popover.js';
+import { pickEditor } from './pickeditor.js';
 
 export function boardCells(state, allPlayers) {
   const { numTeams, rounds, myTeamIndex } = state.config;
@@ -98,6 +99,14 @@ export function renderBoard(container, ctx) {
             + `#${cell.player.overallRank} overall · ${cell.player.projectedPoints} proj · `
             + `ADP ${cell.player.adp ?? '—'} · bye ${cell.player.bye ?? '—'}`
           : offListTitle,
+        onClick: cell.player || cell.isOffList
+          ? (e) => {
+            showPopover(pickEditor(cell, ctx.editablePool, (playerId) => {
+              closePopover();
+              ctx.onEditPick(cell.pick, playerId);
+            }), e);
+          }
+          : null,
       }, []));
     }
 

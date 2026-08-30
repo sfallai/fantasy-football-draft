@@ -186,3 +186,9 @@ table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
 @keyframes pulse { 0%, 100% { background: #2b2410; } 50% { background: #3a3016; } }
 
 .roster-pop { position: fixed; z-index: 40; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; font-size: 12px; }
+
+.pop.editor input { width: 100%; margin-top: 6px; }
+.cand-list { margin-top: 6px; max-height: 200px; overflow: auto; }
+.cand { padding: 5px 6px; cursor: pointer; border-radius: 4px; }
+.cand:hover { background: #2b3140; }
+table.board td.cell { cursor: pointer; }
