@@ -90,7 +90,7 @@ export async function mapWithConcurrency(items, limit, fn) {
   return out;
 }
 
-export function mergePlayers(espnJson, teamsJson, ffcJson) {
+export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Map()) {
   const teamsById = new Map();
   for (const t of teamsJson.settings.proTeams) {
     teamsById.set(t.id, { abbrev: t.abbrev, bye: t.byeWeek ?? null });
@@ -115,6 +115,8 @@ export function mergePlayers(espnJson, teamsJson, ffcJson) {
     const abbrev = team ? team.abbrev : 'FA';
     const isDef = position === 'DEF';
 
+    const { age, experience } = athleteFields(isDef ? null : athletesById.get(String(p.id)));
+
     merged.push({
       id: isDef ? `DEF-${abbrev}` : String(p.id),
       name: p.fullName,
@@ -124,6 +126,9 @@ export function mergePlayers(espnJson, teamsJson, ffcJson) {
       projectedPoints: projectedPoints(p),
       adp: (isDef ? adpByDefTeam.get(abbrev) : adpByName.get(normalizeName(p.fullName))) ?? null,
       bye: team ? team.bye : null,
+      age,
+      experience,
+      prior: priorSeasonLine(p, PRIOR_SEASON),
     });
   }
 
@@ -142,6 +147,9 @@ export function mergePlayers(espnJson, teamsJson, ffcJson) {
       projectedPoints: p.projectedPoints,
       adp: p.adp,
       bye: p.bye,
+      age: p.age,
+      experience: p.experience,
+      prior: p.prior,
     };
   });
 }

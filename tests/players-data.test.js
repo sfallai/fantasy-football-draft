@@ -44,6 +44,7 @@ test('mergePlayers joins ESPN projections with FFC adp and team byes', () => {
   assert.deepEqual(gibbs, {
     id: '111', name: 'Jahmyr Gibbs', team: 'DET', position: 'RB',
     overallRank: 1, positionRank: 1, projectedPoints: 297.1, adp: 1.4, bye: 6,
+    age: null, experience: null, prior: null,
   });
 
   const def = out.find((p) => p.position === 'DEF');
@@ -62,6 +63,62 @@ test('mergePlayers leaves adp null when FFC has no entry', () => {
   const teams = { settings: { proTeams: [{ id: 8, abbrev: 'DET', byeWeek: 6 }] } };
   const out = mergePlayers(espn, teams, { players: [] });
   assert.equal(out[0].adp, null);
+});
+
+test('mergePlayers attaches age, experience, and last season line', () => {
+  const espn = { players: [{ player: {
+    id: 111, fullName: 'Jahmyr Gibbs', defaultPositionId: 2, proTeamId: 8,
+    draftRanksByRankType: { STANDARD: { rank: 1 } },
+    stats: [
+      { seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 297.1 },
+      { seasonId: 2025, statSourceId: 0, statSplitTypeId: 0, appliedTotal: 289.9, appliedAverage: 17.05 },
+    ],
+  } }] };
+  const teams = { settings: { proTeams: [{ id: 8, abbrev: 'DET', byeWeek: 6 }] } };
+  const athletes = new Map([['111', { age: 24, experience: { years: 4 } }]]);
+
+  const [gibbs] = mergePlayers(espn, teams, { players: [] }, athletes);
+  assert.equal(gibbs.age, 24);
+  assert.equal(gibbs.experience, 4);
+  assert.deepEqual(gibbs.prior, { points: 289.9, games: 17, ppg: 17.1 });
+});
+
+test('mergePlayers marks a first-year player as inexperienced, not as missing data', () => {
+  const espn = { players: [{ player: {
+    id: 999, fullName: 'Some Rookie', defaultPositionId: 3, proTeamId: 8,
+    draftRanksByRankType: { STANDARD: { rank: 90 } },
+    stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 110 }],
+  } }] };
+  const teams = { settings: { proTeams: [{ id: 8, abbrev: 'DET', byeWeek: 6 }] } };
+  const athletes = new Map([['999', { age: 22, experience: { years: 1 } }]]);
+
+  const [rookie] = mergePlayers(espn, teams, { players: [] }, athletes);
+  assert.equal(rookie.experience, 1, 'experience <= 1 is what makes a player a rookie');
+  assert.equal(rookie.prior, null, 'and he has no prior season to report');
+});
+
+test('mergePlayers leaves age and experience null for defenses and failed lookups', () => {
+  const espn = { players: [
+    { player: {
+      id: 222, fullName: 'Seahawks D/ST', defaultPositionId: 16, proTeamId: 26,
+      draftRanksByRankType: { STANDARD: { rank: 120 } },
+      stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 104 }],
+    } },
+    { player: {
+      id: 333, fullName: 'Lookup Failed', defaultPositionId: 1, proTeamId: 26,
+      draftRanksByRankType: { STANDARD: { rank: 130 } },
+      stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 200 }],
+    } },
+  ] };
+  const teams = { settings: { proTeams: [{ id: 26, abbrev: 'SEA', byeWeek: 11 }] } };
+  // 333's request came back null; 222 is a defense and was never looked up.
+  const athletes = new Map([['333', null]]);
+
+  const out = mergePlayers(espn, teams, { players: [] }, athletes);
+  for (const p of out) {
+    assert.equal(p.age, null, `${p.name} age`);
+    assert.equal(p.experience, null, `${p.name} experience`);
+  }
 });
 
 test('priorSeasonLine reads last season actuals, not this season projections', () => {
