@@ -140,6 +140,28 @@ table.players tr:hover td { background: #22262f; }
    is what makes the pin work. */
 .tablewrap { overflow: auto; }
 .panel.center { display: flex; flex-direction: column; }
+/* The centre panel must never be the scroller itself. It was: `.panel` sets
+   `overflow: auto`, and once the chrome above the table exceeded panelHeight − 120px
+   the panel scrolled instead of the table — and renderCenter's post-render
+   filterInput.focus() then scrolled the round/pick header and the Undo and Skip
+   buttons off the top on every single pick. `overflow: hidden` here takes that away;
+   the one variable-height block (notes, recommendations, sleepers) gets its own
+   scrollport below so long recommendations still reach the user. */
+.panel.center { overflow: hidden; }
+/* Chrome that must never move: the round/pick header, the Undo/Skip bar, the Players
+   heading and the filter row all stay pinned by simply refusing to shrink. */
+.panel.center > .pick-info,
+.panel.center > .pickbar,
+.panel.center > h2,
+.panel.center > .filters { flex: 0 0 auto; }
+/* min-height: 0 is the load-bearing part: without it this scroller's flex automatic
+   minimum size is its content height, so it would refuse to shrink and push the table
+   past the bottom of the panel. */
+.panel.center .center-scroll { flex: 0 1 auto; overflow: auto; min-height: 0; }
+/* The explicit min-height is what keeps a few rows visible when the block above is
+   long. An explicit min-height always overrides the flexbox automatic minimum size —
+   that has nothing to do with `overflow: auto`, which only zeroes the *automatic*
+   minimum when no explicit one is given. */
 .panel.center .tablewrap { flex: 1 1 auto; min-height: 120px; }
 table.players tr.taken td { color: #545b6b; }
 table.players tr.taken:hover td { background: transparent; }

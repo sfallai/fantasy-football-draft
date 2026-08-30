@@ -346,6 +346,10 @@ test('a candidate sharing a bye with a same-position starter is flagged', () => 
 test('re-rendering the panel closes an open popover', () => {
   // A stale popover would point at DOM the re-render has already replaced — harmless
   // for a read-only detail card, not harmless for chunk E's pick editor.
+  // Builds its ctx by hand like the three tests above, so it needs their resetView():
+  // a position filter left set by an earlier test would empty the table and there
+  // would be no .pname to click.
+  resetView();
   const container = document.createElement('div');
   const draw = () => renderCenter(container, ctx([player()]), { onPick() {}, onUndo() {}, onOffList() {} });
   draw();

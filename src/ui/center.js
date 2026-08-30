@@ -250,8 +250,15 @@ export function renderCenter(container, ctx, handlers) {
     }, []),
   ]));
 
+  // Everything of variable height — competitive notes, three recommendation cards each
+  // possibly carrying a bye-warning line, and the sleepers — lives in its own scrollport.
+  // The panel itself is `overflow: hidden` (see styles.css), so this is what absorbs a
+  // long block instead of the panel scrolling the pick header off the top.
+  const scroll = el('div', { class: 'center-scroll' }, []);
+  container.appendChild(scroll);
+
   for (const note of notes || []) {
-    container.appendChild(el('div', { class: 'notes', text: note }, []));
+    scroll.appendChild(el('div', { class: 'notes', text: note }, []));
   }
 
   if (isMyPick && pool.length) {
@@ -261,18 +268,18 @@ export function renderCenter(container, ctx, handlers) {
     const targeted = filterByPositions(pool, view.positions);
     const recs = recommend(targeted, { needs, surplus, currentPick, nextPick, round, vbdScale }, 3);
 
-    container.appendChild(el('h2', {
+    scroll.appendChild(el('h2', {
       text: view.positions.length ? `Recommended — ${view.positions.join(', ')}` : 'Recommended',
     }, []));
-    for (const rec of recs) container.appendChild(recommendationCard(rec, myRoster, slots));
+    for (const rec of recs) scroll.appendChild(recommendationCard(rec, myRoster, slots));
 
     const gambles = sleepers(targeted, {
       currentPick,
       excludeIds: new Set(recs.map((r) => r.player.id)),
     }, 2);
     if (gambles.length) {
-      container.appendChild(el('h2', { text: 'Sleepers' }, []));
-      for (const g of gambles) container.appendChild(sleeperCard(g, myRoster, slots));
+      scroll.appendChild(el('h2', { text: 'Sleepers' }, []));
+      for (const g of gambles) scroll.appendChild(sleeperCard(g, myRoster, slots));
     }
   }
 
@@ -345,6 +352,8 @@ export function renderCenter(container, ctx, handlers) {
   container.appendChild(playerTable(tablePlayers, handlers.onPick));
 
   // Focus is restored after each render so the user can filter pick after pick
-  // without reaching for the mouse.
-  setTimeout(() => filterInput.focus(), 0);
+  // without reaching for the mouse. preventScroll: true because focus() otherwise
+  // scrolls the nearest scrollable ancestor to reveal the input — this call has no
+  // business moving the viewport, whatever the layout happens to be doing.
+  setTimeout(() => filterInput.focus({ preventScroll: true }), 0);
 }
