@@ -136,12 +136,15 @@ table.players { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.players th { position: sticky; top: 0; background: var(--panel); text-align: left; padding: 4px 6px; font-size: 11px; color: var(--muted); cursor: pointer; border-bottom: 1px solid var(--border); }
 table.players td { padding: 3px 6px; border-bottom: 1px solid #22262f; }
 table.players tr:hover td { background: #22262f; }
-.tablewrap { overflow-x: auto; }
+/* The real scroll container on both axes. `overflow-x: auto` alone made overflow-y
+   compute to auto, so this became a scrollport that never scrolled — and the sticky
+   header resolved against it and scrolled away with the panel. A height constraint
+   is what makes the pin work. */
+.tablewrap { overflow: auto; max-height: calc(100vh - 320px); }
 table.players tr.taken td { color: #545b6b; }
 table.players tr.taken:hover td { background: transparent; }
 table.players td.owner { color: var(--muted); font-style: italic; white-space: nowrap; }
-table.players td.pname { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rookie { font-size: 9px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 3px; margin-left: 5px; vertical-align: middle; }
+.rookie { font-size: 9px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 3px; margin-right: 5px; vertical-align: middle; }
 .filters { display: flex; gap: 6px; align-items: center; margin: 10px 0 6px; flex-wrap: wrap; }
 .filters button.selected { background: var(--accent); color: #1a1205; }
 .pop { position: fixed; z-index: 30; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-width: 300px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
@@ -254,7 +257,10 @@ __def("core/player.js", function (__exports, __req) {
 // so it cannot be trusted as a years-played number. Requiring no prior season is what
 // makes this independent of whichever convention ESPN is using in a given year.
 function isRookie(player) {
-  return player.experience !== null
+  // Guarded like priorSummary below: both are called on whatever the caller has,
+  // and a missing player is a "no" rather than a crash.
+  return !!player
+    && player.experience !== null
     && player.experience !== undefined
     && player.experience <= 1
     && !player.prior;
@@ -904,7 +910,7 @@ __def("ui/app.js", function (__exports, __req) {
 const { el, clear } = __req('ui/dom.js');
 const { renderSetup } = __req('ui/setup.js');
 const { renderMyTeam } = __req('ui/myteam.js');
-const { renderCenter } = __req('ui/center.js');
+const { renderCenter, resetView } = __req('ui/center.js');
 const { renderBoard } = __req('ui/board.js');
 const { pickToSlot } = __req('core/snake.js');
 const { positionalNeeds, benchDepthIfAdded } = __req('core/roster.js');
@@ -984,6 +990,9 @@ function handleReset() {
   if (!window.confirm('Clear this draft and return to setup?')) return;
   clearState();
   state = null;
+  // The centre panel's sort/filter/search is module state and would otherwise
+  // survive into the next draft.
+  resetView();
   showSetup();
 }
 
@@ -1087,7 +1096,11 @@ function init() {
   }
 }
 
-init();
+// The built page has no bundler and no entry hook: evaluating this module IS the
+// start signal, so the call has to stay at module scope. Under `node --test` there
+// is a `process`, and the test must install its DOM stub and fixtures before
+// anything renders — so it is skipped there and the test calls init() itself.
+if (typeof process === 'undefined') init();
 
 __exports.init = init;
 
@@ -1161,7 +1174,7 @@ function renderBoard(container, ctx) {
       class: teamIndex === myTeamIndex ? 'mine' : '',
       text: teams[teamIndex - 1].name,
       title: 'Click for this team\'s roster and needs',
-      onClick: (e) => { e.stopPropagation(); showRosterPopover(e, state, allPlayers, teamIndex); },
+      onClick: (e) => showRosterPopover(e, state, allPlayers, teamIndex),
     }, []));
   }
 
@@ -1260,7 +1273,27 @@ function formatVbd(vbd) {
 }
 
 // Module-level view state so a re-render keeps the user's sort/filter/search choices.
-const view = { sortKey: 'overallRank', filter: 'ALL', query: '' };
+// `availableOnly` defaults on: the spec requires every player to have a row, but by
+// the middle rounds most of the region you scroll is greyed noise, and renderDraft
+// rebuilds the panel every pick so scroll position resets to the top each time.
+const DEFAULT_VIEW = { sortKey: 'overallRank', filter: 'ALL', query: '', availableOnly: true };
+const view = { ...DEFAULT_VIEW };
+
+// Module state outlives a draft, so a reset has to put it back explicitly.
+function resetView() {
+  Object.assign(view, DEFAULT_VIEW);
+}
+
+function isTaken(player) {
+  return player.ownerName !== null && player.ownerName !== undefined;
+}
+
+// The rows the table will actually show, in order — also what the heading counts.
+function visiblePlayers(tablePlayers) {
+  return filterByPosition(sortPlayers(tablePlayers, view.sortKey), view.filter)
+    .filter((pl) => matchesQuery(pl, view.query))
+    .filter((pl) => !view.availableOnly || !isTaken(pl));
+}
 
 function recommendationCard(rec) {
   const pl = rec.player;
@@ -1284,16 +1317,17 @@ function recommendationCard(rec) {
 }
 
 function playerTable(tablePlayers, onPick) {
-  const rows = filterByPosition(sortPlayers(tablePlayers, view.sortKey), view.filter)
-    .filter((pl) => matchesQuery(pl, view.query))
+  const rows = visiblePlayers(tablePlayers)
     .map((pl) => {
-      const taken = pl.ownerName !== null && pl.ownerName !== undefined;
+      const taken = isTaken(pl);
       const name = el('td', {
         class: 'pname', title: pl.name,
-        onClick: (e) => { e.stopPropagation(); showPopover(playerPopover(pl), e); },
+        onClick: (e) => showPopover(playerPopover(pl), e),
       }, [
-        el('span', { text: pl.name }, []),
+        // Before the name, not after: the badge is the row's one piece of scannable
+        // colour and must never be what a long name pushes out of view.
         isRookie(pl) ? el('span', { class: 'rookie', text: 'R' }, []) : null,
+        el('span', { text: pl.name }, []),
       ]);
       return el('tr', {
         class: taken ? 'taken' : '',
@@ -1330,18 +1364,28 @@ function playerTable(tablePlayers, onPick) {
   ]);
 }
 
+// The five need tiers are the ones positionalNeeds() actually produces and the
+// recommendation card actually prints — not the reason-line labels, which the user
+// never sees on their own.
 const GLOSSARY = [
   ['BPA', 'Best player available — the raw overall ranking, ignoring what you already have.'],
+  ['Proj', 'Projected fantasy points for the whole season, under this league\'s scoring.'],
   ['VBD', 'Value based drafting — points above the last starter at this position. Compares across positions.'],
   ['ADP', 'Average draft pick — where this player usually goes. Far past it is value; well before it is a reach.'],
   ['Bye', 'The week this player does not play.'],
-  ['Need', 'high: no starter yet · medium: a starting slot open · depth: bench only · not needed: slots full.'],
   ['R', 'Rookie — no prior NFL season on record.'],
+  ['Need', 'How much your roster wants this position right now — one of the five tiers below.'],
+  ['high', 'No starter at this position yet.'],
+  ['medium', 'You have one, but a starting slot at this position is still open.'],
+  ['low', 'Starters are covered; only a FLEX slot could still take one.'],
+  ['bench', 'Every startable slot is full — this would be bench depth.'],
+  ['none', 'Not needed. K and DEF sit here until the last few rounds.'],
 ];
 
 function glossaryPopover() {
   return el('div', { class: 'pop' }, [
-    el('h3', { text: 'What the columns mean' }, []),
+    // Not "columns": BPA, Need and R are not columns, and the need tiers are values.
+    el('h3', { text: 'What these mean' }, []),
     el('dl', {}, GLOSSARY.flatMap(([term, meaning]) => [
       el('dt', { text: term }, []),
       el('dd', { text: meaning }, []),
@@ -1354,6 +1398,9 @@ function playerPopover(pl) {
   return el('div', { class: 'pop' }, [
     el('h3', { text: pl.name }, []),
     el('div', { text: `${pl.position} · ${pl.team} · #${pl.overallRank} overall${pl.age === null || pl.age === undefined ? '' : ` · age ${pl.age}`}` }, []),
+    // The greyed row conveys "gone"; only the owner column says to whom, and the
+    // popover is opened from the name cell that sits right next to it.
+    isTaken(pl) ? el('div', { class: 'owner', text: `Drafted by ${pl.ownerName}` }, []) : null,
     el('div', { style: { marginTop: '8px', color: '#8b93a5' }, text: 'Last season' }, []),
     // A rookie has no prior line, and saying so is better than printing zeroes.
     el('div', { text: prior || (isRookie(pl) ? 'Rookie — no NFL season yet' : 'No prior season on record') }, []),
@@ -1409,9 +1456,15 @@ function renderCenter(container, ctx, handlers) {
     for (const rec of recs) container.appendChild(recommendationCard(rec));
   }
 
+  const headingText = () =>
+    `Players (${visiblePlayers(tablePlayers).length} shown · ${pool.length} available)`;
+  const heading = el('h2', { text: headingText() }, []);
+
   function redrawTable() {
     const wrap = container.querySelector('.tablewrap');
     if (wrap) wrap.replaceWith(playerTable(tablePlayers, handlers.onPick));
+    // The count is a count of what is on screen, so it moves with the table.
+    heading.textContent = headingText();
   }
 
   const filterInput = el('input', {
@@ -1427,10 +1480,18 @@ function renderCenter(container, ctx, handlers) {
     }, [])),
     filterInput,
     el('button', { text: '✕', title: 'Clear the filter', onClick: () => { view.query = ''; rerender(); } }, []),
-    el('button', { text: '?', title: 'What do these columns mean?', onClick: (e) => showPopover(glossaryPopover(), e) }, []),
+    // Deliberately its own button rather than another position chip: chunk D turns
+    // the position row into a multi-select, and folding this in would collide.
+    el('button', {
+      class: view.availableOnly ? 'selected' : '',
+      text: 'Available only',
+      title: 'Hide players who have already been drafted',
+      onClick: () => { view.availableOnly = !view.availableOnly; rerender(); },
+    }, []),
+    el('button', { text: '?', title: 'What do these mean?', onClick: (e) => showPopover(glossaryPopover(), e) }, []),
   ]);
 
-  container.appendChild(el('h2', { text: `Players (${pool.length} available)` }, []));
+  container.appendChild(heading);
   container.appendChild(filters);
   container.appendChild(playerTable(tablePlayers, handlers.onPick));
 
@@ -1445,6 +1506,9 @@ __exports.matchesQuery = matchesQuery;
 __exports.sortPlayers = sortPlayers;
 __exports.filterByPosition = filterByPosition;
 __exports.formatVbd = formatVbd;
+__exports.resetView = resetView;
+__exports.isTaken = isTaken;
+__exports.visiblePlayers = visiblePlayers;
 __exports.renderCenter = renderCenter;
 
 });
@@ -1583,23 +1647,58 @@ __exports.renderMyTeam = renderMyTeam;
 });
 __def("ui/popover.js", function (__exports, __req) {
 // One module owns the open popover, so a second panel opening one closes the first.
-// Two independent copies of this state let the board's roster popover and the centre
-// panel's player detail sit on screen at the same time, each unaware of the other.
+// Were there two independent copies of this state, the board's roster popover and the
+// centre panel's player detail could sit on screen at the same time, each unaware of
+// the other.
 let openNode = null;
+
+// `.pop` is position: fixed above the table. Anchoring its corner exactly at the
+// pointer puts it under the *second* click of a double-click, which then hit-tests
+// onto the popover instead of the row — and the pick never happens. Offsetting clears
+// the pointer; browsers cancel a dblclick only after the pointer moves several pixels,
+// so 14px sits outside the double-click envelope without moving the popover far.
+const OFFSET_X = 14;
+const OFFSET_Y = 16;
+
+// Used only when the node cannot report its own size yet (no layout, or a test stub).
+const FALLBACK_WIDTH = 280;
+const FALLBACK_HEIGHT = 400;
+
+// Containment, not a { once: true } arming. addEventListener dedupes on
+// (type, callback, capture) and `once` is not part of that key, so a one-shot listener
+// that is never consumed — because the opening click called stopPropagation and never
+// reached the document — would survive and swallow the next popover. Dismissing on a
+// click *outside* the open node cannot desync from openNode: closePopover always
+// removes exactly what showPopover added.
+function dismissOnOutsideClick(event) {
+  if (openNode && event && openNode.contains(event.target)) return;
+  closePopover();
+}
 
 function closePopover() {
   if (openNode && openNode.parentNode) openNode.parentNode.removeChild(openNode);
   openNode = null;
+  document.removeEventListener('click', dismissOnOutsideClick);
 }
 
 function showPopover(node, event) {
   closePopover();
-  node.style.left = `${Math.min(event.clientX, window.innerWidth - 280)}px`;
-  node.style.top = `${Math.min(event.clientY, window.innerHeight - 400)}px`;
+  node.style.left = `${event.clientX + OFFSET_X}px`;
+  node.style.top = `${event.clientY + OFFSET_Y}px`;
   document.body.appendChild(node);
   openNode = node;
+
+  // Measured after appending, because `.pop` sizes to its content: the centre panel's
+  // player detail and the board's roster popover are nothing like the same height.
+  // A zero measurement (no layout yet) falls back to the old constants.
+  const rect = typeof node.getBoundingClientRect === 'function' ? node.getBoundingClientRect() : null;
+  const width = (rect && rect.width) || FALLBACK_WIDTH;
+  const height = (rect && rect.height) || FALLBACK_HEIGHT;
+  node.style.left = `${Math.max(0, Math.min(event.clientX + OFFSET_X, window.innerWidth - width))}px`;
+  node.style.top = `${Math.max(0, Math.min(event.clientY + OFFSET_Y, window.innerHeight - height))}px`;
+
   // Deferred, or the click that opened this popover immediately closes it.
-  setTimeout(() => document.addEventListener('click', closePopover, { once: true }), 0);
+  setTimeout(() => document.addEventListener('click', dismissOnOutsideClick), 0);
 }
 
 __exports.closePopover = closePopover;
