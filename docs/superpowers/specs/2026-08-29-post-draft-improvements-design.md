@@ -225,20 +225,39 @@ would actually want an empty cell:
 - *Logged a pick that never happened* — clearing leaves a hole and shifts
   nothing, so it does not fix this either. That would need a delete-and-shift,
   which was never specified.
-- *Do not know who was taken* — **Skip / off-list** already does exactly this,
-  and marks the cell honestly.
+- *Do not know who was taken* — clearing leaves a hole, which says "not yet
+  picked": a worse lie than a wrong name, and one the clock believes. The honest
+  mark is the off-list sentinel, which keeps the cell filled. Note that the **Skip
+  / off-list** button does *not* cover this on its own, as an earlier draft of this
+  section claimed: `applyOffListPick` reads `currentPickNumber`, so it only ever
+  applies to the pick on the clock, and once pick 13 exists pick 12 can no longer be
+  marked. The pick editor therefore offers an **Unknown / off-list** entry, which
+  writes `` `${OFF_LIST_PREFIX}${pick}` `` into whichever cell is being edited.
+  Retroactive, and still not a hole.
 
-Replace plus the existing off-list button covers every case clearing would, and
-clearing was the sole reason the state model had to change. It is not deferred
+Replace plus off-list — at the clock from the button, retroactively from the
+editor — covers every case clearing would, and clearing was the sole reason the
+state model had to change. It is not deferred
 scope; it is a feature that does not do a job. If a real case ever turns up, the
 cursor work can be justified by that example instead of by speculation.
 
 **What changes.**
 
 - `setPick(state, pickNumber, playerId)` replaces the player at an
-  already-filled pick, rejecting anyone already drafted elsewhere. It refuses an
-  unfilled pick — that is what the normal flow is for. `currentPickNumber` is
-  untouched.
+  already-filled pick. It refuses an unfilled pick — that is what the normal flow
+  is for. `currentPickNumber` is untouched.
+- **The swap case.** Naming a player who already sits at another pick *exchanges*
+  the two entries rather than rejecting them: pick A takes B's player and pick B
+  takes A's. Two picks logged in the wrong order is an ordinary draft-day mistake
+  and had no expression at all — `setPick` threw `already drafted`, and clearing
+  would not have helped either, because it moves the clock backwards. Every pick in
+  `state.picks` is filled by definition, so an exchange fills exactly the cells it
+  empties: no hole, no clock movement, no invariant change. `teamIndex` and
+  `isKeeper` stay with their pick numbers — an exchange must never move a pick to
+  another manager — and the whole exchange is one `history` entry, so one undo
+  reverses both halves. The editor's pool therefore includes drafted players, each
+  labelled with the pick that holds him (`Bijan Robinson — swap with pick 12`), so
+  the exchange is never a surprise.
 - `history` entries become `{pick, previous}` rather than a bare pick number, so
   undo reverses the most recent *action* — an edit as readily as a pick.
 - **Migration:** a draft saved by an earlier version has `history` as a plain
