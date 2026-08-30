@@ -262,6 +262,30 @@ A **Refresh data** button fetches from ESPN and updates `projectedPoints`,
 - **Any player already on a roster is preserved** even if he falls out of the
   new top 400, so a refresh can never orphan a pick.
 
+Two traps in this chunk, both found while implementing chunk A and recorded here
+because neither is visible from chunk G's own code.
+
+**A refresh must merge, not rebuild.** `age`, `experience`, and `prior` come from
+responses that the in-page refresh does not make — that is the finding which
+justified chunk A in the first place. A refresh that rebuilds each record from a
+fresh `kona_player_info` response therefore sets all three to `null` for every
+player, and **no existing test catches it**: the schema test reads
+`data/players.json`, not the in-page refresh result, and `null` is a legal value
+for all three fields. Chunk G needs an explicit test that a refresh preserves
+`age`, `experience`, and `prior` on every player it touches.
+
+**One existing test will fail the moment chunk G lands.** `tests/build.test.js`
+asserts `doesNotMatch(html, /\bfetch\s*\(/, 'no network access at runtime')`
+against the built page. Chunk G puts `fetch(` into `src/`, so that assertion
+breaks by design. It encodes a real invariant, so narrow it rather than delete
+it: the page must remain offline *by default*, reaching the network only on an
+explicit click.
+
+**`experience` is a rookie flag, not a career length.** ESPN counts the current
+rookie class as 0 and the previous one as 2, so any later feature tempted to
+render "3rd-year WR" from this field would be off by one for a whole draft class.
+Deriving the rookie badge is all this field supports.
+
 ## Testing
 
 Unchanged in approach. Logic lands in `src/core/` and is unit-tested directly;
