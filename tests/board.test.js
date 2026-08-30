@@ -142,3 +142,24 @@ test('boardCells flags keepers', () => {
   assert.equal(cell.isKeeper, true);
   assert.equal(cell.player.id, 'p9');
 });
+
+test('only a filled cell carries the class the pointer cursor is scoped to', () => {
+  // `cursor: pointer` on every cell advertised an affordance that ~145 of 150 cells
+  // do not have: an unfilled cell has no click handler at all.
+  let state = createState({ ...DEFAULT_CONFIG, rounds: 3 });
+  state = applyPick(state, 'p1');
+  state = applyOffListPick(state);
+  const container = document.createElement('div');
+  renderBoard(container, {
+    state, allPlayers: PLAYERS, editablePool: availablePlayers(state, PLAYERS), onEditPick: () => {},
+  });
+
+  const cells = find(container, (n) => n.tagName === 'td' && n.className.includes('cell'));
+  for (const cell of cells) {
+    const filled = cell.className.split(' ').includes('filled');
+    assert.equal(filled, (cell.listeners.click || []).length > 0,
+      'the class and the handler agree on every cell');
+  }
+  assert.equal(cells.filter((c) => c.className.includes('filled')).length, 2,
+    'the drafted pick and the off-list pick');
+});

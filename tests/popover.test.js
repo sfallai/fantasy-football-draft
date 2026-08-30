@@ -71,19 +71,37 @@ test('a measured node is clamped against its real size, not the fallback', () =>
   closePopover();
 });
 
-test('opening three popovers leaves exactly one dismiss listener armed', async () => {
+test('opening three popovers leaves exactly one arming of each dismiss listener', async () => {
   // addEventListener dedupes on (type, callback, capture) and ignores `once`, so a
   // one-shot arming that was never consumed used to linger and close the *next*
-  // popover the instant it opened. The listener must track openNode exactly.
+  // popover the instant it opened. The listeners must track openNode exactly.
   const { document } = stubWithBody();
   for (let i = 0; i < 3; i += 1) {
     showPopover(document.createElement('div'), { clientX: 5, clientY: 5 });
     await flush();
   }
-  assert.equal(document.listeners.length, 1);
+  const armed = (type) => document.listeners.filter((l) => l.type === type).length;
+  assert.equal(armed('click'), 1);
+  assert.equal(armed('keydown'), 1);
+  assert.equal(document.listeners.length, 2, 'and nothing else');
   closePopover();
   await flush();
-  assert.equal(document.listeners.length, 0, 'closing removes the arming again');
+  assert.equal(document.listeners.length, 0, 'closing removes both armings again');
+});
+
+test('Escape dismisses the open popover', async () => {
+  // The pick editor focuses its input, so the mouse is nowhere near the click
+  // outside that the other listener waits for.
+  const { document, body } = stubWithBody();
+  showPopover(document.createElement('div'), { clientX: 5, clientY: 5 });
+  await flush();
+
+  const dismiss = document.listeners.find((l) => l.type === 'keydown').handler;
+  dismiss({ key: 'a' });
+  assert.equal(body.children.length, 1, 'an ordinary keystroke leaves it open');
+  dismiss({ key: 'Escape' });
+  assert.equal(body.children.length, 0);
+  assert.equal(document.listeners.length, 0, 'and the armings went with it');
 });
 
 test('a click inside the open popover does not dismiss it', async () => {
@@ -94,7 +112,7 @@ test('a click inside the open popover does not dismiss it', async () => {
   showPopover(node, { clientX: 5, clientY: 5 });
   await flush();
 
-  const dismiss = document.listeners[0].handler;
+  const dismiss = document.listeners.find((l) => l.type === 'click').handler;
   dismiss({ target: inner });
   assert.equal(body.children.length, 1, 'a click on the popover keeps it open');
 

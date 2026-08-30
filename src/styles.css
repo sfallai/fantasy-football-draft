@@ -191,4 +191,7 @@ table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
 .cand-list { margin-top: 6px; max-height: 200px; overflow: auto; }
 .cand { padding: 5px 6px; cursor: pointer; border-radius: 4px; }
 .cand:hover { background: #2b3140; }
-table.board td.cell { cursor: pointer; }
+/* Only a filled cell has an edit handler, so only a filled cell offers the pointer. */
+table.board td.cell.filled { cursor: pointer; }
+.cand.offlist { margin-top: 6px; border-top: 1px solid var(--border); border-radius: 0 0 4px 4px; color: var(--muted); }
+.cand-more { padding: 5px 6px; color: var(--muted); font-style: italic; }

@@ -78,7 +78,12 @@ export function renderBoard(container, ctx) {
     const cells = [el('td', { class: 'rnd', text: `${round}${arrow}` }, [])];
 
     for (const cell of row) {
+      // Only a filled cell is editable, and only a filled cell may advertise it:
+      // `cursor: pointer` on all 150 is a false affordance on the ~145 that early
+      // in a draft have no handler at all.
+      const isFilled = Boolean(cell.player || cell.isOffList);
       const classes = ['cell'];
+      if (isFilled) classes.push('filled');
       if (cell.isMine) classes.push('mine-col');
       if (cell.isCurrent) classes.push('current');
       if (cell.isKeeper) classes.push('keeper');
@@ -99,7 +104,7 @@ export function renderBoard(container, ctx) {
             + `#${cell.player.overallRank} overall · ${cell.player.projectedPoints} proj · `
             + `ADP ${cell.player.adp ?? '—'} · bye ${cell.player.bye ?? '—'}`
           : offListTitle,
-        onClick: cell.player || cell.isOffList
+        onClick: isFilled
           ? (e) => {
             showPopover(pickEditor(cell, ctx.editablePool, (playerId) => {
               closePopover();

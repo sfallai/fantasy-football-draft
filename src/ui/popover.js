@@ -27,10 +27,19 @@ function dismissOnOutsideClick(event) {
   closePopover();
 }
 
+// Escape is how every other dismissable overlay on the web closes, and the pick
+// editor is a keyboard surface — the input is focused, so the mouse is nowhere near
+// the "click outside" the other listener waits for. Removed in closePopover exactly
+// as the click listener is; chunk F's popover inherits both for free.
+function dismissOnEscape(event) {
+  if (event && event.key === 'Escape') closePopover();
+}
+
 export function closePopover() {
   if (openNode && openNode.parentNode) openNode.parentNode.removeChild(openNode);
   openNode = null;
   document.removeEventListener('click', dismissOnOutsideClick);
+  document.removeEventListener('keydown', dismissOnEscape);
 }
 
 export function showPopover(node, event) {
@@ -48,6 +57,10 @@ export function showPopover(node, event) {
   const height = (rect && rect.height) || FALLBACK_HEIGHT;
   node.style.left = `${Math.max(0, Math.min(event.clientX + OFFSET_X, window.innerWidth - width))}px`;
   node.style.top = `${Math.max(0, Math.min(event.clientY + OFFSET_Y, window.innerHeight - height))}px`;
+
+  // Not deferred, unlike the click listener: no keystroke opened this popover, so
+  // there is nothing for an immediate arming to swallow.
+  document.addEventListener('keydown', dismissOnEscape);
 
   // Deferred, or the click that opened this popover immediately closes it.
   setTimeout(() => document.addEventListener('click', dismissOnOutsideClick), 0);
