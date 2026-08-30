@@ -4,6 +4,7 @@ import {
   STORAGE_KEY, DEFAULT_CONFIG, createState, currentPickNumber, applyPick, undoPick,
   availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter,
   applyOffListPick, isOffListId, saveState, loadState, clearState, playersWithOwners,
+  setPick, deserialize,
 } from '../src/core/state.js';
 
 const PLAYERS = Array.from({ length: 200 }, (_, i) => ({
@@ -190,7 +191,7 @@ test('an off-list pick is undoable like any other pick', () => {
   state = undoPick(state);
   assert.equal(currentPickNumber(state), 2);
   assert.equal(state.picks[2], undefined);
-  assert.deepEqual(state.history, [1]);
+  assert.deepEqual(state.history, [{ pick: 1, previous: null }]);
 });
 
 test('renderers drop off-list ids instead of showing a phantom player', () => {
@@ -307,4 +308,99 @@ test('playersWithOwners labels a keeper with his team', () => {
     teams: [{ name: 'Alpha', keeper: { playerId: 'k', round: 1 } }, { name: 'Beta', keeper: null }],
   });
   assert.equal(playersWithOwners(state, players)[0].ownerName, 'Alpha');
+});
+
+test('setPick replaces the player at an already-made pick', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = setPick(state, 1, 'b');
+  assert.equal(state.picks[1].playerId, 'b');
+});
+
+test('setPick keeps the pick on the same team', () => {
+  // teamIndex comes from the pick number, and editing must never move a pick to
+  // another manager's roster.
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  const before = state.picks[2].teamIndex;
+  state = setPick(state, 2, 'c');
+  assert.equal(state.picks[2].teamIndex, before);
+});
+
+test('setPick refuses a player already drafted somewhere else', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  assert.throws(() => setPick(state, 1, 'b'), /already drafted/);
+});
+
+test('setPick allows re-setting a pick to the player it already holds', () => {
+  // The duplicate check must not trip on the pick being edited.
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  assert.equal(setPick(state, 1, 'a').picks[1].playerId, 'a');
+});
+
+test('setPick refuses a pick that has not been made', () => {
+  // Editing never creates a pick out of order — that is what the normal flow is for.
+  const state = createState({ numTeams: 2, rounds: 2 });
+  assert.throws(() => setPick(state, 3, 'a'), /not been made/);
+});
+
+test('setPick preserves a keeper flag', () => {
+  const state = createState({
+    numTeams: 2, rounds: 2,
+    teams: [{ name: 'A', keeper: { playerId: 'k', round: 1 } }, { name: 'B', keeper: null }],
+  });
+  const edited = setPick(state, 1, 'k2');
+  assert.equal(edited.picks[1].isKeeper, true, 'it is still the keeper slot, with a different player');
+});
+
+test('setPick does not mutate the state it is given', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  setPick(state, 1, 'b');
+  assert.equal(state.picks[1].playerId, 'a');
+});
+
+test('undo reverses an edit, restoring the player that was there', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = setPick(state, 1, 'b');
+  state = undoPick(state);
+  assert.equal(state.picks[1].playerId, 'a');
+  assert.equal(currentPickNumber(state), 2, 'undoing an edit does not un-make the pick');
+});
+
+test('undo still removes an ordinary pick', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = undoPick(state);
+  assert.equal(state.picks[1], undefined);
+  assert.equal(currentPickNumber(state), 1);
+});
+
+test('undo unwinds edits and picks in the order they happened', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  state = setPick(state, 1, 'c');
+  state = undoPick(state);
+  assert.equal(state.picks[1].playerId, 'a', 'the edit came last, so it goes first');
+  state = undoPick(state);
+  assert.equal(state.picks[2], undefined);
+});
+
+test('deserialize accepts a legacy history of bare pick numbers', () => {
+  // A draft saved before this chunk. Losing it on reload mid-draft is unacceptable.
+  const legacy = JSON.stringify({
+    version: 1,
+    config: DEFAULT_CONFIG,
+    picks: { 1: { playerId: 'a', teamIndex: 1, isKeeper: false } },
+    history: [1],
+  });
+  const state = deserialize(legacy);
+  assert.deepEqual(state.history, [{ pick: 1, previous: null }]);
+  assert.equal(undoPick(state).picks[1], undefined, 'and it still undoes correctly');
 });

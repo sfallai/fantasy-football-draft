@@ -69,7 +69,33 @@ export function applyPick(state, playerId) {
   return {
     ...state,
     picks: { ...state.picks, [pick]: { playerId: String(playerId), teamIndex, isKeeper: false } },
-    history: [...state.history, pick],
+    history: [...state.history, { pick, previous: null }],
+  };
+}
+
+// Editing replaces a player; it never empties a cell. That is deliberate:
+// currentPickNumber returns the first UNFILLED pick, so a hole in the middle of a
+// draft would make the clock mean the wrong thing and misroute every later pick.
+// A cell whose player is genuinely unknown is what the off-list sentinel is for.
+export function setPick(state, pickNumber, playerId) {
+  const entry = state.picks[pickNumber];
+  if (!entry) throw new Error(`Pick ${pickNumber} has not been made yet`);
+
+  const id = String(playerId);
+  if (entry.playerId === id) return state;
+
+  for (const [number, other] of Object.entries(state.picks)) {
+    if (Number(number) !== pickNumber && other.playerId === id) {
+      throw new Error(`Player ${playerId} is already drafted`);
+    }
+  }
+
+  return {
+    ...state,
+    // Spread the existing entry so teamIndex and isKeeper survive — a pick must never
+    // change hands, and a keeper slot stays a keeper slot.
+    picks: { ...state.picks, [pickNumber]: { ...entry, playerId: id } },
+    history: [...state.history, { pick: pickNumber, previous: entry.playerId }],
   };
 }
 
@@ -84,9 +110,12 @@ export function applyOffListPick(state) {
 export function undoPick(state) {
   if (state.history.length === 0) return state;
   const history = [...state.history];
-  const pick = history.pop();
+  const last = history.pop();
   const picks = { ...state.picks };
-  delete picks[pick];
+
+  if (last.previous === null) delete picks[last.pick];
+  else picks[last.pick] = { ...picks[last.pick], playerId: last.previous };
+
   return { ...state, picks, history };
 }
 
@@ -157,10 +186,18 @@ export function serialize(state) {
   return JSON.stringify({ version: 1, ...state });
 }
 
+// Drafts saved before pick editing stored history as bare pick numbers. Mid-draft
+// reloads have to keep working across the upgrade.
+function normalizeHistory(raw) {
+  return (raw || []).map((entry) => (
+    typeof entry === 'number' ? { pick: entry, previous: null } : entry
+  ));
+}
+
 export function deserialize(json) {
   const raw = JSON.parse(json);
   if (!raw || !raw.config || !raw.picks) throw new Error('Malformed draft state');
-  return { config: raw.config, picks: raw.picks, history: raw.history || [] };
+  return { config: raw.config, picks: raw.picks, history: normalizeHistory(raw.history) };
 }
 
 function isUsableStorage(candidate) {
