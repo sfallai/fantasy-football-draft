@@ -1,5 +1,6 @@
 import { el, clear, POSITION_COLORS, formatPick } from './dom.js';
-import { recommend } from '../core/recommend.js';
+import { recommend, sleepers } from '../core/recommend.js';
+import { byeConflict } from '../core/roster.js';
 import { isRookie, priorSummary } from '../core/player.js';
 import { showPopover } from './popover.js';
 
@@ -76,7 +77,12 @@ export function visiblePlayers(tablePlayers) {
     .filter((pl) => hasQuery || !view.availableOnly || !isTaken(pl));
 }
 
-function recommendationCard(rec) {
+function byeWarning(player, myRoster, slots) {
+  const clash = myRoster && slots ? byeConflict(player, myRoster, slots) : null;
+  return clash ? el('div', { class: 'bye-warn', text: `⚠ Bye ${player.bye} — same week as your ${player.position} ${clash}` }, []) : null;
+}
+
+function recommendationCard(rec, myRoster, slots) {
   const pl = rec.player;
   return el('div', {
     class: 'rec',
@@ -94,6 +100,22 @@ function recommendationCard(rec) {
       text: `${pl.position} need: ${rec.need}${pl.adp === null ? '' : ` · ADP ${Math.round(pl.adp)}`}`,
     }, []),
     ...rec.reasons.map((reason) => el('div', { class: 'why', text: reason }, [])),
+    byeWarning(pl, myRoster, slots),
+  ]);
+}
+
+function sleeperCard(gamble, myRoster, slots) {
+  const pl = gamble.player;
+  return el('div', { class: 'rec sleeper', style: { borderLeftColor: POSITION_COLORS[pl.position] } }, [
+    el('div', { class: 'top' }, [
+      el('span', { class: 'pname' }, [
+        el('span', { text: pl.name }, []),
+        el('span', { class: 'gamble', text: 'GAMBLE' }, []),
+      ]),
+      el('span', { class: 'meta', text: `${pl.position} · ${pl.team} · #${pl.overallRank}` }, []),
+    ]),
+    el('div', { class: 'why', text: gamble.why }, []),
+    byeWarning(pl, myRoster, slots),
   ]);
 }
 
@@ -197,7 +219,7 @@ export function renderCenter(container, ctx, handlers) {
 
   const {
     pool, tablePlayers, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
-    vbdScale,
+    vbdScale, myRoster, slots,
   } = ctx;
 
   container.appendChild(el('div', { class: 'pick-info' }, [
@@ -232,9 +254,25 @@ export function renderCenter(container, ctx, handlers) {
   }
 
   if (isMyPick && pool.length) {
-    container.appendChild(el('h2', { text: 'Recommended' }, []));
-    const recs = recommend(pool, { needs, surplus, currentPick, nextPick, round, vbdScale }, 3);
-    for (const rec of recs) container.appendChild(recommendationCard(rec));
+    // The same selection drives the table and the recommendations — one control, one
+    // meaning. vbdScale stays the whole-pool value passed in ctx, so narrowing the
+    // input here cannot change what a VBD point is worth.
+    const targeted = filterByPositions(pool, view.positions);
+    const recs = recommend(targeted, { needs, surplus, currentPick, nextPick, round, vbdScale }, 3);
+
+    container.appendChild(el('h2', {
+      text: view.positions.length ? `Recommended — ${view.positions.join(', ')}` : 'Recommended',
+    }, []));
+    for (const rec of recs) container.appendChild(recommendationCard(rec, myRoster, slots));
+
+    const gambles = sleepers(targeted, {
+      currentPick,
+      excludeIds: new Set(recs.map((r) => r.player.id)),
+    }, 2);
+    if (gambles.length) {
+      container.appendChild(el('h2', { text: 'Sleepers' }, []));
+      for (const g of gambles) container.appendChild(sleeperCard(g, myRoster, slots));
+    }
   }
 
   const headingText = () =>

@@ -280,3 +280,65 @@ test('the filter input is focused after a render', async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(inputs[0].focused, true);
 });
+
+// Correction A: `view.positions` is module state that survives between tests (the
+// `render()` helper above resets it, but these tests build ctx by hand), so each of
+// these three starts with an explicit resetView() the same way `render()` does.
+
+test('recommendations are restricted to the targeted positions', () => {
+  resetView();
+  const pool = [
+    player({ id: 'wr', name: 'A Receiver', position: 'WR', overallRank: 2 }),
+    player({ id: 'rb', name: 'A Back', position: 'RB', overallRank: 1 }),
+  ];
+  const container = document.createElement('div');
+  renderCenter(container, { ...ctx(pool), pool, isMyPick: true, needs: { WR: 'high', RB: 'high' } },
+    { onPick() {}, onUndo() {}, onOffList() {} });
+  // Drive the WR button through its real handler.
+  const wrBtn = find(container, (n) => n.tagName === 'button' && n.textContent === 'WR')[0];
+  wrBtn.listeners.click[0]();
+  // Correction A: the original fixture searched `document.body || container` — since
+  // document.body always exists by this point, that search never actually looked at
+  // container and the assertion below was vacuous. Search container.
+  const names = find(container, (n) => n.className === 'pname').map((n) => n.textContent);
+  assert.ok(!names.includes('A Back'), 'an untargeted position cannot be recommended');
+});
+
+// Correction B: the original fixture used a single-player pool, so that player was
+// both the sole top-3 recommendation (landing in excludeIds) and the only possible
+// sleeper — an assertion that could never pass. Three higher-ranked players (ADP
+// pinned to the current pick, so they cannot qualify as fallers themselves) fill the
+// top 3 and get excluded, leaving the actual faller as the only sleeper candidate.
+// Ranks 1, 2, 3, 40 are sparse enough that nobody has the 3 band-neighbours
+// projectionEdge() needs, so only the ADP path can qualify anyone.
+test('a sleeper renders in its own list, marked as a gamble', () => {
+  resetView();
+  const currentPick = 40;
+  const top = [
+    player({ id: 't1', name: 'Top One', overallRank: 1, adp: currentPick }),
+    player({ id: 't2', name: 'Top Two', overallRank: 2, adp: currentPick }),
+    player({ id: 't3', name: 'Top Three', overallRank: 3, adp: currentPick }),
+  ];
+  const faller = player({ id: 'f', name: 'Falling Guy', overallRank: 40, adp: 5 });
+  const pool = [...top, faller];
+  const container = document.createElement('div');
+  renderCenter(container, { ...ctx(pool), pool, isMyPick: true, currentPick },
+    { onPick() {}, onUndo() {}, onOffList() {} });
+  const gambles = find(container, (n) => n.className === 'gamble');
+  assert.equal(gambles.length, 1);
+  assert.equal(gambles[0].textContent, 'GAMBLE');
+});
+
+test('a candidate sharing a bye with a same-position starter is flagged', () => {
+  resetView();
+  const cand = player({ id: 'c', name: 'Clash', position: 'RB', bye: 9 });
+  const starter = { id: 's', name: 'My Back', position: 'RB', bye: 9, projectedPoints: 250, team: 'XX' };
+  const container = document.createElement('div');
+  renderCenter(container, {
+    ...ctx([cand]), pool: [cand], isMyPick: true, needs: { RB: 'high' },
+    myRoster: [starter], slots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1, BENCH: 6 },
+  }, { onPick() {}, onUndo() {}, onOffList() {} });
+  const warn = find(container, (n) => n.className === 'bye-warn');
+  assert.equal(warn.length, 1);
+  assert.match(warn[0].textContent, /My Back/);
+});

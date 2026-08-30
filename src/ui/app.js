@@ -156,6 +156,7 @@ function renderDraft() {
     pool,
     tablePlayers,
     myRoster,
+    slots: config.slots,
     needs,
     surplus,
     currentPick,
