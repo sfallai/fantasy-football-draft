@@ -18,3 +18,12 @@ export function priorSummary(player) {
   if (!prior) return null;
   return `${prior.points} pts in ${prior.games} games · ${prior.ppg} ppg`;
 }
+
+// Name or team, so typing "CIN" surfaces a quarterback and his receiver together.
+// A blank query matches everything: the table shows the full pool until you type.
+export function matchesQuery(player, query) {
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return true;
+  return player.name.toLowerCase().includes(needle)
+    || player.team.toLowerCase().includes(needle);
+}

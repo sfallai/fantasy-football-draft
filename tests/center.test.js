@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchesQuery, sortPlayers, filterByPositions, formatVbd, SORT_KEYS } from '../src/ui/center.js';
+import { sortPlayers, filterByPositions, formatVbd, SORT_KEYS } from '../src/ui/center.js';
 
 const p = (id, name, position, overallRank, extra) => ({
   id, name, team: (extra && extra.team) || 'XX', position, overallRank,
@@ -19,29 +19,6 @@ const POOL = [
 
 test('SORT_KEYS covers the four sorts named in the spec', () => {
   assert.deepEqual(SORT_KEYS, ['overallRank', 'position', 'vbd', 'adp']);
-});
-
-test('matchesQuery matches a partial name, case-insensitively', () => {
-  assert.equal(matchesQuery(POOL[0], 'gib'), true);
-  assert.equal(matchesQuery(POOL[1], 'ROBIN'), true);
-  assert.equal(matchesQuery(POOL[0], 'robin'), false);
-});
-
-test('matchesQuery matches a team abbreviation by substring', () => {
-  // Typing a team is how you find a QB-WR stack.
-  assert.equal(matchesQuery(POOL[2], 'cin'), true);
-  assert.equal(matchesQuery(POOL[2], 'ci'), true);
-});
-
-test('matchesQuery handles apostrophes in names', () => {
-  assert.equal(matchesQuery(POOL[2], "ja'marr"), true);
-});
-
-test('matchesQuery passes everything through for a blank query', () => {
-  // The table shows the whole pool until the user types, so blank cannot mean
-  // "match nothing" the way it did for the old autocomplete.
-  assert.equal(matchesQuery(POOL[0], ''), true);
-  assert.equal(matchesQuery(POOL[0], '   '), true);
 });
 
 test('sortPlayers by overallRank is ascending', () => {

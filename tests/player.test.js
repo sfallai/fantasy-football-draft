@@ -1,6 +1,44 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isRookie, priorSummary } from '../src/core/player.js';
+import { isRookie, priorSummary, matchesQuery } from '../src/core/player.js';
+
+const p = (id, name, position, overallRank, extra) => ({
+  id, name, team: (extra && extra.team) || 'XX', position, overallRank,
+  positionRank: 1, projectedPoints: 300 - overallRank,
+  vbd: (extra && extra.vbd) !== undefined ? extra.vbd : 100 - overallRank,
+  adp: (extra && extra.adp) !== undefined ? extra.adp : overallRank, bye: 7,
+});
+
+const POOL = [
+  p('1', 'Jahmyr Gibbs', 'RB', 1),
+  p('2', 'Bijan Robinson', 'RB', 2),
+  p('3', "Ja'Marr Chase", 'WR', 3, { team: 'CIN' }),
+  p('4', 'Josh Allen', 'QB', 4, { vbd: 5 }),
+  p('5', 'Brock Bowers', 'TE', 5, { adp: null }),
+];
+
+test('matchesQuery matches a partial name, case-insensitively', () => {
+  assert.equal(matchesQuery(POOL[0], 'gib'), true);
+  assert.equal(matchesQuery(POOL[1], 'ROBIN'), true);
+  assert.equal(matchesQuery(POOL[0], 'robin'), false);
+});
+
+test('matchesQuery matches a team abbreviation by substring', () => {
+  // Typing a team is how you find a QB-WR stack.
+  assert.equal(matchesQuery(POOL[2], 'cin'), true);
+  assert.equal(matchesQuery(POOL[2], 'ci'), true);
+});
+
+test('matchesQuery handles apostrophes in names', () => {
+  assert.equal(matchesQuery(POOL[2], "ja'marr"), true);
+});
+
+test('matchesQuery passes everything through for a blank query', () => {
+  // The table shows the whole pool until the user types, so blank cannot mean
+  // "match nothing" the way it did for the old autocomplete.
+  assert.equal(matchesQuery(POOL[0], ''), true);
+  assert.equal(matchesQuery(POOL[0], '   '), true);
+});
 
 test('isRookie is true for a first-year player with no prior season', () => {
   assert.equal(isRookie({ experience: 0, prior: null }), true);

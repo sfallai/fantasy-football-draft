@@ -1,21 +1,12 @@
 import { el, clear, POSITION_COLORS, formatPick } from './dom.js';
 import { recommend, sleepers } from '../core/recommend.js';
 import { byeConflict } from '../core/roster.js';
-import { isRookie, priorSummary } from '../core/player.js';
+import { isRookie, priorSummary, matchesQuery } from '../core/player.js';
 import { showPopover, closePopover } from './popover.js';
 
 export const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 export const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-
-// Name or team, so typing "CIN" surfaces a quarterback and his receiver together.
-// A blank query matches everything: the table shows the full pool until you type.
-export function matchesQuery(player, query) {
-  const needle = String(query || '').trim().toLowerCase();
-  if (!needle) return true;
-  return player.name.toLowerCase().includes(needle)
-    || player.team.toLowerCase().includes(needle);
-}
 
 export function sortPlayers(pool, key) {
   const copy = [...pool];
