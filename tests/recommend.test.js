@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   NEED_MULTIPLIER, maxPositiveVbd, scorePlayer, reasonsFor, recommend, sleepers,
+  SLEEPER_ADP_GAP, SLEEPER_PROJECTION_EDGE,
 } from '../src/core/recommend.js';
 import { replacementPoints, withVbd } from '../src/core/vbd.js';
 import { DEFAULT_SLOTS, positionalNeeds, benchDepthIfAdded, assignSlots, countByPosition } from '../src/core/roster.js';
@@ -369,4 +370,67 @@ test('sleepers honours its limit and puts the biggest faller first', () => {
 
 test('sleepers returns nothing from an empty pool', () => {
   assert.deepEqual(sleepers([], { currentPick: 10 }), []);
+});
+
+test('a faller and a projection outlier in one pool are ranked on a common scale', () => {
+  // The regression none of the other sleeper tests could catch: they each put only
+  // one path in the pool, so the two `rank` units — picks on the falling test,
+  // fantasy points on the projection test — were never compared. Sorted raw they are
+  // not comparable at all. Each claim is scored as a multiple of its own threshold,
+  // so the fixture is written in multiples of the constants and stays correct if
+  // either one is retuned.
+  const currentPick = 200;
+  const faller = p({
+    id: 'faller', position: 'WR', overallRank: 50,
+    projectedPoints: 100, adp: currentPick - SLEEPER_ADP_GAP * 3,
+  });
+  const outlier = p({
+    id: 'outlier', position: 'RB', overallRank: 100,
+    projectedPoints: 100 + SLEEPER_PROJECTION_EDGE * 2, adp: currentPick,
+  });
+  // The outlier's own positional band: four RBs within ±10 overall ranks, all flat, so
+  // his edge is exactly 2x the threshold and none of them qualifies on either path.
+  const band = [95, 97, 103, 105].map((rank) => p({
+    id: `band${rank}`, position: 'RB', overallRank: rank, projectedPoints: 100, adp: currentPick,
+  }));
+
+  const found = sleepers([outlier, ...band, faller], { currentPick }, 4);
+  assert.deepEqual(found.map((f) => f.player.id), ['faller', 'outlier'],
+    'three thresholds beaten beats two, whatever the raw units say');
+  assert.match(found[0].why, /past his ADP/);
+  assert.match(found[1].why, /Projects .* above the RBs/);
+});
+
+test('a player who qualifies on both tests is scored and explained by the stronger one', () => {
+  // The ADP test used to `continue` the moment it matched, so a player with a marginal
+  // fall and an overwhelming projection edge was scored on — and explained by — the
+  // smaller claim.
+  const currentPick = 200;
+  const both = p({
+    id: 'both', position: 'RB', overallRank: 100,
+    projectedPoints: 100 + SLEEPER_PROJECTION_EDGE * 4,
+    adp: currentPick - SLEEPER_ADP_GAP,
+  });
+  const band = [95, 97, 103, 105].map((rank) => p({
+    id: `band${rank}`, position: 'RB', overallRank: rank, projectedPoints: 100, adp: currentPick,
+  }));
+
+  const found = sleepers([both, ...band], { currentPick }, 4);
+  assert.equal(found.length, 1);
+  assert.match(found[0].why, /Projects/, 'the 4x projection claim, not the 1x ADP claim');
+});
+
+test('projectionEdge compares a player only with his own position', () => {
+  // Projected points are not position-normalised: a QB at a given overall rank projects
+  // roughly twice what a back at the same rank does. Measured against an overall-rank
+  // band every remaining quarterback cleared the bar forever, so the panel showed the
+  // same two quarterbacks pick after pick. This QB is 100 points clear of the running
+  // backs ranked around him and must still not qualify — he has no QB peers to beat.
+  const pool = [
+    p({ id: 'qb', position: 'QB', overallRank: 100, projectedPoints: 300, adp: 100 }),
+    ...[96, 98, 102, 104].map((rank) => p({
+      id: `rb${rank}`, position: 'RB', overallRank: rank, projectedPoints: 200, adp: 100,
+    })),
+  ];
+  assert.deepEqual(sleepers(pool, { currentPick: 100 }), []);
 });

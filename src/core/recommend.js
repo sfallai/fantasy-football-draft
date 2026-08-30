@@ -24,6 +24,12 @@ export function maxPositiveVbd(players) {
   return players.reduce((max, pl) => Math.max(max, pl.vbd), 0) || 1;
 }
 
+// The BPA denominator: the highest overallRank in the whole pool. Like the VBD scale it
+// is fixed for the draft, so app.js derives it once and passes it in ctx.
+export function maxOverallRank(players) {
+  return players.reduce((max, pl) => Math.max(max, pl.overallRank), players.length);
+}
+
 // Each player already surplus at a position makes the next one there worth less: only
 // one backup can cover a starter in any given week. Without this, cross-position VBD
 // keeps favouring shallow-baseline positions late (a 4th TE still scores near TE12
@@ -118,12 +124,23 @@ function picksPastAdp(player, currentPick) {
   return currentPick - player.adp;
 }
 
+// The comparison is against *positional* peers, never overall-rank neighbours.
+// Projected points are not position-normalised — a QB at a given overall rank projects
+// roughly twice what an RB or WR at the same rank does — so a whole-pool band measures
+// which position a player plays, not whether he out-projects his rank. Scoped to his own
+// position the number means what the panel claims it means, and it matches what the
+// already-single-position pool produces under position targeting.
 function projectionEdge(player, pool) {
   const near = pool.filter((x) => x.id !== player.id
+    && x.position === player.position
     && Math.abs(x.overallRank - player.overallRank) <= SLEEPER_RANK_BAND / 2);
   if (near.length < MIN_BAND_NEIGHBOURS) return null;
   const points = near.map((x) => x.projectedPoints).sort((a, b) => a - b);
-  const median = points[Math.floor(points.length / 2)];
+  const mid = Math.floor(points.length / 2);
+  // Even-length bands average the two middle values rather than taking the lower one,
+  // which would bias every edge upward by half a gap and let a player clear the
+  // threshold on the shape of his band rather than on his own projection.
+  const median = points.length % 2 === 0 ? (points[mid - 1] + points[mid]) / 2 : points[mid];
   return player.projectedPoints - median;
 }
 
@@ -136,24 +153,33 @@ export function sleepers(pool, ctx, limit = 2) {
   for (const player of pool) {
     if (exclude.has(player.id)) continue;
 
+    // The two tests are measured in different units — picks on the falling test,
+    // fantasy points on the projection test — so neither raw number can order the
+    // combined list. Each claim is scored as a multiple of its own threshold, which
+    // is the same question in both units: how far past the bar is this?
+    const claims = [];
+
     const past = picksPastAdp(player, ctx.currentPick);
     if (past !== null && past >= SLEEPER_ADP_GAP) {
-      found.push({
-        player,
-        rank: past,
+      claims.push({
+        strength: past / SLEEPER_ADP_GAP,
         why: `Still here ${Math.round(past)} picks past his ADP of ${Math.round(player.adp)}`,
       });
-      continue;
     }
 
+    // No `continue` above: a player can qualify on both tests, and the panel should
+    // say whichever claim is stronger rather than whichever happened to be tried first.
     const edge = projectionEdge(player, pool);
     if (edge !== null && edge >= SLEEPER_PROJECTION_EDGE) {
-      found.push({
-        player,
-        rank: edge,
-        why: `Projects ${Math.round(edge)} pts above the players ranked around him`,
+      claims.push({
+        strength: edge / SLEEPER_PROJECTION_EDGE,
+        why: `Projects ${Math.round(edge)} pts above the ${player.position}s ranked around him`,
       });
     }
+
+    if (claims.length === 0) continue;
+    const best = claims.reduce((a, b) => (b.strength > a.strength ? b : a));
+    found.push({ player, rank: best.strength, why: best.why });
   }
 
   return found
@@ -171,8 +197,13 @@ export function recommend(pool, ctx, limit = 3) {
   // VBD swamped the BPA baseline. The live-pool fallback keeps recommend() usable standalone.
   const vbdScale = ctx.vbdScale > 0 ? ctx.vbdScale : maxPositiveVbd(pool);
   // overallRank is a fixed whole-pool rank that never renumbers as players are drafted,
-  // so the BPA denominator must track the highest rank still present, not pool.length.
-  const poolSize = pool.reduce((max, pl) => Math.max(max, pl.overallRank), pool.length);
+  // so the BPA denominator must track the highest rank present, not pool.length — and it
+  // is a whole-pool normaliser like vbdScale, so callers pass it in ctx, derived once
+  // from the full pool. Deriving it from the pool handed in would let a position filter
+  // move the denominator and reorder near-ties. The fallback keeps recommend() standalone.
+  const poolSize = ctx.poolSize > 0
+    ? ctx.poolSize
+    : pool.reduce((max, pl) => Math.max(max, pl.overallRank), pool.length);
   const scoreCtx = { poolSize, vbdScale, needs: ctx.needs, surplus: ctx.surplus };
 
   return pool
