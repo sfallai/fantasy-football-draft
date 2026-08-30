@@ -35,8 +35,12 @@ test('needSummary reports depth once starters are full', () => {
 });
 
 test('needSummary marks a filled position as set', () => {
-  const qb = needSummary([p('q', 'QB')], DEFAULT_SLOTS, 3, 15).find((n) => n.position === 'QB');
-  assert.equal(qb.label, 'QB set — depth only');
+  // TE, not QB: QB has no FLEX slot to fall back to, so a filled QB always lands in
+  // the 'bench' tier and is dropped from needSummary entirely (see the drops test
+  // below). TE is FLEX-eligible, so one TE with a FLEX slot still open lands in
+  // 'low' instead, and is the tier that actually reaches this "set — depth only" label.
+  const te = needSummary([p('t', 'TE')], DEFAULT_SLOTS, 3, 15).find((n) => n.position === 'TE');
+  assert.equal(te.label, 'TE set — depth only');
 });
 
 test('needSummary defers K and DEF until late', () => {
@@ -47,6 +51,28 @@ test('needSummary defers K and DEF until late', () => {
   const late = needSummary([], DEFAULT_SLOTS, 13, 15).find((n) => n.position === 'K');
   assert.equal(late.tier, 'high');
   assert.equal(late.label, 'K needed');
+});
+
+test('needSummary drops a position whose startable slots are all full', () => {
+  // QB is a one-slot position, so a second QB can never enter the lineup. Listing
+  // QB as a need at that point is noise; the position-count line still shows you
+  // have two.
+  const roster = [p('q1', 'QB'), p('q2', 'QB')];
+  const summary = needSummary(roster, DEFAULT_SLOTS, 5, 15);
+  assert.equal(summary.find((n) => n.position === 'QB'), undefined);
+});
+
+test('needSummary keeps a position a FLEX slot can still start', () => {
+  // Two RBs fill both dedicated RB slots, but a FLEX slot can still start a third,
+  // so RB lands in 'low' rather than 'bench' and stays in the list.
+  const roster = [p('r1', 'RB'), p('r2', 'RB')];
+  const rb = needSummary(roster, DEFAULT_SLOTS, 5, 15).find((n) => n.position === 'RB');
+  assert.ok(rb, 'a FLEX slot can still start a third RB, so it is not bench');
+  assert.equal(rb.tier, 'low');
+});
+
+test('needSummary still lists every position on an empty roster', () => {
+  assert.equal(needSummary([], DEFAULT_SLOTS, 1, 15).length, 6);
 });
 
 test('positionCountLine reports every position, including the ones at zero', () => {

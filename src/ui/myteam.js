@@ -28,6 +28,11 @@ export function needSummary(roster, slots, round, totalRounds) {
       tier: needs[position],
       label: needLabel(position, needs[position], counts[position], slots[position] || 0, totalRounds),
     }))
+    // `bench` means every startable slot at this position is full, so another player
+    // there cannot enter the lineup. Ranking it as a need is noise — the position-count
+    // line above still shows how many you hold. The tier itself stays in
+    // positionalNeeds because scorePlayer uses it to devalue surplus picks.
+    .filter((need) => need.tier !== 'bench')
     .sort((a, b) => NEED_TIERS.indexOf(a.tier) - NEED_TIERS.indexOf(b.tier)
       || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position));
 }
