@@ -96,7 +96,13 @@ reads `QB:2 RB:3 WR:3 TE:1 K:1 DEF:1`, sourced from the existing
 ### C — Player list and filtering
 
 *Notes: remove the pick-entry box; filter by team; clear-filter button; show
-drafted players; abbreviation glossary.*
+drafted players; abbreviation glossary; show if rookie; show player age; show
+last year's stats on click.*
+
+The last three were originally listed against chunk A. That was a decomposition
+error: chunk A delivered `age`, `experience` and `prior` into the data and
+explicitly rendered nothing, and no later chunk claimed their display. They land
+here, because chunk C owns the player table where all three belong.
 
 The pick-entry box and its autocomplete are removed. The filter box becomes the
 single text input in the center panel and is auto-focused after each render, so
@@ -110,6 +116,22 @@ picks stay keyboard-first: type, then double-click the row.
 - **`✕`** clears the filter.
 - **`?`** opens a glossary popover defining VBD, ADP, BPA, the need tiers, and
   the bye column.
+- **Rookie badge.** A compact `R` chip beside the name of any player who is a
+  rookie by the rule in "Data Schema Change". The predicate lands in `src/core/`
+  as a shared `isRookie(player)` rather than inline at the render site, because
+  the recommendation cards want it too.
+- **`Age`** becomes a column. Two digits, empty for defenses.
+- **Clicking a player's name** opens a detail popover carrying last season's
+  line — points, games, points per game — or saying plainly that there isn't one
+  rather than showing zeroes. A rookie has no prior season, and that absence is
+  itself informative.
+
+The table now runs to ten columns (`# Player Pos Tm Age Proj VBD ADP Bye
+Drafted By`) inside a centre panel whose grid track floors at 420px. It gets an
+`overflow-x: auto` wrapper so the panel never drives horizontal scroll on the
+page, and the name cell gets a `title` carrying the full name — the left panel's
+slot rows had to learn the same lesson in chunk B, where narrowing a column
+silently ellipsised 44 of 400 players with no way to recover the name.
 
 Double-click remains the commit action, so a stray single click cannot burn a
 pick.
@@ -285,6 +307,35 @@ explicit click.
 rookie class as 0 and the previous one as 2, so any later feature tempted to
 render "3rd-year WR" from this field would be off by one for a whole draft class.
 Deriving the rookie badge is all this field supports.
+
+## Deferred: distribution to non-technical users
+
+Recorded 2026-08-30, after chunks A and B shipped. Not yet specced.
+
+The app is intended for people other than its author, who are **not technical** —
+for them a terminal is a non-starter. That is a requirement change, not a
+preference, and it reaches further than any one chunk:
+
+- The README's draft-day sequence (`npm run fetch && npm test && npm run build`)
+  assumes a shell. For these users every recovery path has to live in the page.
+- Chunk G's refresh button stops being a convenience and becomes the only way
+  they ever get fresh data.
+- An **AWS Lambda Function URL** in front of the data sources is the likely
+  answer, and the strongest argument for it is not CORS. It is that a proxy
+  **decouples the shipped `draft.html` from upstream API drift**: when ESPN
+  changes a response shape, you redeploy a function instead of redistributing a
+  file to people who do not know what a file is. Use a Function URL rather than
+  API Gateway — Lambda invocations and Function URLs are always-free tier, while
+  API Gateway's free tier expires after twelve months.
+- Whatever is built, the baked-in 400-player data stays the floor, so a dead
+  proxy degrades to stale rankings rather than a broken app. "No internet needed"
+  is what makes this work at a live draft on bad wifi.
+
+Open questions for that spec: whether the public Function URL needs a shared
+secret, how people receive the file, and what the setup screen may assume about
+whoever is filling it in.
+
+Chunks C through F are local UI work and are unaffected either way.
 
 ## Testing
 
