@@ -8,7 +8,7 @@ import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
 import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
-import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners } from '../core/state.js';
+import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, serialize, deserialize, backupFilename } from '../core/state.js';
 
 let state = null;
 let allPlayers = [];
@@ -101,6 +101,41 @@ function handleReset() {
   showSetup();
 }
 
+// Blob and FileReader, not a library: the page ships as one self-contained file and
+// takes no dependency, ever.
+function handleBackup() {
+  const blob = new Blob([serialize(state)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = el('a', { href: url, download: backupFilename(state) }, []);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function handleImport(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let restored;
+    try {
+      restored = deserialize(String(reader.result));
+    } catch {
+      window.alert('That file is not a saved draft.');
+      return;
+    }
+    if (!window.confirm('Replace the current draft with this backup?')) return;
+    state = restored;
+    replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
+    vbdScale = scaleFromReplacement();
+    // The centre panel's sort, filter and position targeting are module state that
+    // outlives a draft. Without this an imported draft inherits the last one's targeting.
+    resetView();
+    persist();
+    renderDraft();
+  };
+  reader.readAsText(file);
+}
+
 function renderDraft() {
   const container = root();
   const { config } = state;
@@ -165,6 +200,13 @@ function renderDraft() {
   left.appendChild(el('button', {
     text: 'Reset draft', style: { marginTop: '12px' }, onClick: handleReset,
   }, []));
+  left.appendChild(el('button', { text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
+  const importInput = el('input', {
+    type: 'file', accept: '.json,application/json', style: { display: 'none' },
+    onChange: (e) => { if (e.target.files && e.target.files[0]) handleImport(e.target.files[0]); },
+  }, []);
+  left.appendChild(el('button', { text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
+  left.appendChild(importInput);
 
   renderCenter(center, {
     pool,

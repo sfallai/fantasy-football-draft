@@ -192,6 +192,12 @@ table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
 @keyframes pulse { 0%, 100% { background: #2b2410; } 50% { background: #3a3016; } }
 
 .roster-pop { position: fixed; z-index: 40; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; font-size: 12px; }
+
+.pop.editor input { width: 100%; margin-top: 6px; }
+.cand-list { margin-top: 6px; max-height: 200px; overflow: auto; }
+.cand { padding: 5px 6px; cursor: pointer; border-radius: 4px; }
+.cand:hover { background: #2b3140; }
+table.board td.cell { cursor: pointer; }
 </style>
 </head>
 <body>
@@ -302,8 +308,18 @@ function priorSummary(player) {
   return `${prior.points} pts in ${prior.games} games · ${prior.ppg} ppg`;
 }
 
+// Name or team, so typing "CIN" surfaces a quarterback and his receiver together.
+// A blank query matches everything: the table shows the full pool until you type.
+function matchesQuery(player, query) {
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return true;
+  return player.name.toLowerCase().includes(needle)
+    || player.team.toLowerCase().includes(needle);
+}
+
 __exports.isRookie = isRookie;
 __exports.priorSummary = priorSummary;
+__exports.matchesQuery = matchesQuery;
 
 });
 __def("core/recommend.js", function (__exports, __req) {
@@ -854,7 +870,33 @@ function applyPick(state, playerId) {
   return {
     ...state,
     picks: { ...state.picks, [pick]: { playerId: String(playerId), teamIndex, isKeeper: false } },
-    history: [...state.history, pick],
+    history: [...state.history, { pick, previous: null }],
+  };
+}
+
+// Editing replaces a player; it never empties a cell. That is deliberate:
+// currentPickNumber returns the first UNFILLED pick, so a hole in the middle of a
+// draft would make the clock mean the wrong thing and misroute every later pick.
+// A cell whose player is genuinely unknown is what the off-list sentinel is for.
+function setPick(state, pickNumber, playerId) {
+  const entry = state.picks[pickNumber];
+  if (!entry) throw new Error(`Pick ${pickNumber} has not been made yet`);
+
+  const id = String(playerId);
+  if (entry.playerId === id) return state;
+
+  for (const [number, other] of Object.entries(state.picks)) {
+    if (Number(number) !== pickNumber && other.playerId === id) {
+      throw new Error(`Player ${playerId} is already drafted`);
+    }
+  }
+
+  return {
+    ...state,
+    // Spread the existing entry so teamIndex and isKeeper survive — a pick must never
+    // change hands, and a keeper slot stays a keeper slot.
+    picks: { ...state.picks, [pickNumber]: { ...entry, playerId: id } },
+    history: [...state.history, { pick: pickNumber, previous: entry.playerId }],
   };
 }
 
@@ -869,9 +911,12 @@ function applyOffListPick(state) {
 function undoPick(state) {
   if (state.history.length === 0) return state;
   const history = [...state.history];
-  const pick = history.pop();
+  const last = history.pop();
   const picks = { ...state.picks };
-  delete picks[pick];
+
+  if (last.previous === null) delete picks[last.pick];
+  else picks[last.pick] = { ...picks[last.pick], playerId: last.previous };
+
   return { ...state, picks, history };
 }
 
@@ -942,10 +987,26 @@ function serialize(state) {
   return JSON.stringify({ version: 1, ...state });
 }
 
+// No timestamp: the page has no clock the user trusts more than the draft itself, and
+// a round-stamped name sorts in draft order, which is how someone looks for the file.
+function backupFilename(state) {
+  const made = Object.keys(state.picks).length;
+  const round = Math.max(1, Math.ceil(made / state.config.numTeams));
+  return `ffdraft-${state.config.numTeams}team-r${round}-p${made}.json`;
+}
+
+// Drafts saved before pick editing stored history as bare pick numbers. Mid-draft
+// reloads have to keep working across the upgrade.
+function normalizeHistory(raw) {
+  return (raw || []).map((entry) => (
+    typeof entry === 'number' ? { pick: entry, previous: null } : entry
+  ));
+}
+
 function deserialize(json) {
   const raw = JSON.parse(json);
   if (!raw || !raw.config || !raw.picks) throw new Error('Malformed draft state');
-  return { config: raw.config, picks: raw.picks, history: raw.history || [] };
+  return { config: raw.config, picks: raw.picks, history: normalizeHistory(raw.history) };
 }
 
 function isUsableStorage(candidate) {
@@ -1010,6 +1071,7 @@ __exports.createState = createState;
 __exports.currentPickNumber = currentPickNumber;
 __exports.pickedIds = pickedIds;
 __exports.applyPick = applyPick;
+__exports.setPick = setPick;
 __exports.applyOffListPick = applyOffListPick;
 __exports.undoPick = undoPick;
 __exports.availablePlayers = availablePlayers;
@@ -1019,6 +1081,7 @@ __exports.playersWithOwners = playersWithOwners;
 __exports.myNextPickAfter = myNextPickAfter;
 __exports.myNextPick = myNextPick;
 __exports.serialize = serialize;
+__exports.backupFilename = backupFilename;
 __exports.deserialize = deserialize;
 __exports.saveState = saveState;
 __exports.loadState = loadState;
@@ -1098,7 +1161,7 @@ const { positionalNeeds, benchDepthIfAdded } = __req('core/roster.js');
 const { replacementPoints, withVbd } = __req('core/vbd.js');
 const { maxPositiveVbd, maxOverallRank } = __req('core/recommend.js');
 const { competitiveNotes } = __req('core/competitive.js');
-const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners } = __req('core/state.js');
+const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, serialize, deserialize, backupFilename } = __req('core/state.js');
 
 let state = null;
 let allPlayers = [];
@@ -1164,6 +1227,17 @@ function handleOffListPick() {
   renderDraft();
 }
 
+function handleEditPick(pickNumber, playerId) {
+  try {
+    state = setPick(state, pickNumber, playerId);
+  } catch (err) {
+    window.alert(err.message);
+    return;
+  }
+  persist();
+  renderDraft();
+}
+
 function handleUndo() {
   state = undoPick(state);
   persist();
@@ -1178,6 +1252,41 @@ function handleReset() {
   // survive into the next draft.
   resetView();
   showSetup();
+}
+
+// Blob and FileReader, not a library: the page ships as one self-contained file and
+// takes no dependency, ever.
+function handleBackup() {
+  const blob = new Blob([serialize(state)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = el('a', { href: url, download: backupFilename(state) }, []);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function handleImport(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let restored;
+    try {
+      restored = deserialize(String(reader.result));
+    } catch {
+      window.alert('That file is not a saved draft.');
+      return;
+    }
+    if (!window.confirm('Replace the current draft with this backup?')) return;
+    state = restored;
+    replacement = replacementPoints(allPlayers, state.config.numTeams, state.config.slots);
+    vbdScale = scaleFromReplacement();
+    // The centre panel's sort, filter and position targeting are module state that
+    // outlives a draft. Without this an imported draft inherits the last one's targeting.
+    resetView();
+    persist();
+    renderDraft();
+  };
+  reader.readAsText(file);
 }
 
 function renderDraft() {
@@ -1244,6 +1353,13 @@ function renderDraft() {
   left.appendChild(el('button', {
     text: 'Reset draft', style: { marginTop: '12px' }, onClick: handleReset,
   }, []));
+  left.appendChild(el('button', { text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
+  const importInput = el('input', {
+    type: 'file', accept: '.json,application/json', style: { display: 'none' },
+    onChange: (e) => { if (e.target.files && e.target.files[0]) handleImport(e.target.files[0]); },
+  }, []);
+  left.appendChild(el('button', { text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
+  left.appendChild(importInput);
 
   renderCenter(center, {
     pool,
@@ -1263,7 +1379,12 @@ function renderDraft() {
     poolSize,
   }, { onPick: handlePick, onUndo: handleUndo, onOffList: handleOffListPick });
 
-  renderBoard(right, { state, allPlayers });
+  renderBoard(right, {
+    state,
+    allPlayers,
+    editablePool: availablePlayers(state, allPlayers),
+    onEditPick: handleEditPick,
+  });
 }
 
 function init() {
@@ -1301,6 +1422,7 @@ const { assignSlots, positionalNeeds } = __req('core/roster.js');
 const { currentPickNumber, rosterFor, isOffListId } = __req('core/state.js');
 const { slotRow } = __req('ui/slotrow.js');
 const { showPopover, closePopover } = __req('ui/popover.js');
+const { pickEditor } = __req('ui/pickeditor.js');
 
 function boardCells(state, allPlayers) {
   const { numTeams, rounds, myTeamIndex } = state.config;
@@ -1395,6 +1517,14 @@ function renderBoard(container, ctx) {
             + `#${cell.player.overallRank} overall · ${cell.player.projectedPoints} proj · `
             + `ADP ${cell.player.adp ?? '—'} · bye ${cell.player.bye ?? '—'}`
           : offListTitle,
+        onClick: cell.player || cell.isOffList
+          ? (e) => {
+            showPopover(pickEditor(cell, ctx.editablePool, (playerId) => {
+              closePopover();
+              ctx.onEditPick(cell.pick, playerId);
+            }), e);
+          }
+          : null,
       }, []));
     }
 
@@ -1415,21 +1545,12 @@ __def("ui/center.js", function (__exports, __req) {
 const { el, clear, POSITION_COLORS, formatPick } = __req('ui/dom.js');
 const { recommend, sleepers } = __req('core/recommend.js');
 const { byeConflict } = __req('core/roster.js');
-const { isRookie, priorSummary } = __req('core/player.js');
+const { isRookie, priorSummary, matchesQuery } = __req('core/player.js');
 const { showPopover, closePopover } = __req('ui/popover.js');
 
 const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-
-// Name or team, so typing "CIN" surfaces a quarterback and his receiver together.
-// A blank query matches everything: the table shows the full pool until you type.
-function matchesQuery(player, query) {
-  const needle = String(query || '').trim().toLowerCase();
-  if (!needle) return true;
-  return player.name.toLowerCase().includes(needle)
-    || player.team.toLowerCase().includes(needle);
-}
 
 function sortPlayers(pool, key) {
   const copy = [...pool];
@@ -1780,7 +1901,6 @@ function renderCenter(container, ctx, handlers) {
 
 __exports.SORT_KEYS = SORT_KEYS;
 __exports.POSITION_FILTERS = POSITION_FILTERS;
-__exports.matchesQuery = matchesQuery;
 __exports.sortPlayers = sortPlayers;
 __exports.filterByPositions = filterByPositions;
 __exports.formatVbd = formatVbd;
@@ -1946,6 +2066,46 @@ function renderMyTeam(container, ctx) {
 __exports.needSummary = needSummary;
 __exports.positionCountLine = positionCountLine;
 __exports.renderMyTeam = renderMyTeam;
+
+});
+__def("ui/pickeditor.js", function (__exports, __req) {
+const { el, clear } = __req('ui/dom.js');
+const { matchesQuery } = __req('core/player.js');
+
+// How many candidates to offer. A popover is a search surface, not a second player
+// table — showing the whole pool here would be unusable and duplicate the centre panel.
+const MAX_CANDIDATES = 8;
+
+function pickEditor(cell, pool, onCommit) {
+  const list = el('div', { class: 'cand-list' }, []);
+
+  const input = el('input', {
+    type: 'text', placeholder: 'Type the right player…', autocomplete: 'off',
+    onInput: (e) => {
+      clear(list);
+      const query = e.target.value;
+      // Blank shows nothing: matchesQuery passes everything through on an empty
+      // query, which would drop the entire pool into the popover.
+      if (!query.trim()) return;
+      for (const candidate of pool.filter((p) => matchesQuery(p, query)).slice(0, MAX_CANDIDATES)) {
+        list.appendChild(el('div', {
+          class: 'cand',
+          text: `${candidate.name} — ${candidate.position} ${candidate.team}`,
+          onClick: () => onCommit(candidate.id),
+        }, []));
+      }
+    },
+  }, []);
+
+  return el('div', { class: 'pop editor' }, [
+    el('h3', { text: `Pick ${cell.pick}` }, []),
+    el('div', { class: 'meta', text: cell.player ? `Currently ${cell.player.name}` : 'Currently off-list' }, []),
+    input,
+    list,
+  ]);
+}
+
+__exports.pickEditor = pickEditor;
 
 });
 __def("ui/popover.js", function (__exports, __req) {

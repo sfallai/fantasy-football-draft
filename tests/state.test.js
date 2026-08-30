@@ -4,7 +4,7 @@ import {
   STORAGE_KEY, DEFAULT_CONFIG, createState, currentPickNumber, applyPick, undoPick,
   availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter,
   applyOffListPick, isOffListId, saveState, loadState, clearState, playersWithOwners,
-  setPick, deserialize,
+  setPick, deserialize, backupFilename,
 } from '../src/core/state.js';
 
 const PLAYERS = Array.from({ length: 200 }, (_, i) => ({
@@ -403,4 +403,13 @@ test('deserialize accepts a legacy history of bare pick numbers', () => {
   const state = deserialize(legacy);
   assert.deepEqual(state.history, [{ pick: 1, previous: null }]);
   assert.equal(undoPick(state).picks[1], undefined, 'and it still undoes correctly');
+});
+
+test('backupFilename names the league and round so two files never collide', () => {
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  const name = backupFilename(state);
+  assert.match(name, /^ffdraft-/);
+  assert.match(name, /\.json$/);
+  assert.match(name, /r1/, 'the round it was taken at, so a later backup sorts after an earlier one');
 });

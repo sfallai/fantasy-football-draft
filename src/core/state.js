@@ -186,6 +186,14 @@ export function serialize(state) {
   return JSON.stringify({ version: 1, ...state });
 }
 
+// No timestamp: the page has no clock the user trusts more than the draft itself, and
+// a round-stamped name sorts in draft order, which is how someone looks for the file.
+export function backupFilename(state) {
+  const made = Object.keys(state.picks).length;
+  const round = Math.max(1, Math.ceil(made / state.config.numTeams));
+  return `ffdraft-${state.config.numTeams}team-r${round}-p${made}.json`;
+}
+
 // Drafts saved before pick editing stored history as bare pick numbers. Mid-draft
 // reloads have to keep working across the upgrade.
 function normalizeHistory(raw) {
