@@ -515,3 +515,52 @@ test('a player qualifying on both kinds occupies only one slot, not one in each 
   assert.equal(new Set(ids).size, ids.length, 'no player should appear twice');
   assert.deepEqual([...ids].sort(), ['both', 'pureFaller'].sort());
 });
+
+test('a marginal dual-qualifier is not crowded out of the faller queue by his own stronger projection claim', () => {
+  // Regression: queue membership used to be exclusive — a player was filed into
+  // fallers or outliers by whichever claim was stronger, before slots were handed
+  // out. A player who clearly clears the falling threshold, but whose projection
+  // edge happens to be marginally larger, was filed as an outlier and then competed
+  // only against outliers. Real instance that exposed this: a simulated draft at
+  // pick 120 where the only faller in the pool (a marginal dual-qualifier) lost to
+  // two much stronger pure outliers and never appeared in either slot, despite a
+  // faller existing. Membership in the faller queue must depend only on his own
+  // falling claim qualifying — never on whether his projection claim is stronger.
+  const currentPick = 200;
+  const duo = p({
+    id: 'duo', position: 'RB', overallRank: 100,
+    // Clears the falling threshold by 1.2x, and the projection threshold by 1.25x —
+    // both real qualifications, projection marginally the stronger of the two.
+    projectedPoints: 100 + SLEEPER_PROJECTION_EDGE * 1.25,
+    adp: currentPick - SLEEPER_ADP_GAP * 1.2,
+  });
+  const duoBand = [95, 97, 103, 105].map((rank) => p({
+    id: `duoband${rank}`, position: 'RB', overallRank: rank, projectedPoints: 100, adp: currentPick,
+  }));
+  const strongOutlier = p({
+    id: 'strongOutlier', position: 'WR', overallRank: 100,
+    projectedPoints: 100 + SLEEPER_PROJECTION_EDGE * 5, adp: currentPick,
+  });
+  const strongOutlierBand = [95, 97, 103, 105].map((rank) => p({
+    id: `strongband${rank}`, position: 'WR', overallRank: rank, projectedPoints: 100, adp: currentPick,
+  }));
+  const midOutlier = p({
+    id: 'midOutlier', position: 'TE', overallRank: 100,
+    projectedPoints: 100 + SLEEPER_PROJECTION_EDGE * 3, adp: currentPick,
+  });
+  const midOutlierBand = [95, 97, 103, 105].map((rank) => p({
+    id: `midband${rank}`, position: 'TE', overallRank: rank, projectedPoints: 100, adp: currentPick,
+  }));
+
+  const pool = [duo, ...duoBand, strongOutlier, ...strongOutlierBand, midOutlier, ...midOutlierBand];
+  // Default limit of 2: under the old exclusive filing, duo is filed as an outlier
+  // (1.25x edge >= 1.2x fall) and both slots go to strongOutlier (5x) and
+  // midOutlier (3x) — duo appears nowhere despite being a genuine faller.
+  const found = sleepers(pool, { currentPick });
+  const ids = found.map((f) => f.player.id);
+  assert.ok(ids.includes('duo'), 'the dual-qualifying faller must be shown, not crowded out by pure outliers');
+  assert.equal(found[0].player.id, 'duo', 'falling fills the first slot, and duo is the only qualifying faller');
+  // The stronger claim still decides the displayed text, even though duo is shown
+  // from the faller slot.
+  assert.match(found[0].why, /Projects/, "duo's stronger claim is projection, so that stays the displayed why");
+});

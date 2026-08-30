@@ -464,6 +464,16 @@ function projectionEdge(player, pool) {
 // static outliers occupy every slot for the whole draft and a real faller never surface.
 // Reserving one slot per kind guarantees both stories can be told, whichever is stronger
 // on the day.
+//
+// Queue membership is NOT exclusive: a player who qualifies on both claims belongs in
+// both queues. Filing him only under his stronger claim — as an earlier version did —
+// meant a player who clearly cleared the falling threshold, but whose projection edge
+// happened to be marginally larger, was filed as an outlier and then competed only
+// against outliers. Since the outlier queue is routinely dominated by one or two large,
+// near-static edges, that marginal dual-qualifier almost always lost the slot outright
+// and was never reconsidered for the faller queue he unambiguously qualified for. The
+// stronger claim still decides which text is shown when a player is picked — that part
+// is deliberate and unchanged — it just no longer decides queue eligibility.
 function sleepers(pool, ctx, limit = 2) {
   const exclude = ctx.excludeIds || new Set();
   const fallers = [];
@@ -490,14 +500,15 @@ function sleepers(pool, ctx, limit = 2) {
 
     if (!fallClaim && !edgeClaim) continue;
 
-    // A player who qualifies on both is filed under whichever claim is stronger —
-    // the same normalised comparison as before — and occupies only that one slot.
-    // Ties keep the falling claim, matching the pre-existing tie-break.
-    if (fallClaim && (!edgeClaim || fallClaim.strength >= edgeClaim.strength)) {
-      fallers.push({ player, rank: fallClaim.strength, why: fallClaim.why });
-    } else {
-      outliers.push({ player, rank: edgeClaim.strength, why: edgeClaim.why });
-    }
+    // The stronger claim decides only the text shown, never which queue(s) the
+    // player is eligible from. Ties keep the falling text, matching the
+    // pre-existing tie-break.
+    const why = fallClaim && (!edgeClaim || fallClaim.strength >= edgeClaim.strength)
+      ? fallClaim.why
+      : edgeClaim.why;
+
+    if (fallClaim) fallers.push({ player, rank: fallClaim.strength, why });
+    if (edgeClaim) outliers.push({ player, rank: edgeClaim.strength, why });
   }
 
   const byStrength = (a, b) => b.rank - a.rank || a.player.overallRank - b.player.overallRank;
@@ -507,14 +518,20 @@ function sleepers(pool, ctx, limit = 2) {
   // Alternate which kind fills the next slot, falling first, so a `limit` of 3 gives
   // two of the richer kind and one of the other rather than hard-coding two slots. If
   // the kind whose turn it is has run dry, take from the other kind instead — a slot
-  // is never left empty while any candidate, of either kind, remains.
+  // is never left empty while any candidate, of either kind, remains. A dual-qualifier
+  // sits in both queues, so once he is placed, his entry surfacing again from the
+  // other queue is skipped rather than shown twice.
   const queues = [fallers, outliers];
   const found = [];
+  const placed = new Set();
   let turn = 0;
   while (found.length < limit && (fallers.length > 0 || outliers.length > 0)) {
     const queue = queues[turn % 2].length > 0 ? queues[turn % 2] : queues[(turn + 1) % 2];
-    found.push(queue.shift());
+    const next = queue.shift();
     turn += 1;
+    if (placed.has(next.player.id)) continue;
+    placed.add(next.player.id);
+    found.push(next);
   }
 
   return found.map(({ player, why }) => ({ player, why }));
