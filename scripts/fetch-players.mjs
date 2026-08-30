@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SEASON = 2026;
+const PRIOR_SEASON = SEASON - 1;
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) fantasy-football-draft/1.0';
 
 const ESPN_PLAYERS = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}/segments/0/leaguedefaults/1?view=kona_player_info`;
@@ -12,7 +13,7 @@ const FFC_ADP = `https://fantasyfootballcalculator.com/api/v1/adp/standard?teams
 
 const ESPN_FILTER = JSON.stringify({
   players: {
-    filterStatsForExternalIds: { value: [SEASON] },
+    filterStatsForExternalIds: { value: [PRIOR_SEASON, SEASON] },
     limit: 400,
     sortDraftRanks: { sortPriority: 100, sortAsc: true, value: 'STANDARD' },
   },
@@ -37,6 +38,22 @@ function projectedPoints(player) {
     (s) => s.seasonId === SEASON && s.statSourceId === 1 && s.statSplitTypeId === 0,
   );
   return season ? Math.round(season.appliedTotal * 10) / 10 : 0;
+}
+
+// Last season's actuals, which the response already carries. statSourceId 0 is what
+// happened and 1 is what was projected; taking 1 here would report a stale forecast as
+// production. Games played is not a field ESPN returns — it falls out of the total over
+// the per-game average.
+export function priorSeasonLine(player, priorSeason) {
+  const row = (player.stats || []).find(
+    (s) => s.seasonId === priorSeason && s.statSourceId === 0 && s.statSplitTypeId === 0,
+  );
+  if (!row) return null;
+
+  const points = Math.round((row.appliedTotal || 0) * 10) / 10;
+  const games = row.appliedAverage > 0 ? Math.round(row.appliedTotal / row.appliedAverage) : 0;
+  const ppg = games > 0 ? Math.round((points / games) * 10) / 10 : 0;
+  return { points, games, ppg };
 }
 
 export function mergePlayers(espnJson, teamsJson, ffcJson) {

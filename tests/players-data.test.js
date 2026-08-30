@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeName, mergePlayers } from '../scripts/fetch-players.mjs';
+import { normalizeName, mergePlayers, priorSeasonLine } from '../scripts/fetch-players.mjs';
 
 test('normalizeName strips punctuation, case, and suffixes', () => {
   assert.equal(normalizeName("Ka'imi Fairbairn"), 'kaimifairbairn');
@@ -62,6 +62,37 @@ test('mergePlayers leaves adp null when FFC has no entry', () => {
   const teams = { settings: { proTeams: [{ id: 8, abbrev: 'DET', byeWeek: 6 }] } };
   const out = mergePlayers(espn, teams, { players: [] });
   assert.equal(out[0].adp, null);
+});
+
+test('priorSeasonLine reads last season actuals, not this season projections', () => {
+  const player = { stats: [
+    { seasonId: 2025, statSourceId: 0, statSplitTypeId: 0, appliedTotal: 289.9, appliedAverage: 17.052941176470586 },
+    { seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 297.1, appliedAverage: 17.4 },
+  ] };
+  assert.deepEqual(priorSeasonLine(player, 2025), { points: 289.9, games: 17, ppg: 17.1 });
+});
+
+test('priorSeasonLine ignores a projection row for the prior season', () => {
+  // statSourceId 1 is what ESPN expected to happen. Only statSourceId 0 is what did.
+  const player = { stats: [
+    { seasonId: 2025, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 250, appliedAverage: 15 },
+  ] };
+  assert.equal(priorSeasonLine(player, 2025), null);
+});
+
+test('priorSeasonLine returns null when there is no prior season at all', () => {
+  const rookie = { stats: [
+    { seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 120, appliedAverage: 7 },
+  ] };
+  assert.equal(priorSeasonLine(rookie, 2025), null);
+  assert.equal(priorSeasonLine({}, 2025), null, 'a player with no stats array at all');
+});
+
+test('priorSeasonLine never divides by zero for a player who logged no games', () => {
+  const shelved = { stats: [
+    { seasonId: 2025, statSourceId: 0, statSplitTypeId: 0, appliedTotal: 0, appliedAverage: 0 },
+  ] };
+  assert.deepEqual(priorSeasonLine(shelved, 2025), { points: 0, games: 0, ppg: 0 });
 });
 
 test('generated data/players.json matches the schema and covers all positions', () => {
