@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeName, mergePlayers, priorSeasonLine, athleteFields, mapWithConcurrency } from '../scripts/fetch-players.mjs';
+import { normalizeName, mergePlayers, priorSeasonLine, athleteFields, mapWithConcurrency, fetchedAtPayload } from '../scripts/fetch-players.mjs';
 
 test('normalizeName strips punctuation, case, and suffixes', () => {
   assert.equal(normalizeName("Ka'imi Fairbairn"), 'kaimifairbairn');
@@ -191,6 +191,11 @@ test('mapWithConcurrency never runs more than the limit at once', async () => {
 
 test('mapWithConcurrency handles an empty list without hanging', async () => {
   assert.deepEqual(await mapWithConcurrency([], 4, async () => 1), []);
+});
+
+test('fetchedAtPayload records the moment of the fetch as ISO-8601', () => {
+  const payload = fetchedAtPayload(new Date('2026-08-30T11:00:00.000Z'));
+  assert.deepEqual(payload, { fetchedAt: '2026-08-30T11:00:00.000Z' });
 });
 
 test('generated data/players.json matches the schema and covers all positions', () => {

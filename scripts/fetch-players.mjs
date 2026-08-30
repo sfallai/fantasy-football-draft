@@ -191,6 +191,12 @@ async function fetchAthlete(id) {
   }
 }
 
+// A separate file rather than a field inside players.json: every consumer of that
+// file expects a bare array, and widening it would touch all of them.
+export function fetchedAtPayload(date) {
+  return { fetchedAt: date.toISOString() };
+}
+
 async function main() {
   console.log('Fetching ESPN players...');
   const espn = await getJson(ESPN_PLAYERS, { 'x-fantasy-filter': ESPN_FILTER });
@@ -249,6 +255,9 @@ async function main() {
   const out = fileURLToPath(new URL('../data/players.json', import.meta.url));
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, JSON.stringify(players, null, 0) + '\n');
+
+  const stampPath = fileURLToPath(new URL('../data/fetched-at.json', import.meta.url));
+  writeFileSync(stampPath, JSON.stringify(fetchedAtPayload(new Date()), null, 0) + '\n');
 
   console.log(`Wrote ${players.length} players to data/players.json (${withAdp} with ADP, `
     + `${withAge} with age, ${withPrior} with a prior season, ${rookies} rookies)`);

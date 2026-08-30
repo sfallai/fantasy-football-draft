@@ -47,3 +47,14 @@ export function formatPick(overallPick, numTeams) {
   const inRound = ((overallPick - 1) % numTeams) + 1;
   return `${round}.${String(inRound).padStart(2, '0')}`;
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// UTC, deliberately: the stamp is baked into the page at build time, so reading it in
+// the local zone would show two people different dates for the same build.
+export function formatFetchedAt(iso) {
+  if (!iso) return null;
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return null;
+  return `${when.getUTCDate()} ${MONTHS[when.getUTCMonth()]}`;
+}
