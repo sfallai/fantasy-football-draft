@@ -35,8 +35,9 @@ export function sortPlayers(pool, key) {
   return copy.sort((a, b) => a.overallRank - b.overallRank);
 }
 
-export function filterByPosition(pool, position) {
-  return position === 'ALL' ? [...pool] : pool.filter((pl) => pl.position === position);
+export function filterByPositions(pool, positions) {
+  if (!positions || positions.length === 0) return [...pool];
+  return pool.filter((pl) => positions.includes(pl.position));
 }
 
 // Below-replacement players are common late, so the sign has to come from the
@@ -51,7 +52,7 @@ export function formatVbd(vbd) {
 // `availableOnly` defaults on: the spec requires every player to have a row, but by
 // the middle rounds most of the region you scroll is greyed noise, and renderDraft
 // rebuilds the panel every pick so scroll position resets to the top each time.
-const DEFAULT_VIEW = { sortKey: 'overallRank', filter: 'ALL', query: '', availableOnly: true };
+const DEFAULT_VIEW = { sortKey: 'overallRank', positions: [], query: '', availableOnly: true };
 const view = { ...DEFAULT_VIEW };
 
 // Module state outlives a draft, so a reset has to put it back explicitly.
@@ -70,7 +71,7 @@ export function visiblePlayers(tablePlayers) {
   // the unfiltered list; the moment a query narrows the pool, its matches — drafted
   // or not — must all surface, so the toggle only applies when there is no query.
   const hasQuery = view.query.trim().length > 0;
-  return filterByPosition(sortPlayers(tablePlayers, view.sortKey), view.filter)
+  return filterByPositions(sortPlayers(tablePlayers, view.sortKey), view.positions)
     .filter((pl) => matchesQuery(pl, view.query))
     .filter((pl) => hasQuery || !view.availableOnly || !isTaken(pl));
 }
@@ -274,9 +275,25 @@ export function renderCenter(container, ctx, handlers) {
 
   const filters = el('div', { class: 'filters' }, [
     ...POSITION_FILTERS.map((position) => el('button', {
-      class: view.filter === position ? 'selected' : '',
+      class: position === 'ALL'
+        ? (view.positions.length === 0 ? 'selected' : '')
+        : (view.positions.includes(position) ? 'selected' : ''),
       text: position,
-      onClick: () => { view.filter = position; rerender(); },
+      title: position === 'ALL'
+        ? 'Show every position'
+        : `Target ${position} — filters the list and the recommendations`,
+      // A full re-render, not redrawTable: these buttons now drive the
+      // recommendations as well as the table, and a partial redraw would leave the
+      // recommendations stale with no visible symptom.
+      onClick: () => {
+        if (position === 'ALL') view.positions = [];
+        else if (view.positions.includes(position)) {
+          view.positions = view.positions.filter((x) => x !== position);
+        } else {
+          view.positions = [...view.positions, position];
+        }
+        rerender();
+      },
     }, [])),
     filterInput,
     el('button', { text: '✕', title: 'Clear the filter', onClick: () => { view.query = ''; rerender(); } }, []),

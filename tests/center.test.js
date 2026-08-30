@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchesQuery, sortPlayers, filterByPosition, formatVbd, SORT_KEYS } from '../src/ui/center.js';
+import { matchesQuery, sortPlayers, filterByPositions, formatVbd, SORT_KEYS } from '../src/ui/center.js';
 
 const p = (id, name, position, overallRank, extra) => ({
   id, name, team: (extra && extra.team) || 'XX', position, overallRank,
@@ -76,7 +76,19 @@ test('formatVbd signs below-replacement players instead of printing +-37', () =>
   assert.equal(formatVbd(-0.4), '+0', 'never renders a negative zero');
 });
 
-test('filterByPosition narrows the pool and ALL passes it through', () => {
-  assert.deepEqual(filterByPosition(POOL, 'RB').map((x) => x.id), ['1', '2']);
-  assert.equal(filterByPosition(POOL, 'ALL').length, 5);
+test('filterByPositions narrows to the selected positions', () => {
+  assert.deepEqual(filterByPositions(POOL, ['RB']).map((x) => x.id), ['1', '2']);
+  assert.deepEqual(filterByPositions(POOL, ['RB', 'WR']).map((x) => x.id), ['1', '2', '3']);
+});
+
+test('an empty selection means everything, never nothing', () => {
+  // ALL is the clear button, and a blank board would be a worse answer than the
+  // full one — the recommendations must never render empty.
+  assert.equal(filterByPositions(POOL, []).length, 5);
+});
+
+test('filterByPositions does not mutate its input', () => {
+  const before = POOL.map((x) => x.id);
+  filterByPositions(POOL, ['RB']);
+  assert.deepEqual(POOL.map((x) => x.id), before);
 });
