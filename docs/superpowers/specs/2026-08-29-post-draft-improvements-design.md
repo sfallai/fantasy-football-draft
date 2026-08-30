@@ -308,6 +308,21 @@ rookie class as 0 and the previous one as 2, so any later feature tempted to
 render "3rd-year WR" from this field would be off by one for a whole draft class.
 Deriving the rookie badge is all this field supports.
 
+## Carried forward from chunk C
+
+Two things the chunk C review surfaced that later chunks will meet.
+
+**`renderCenter` does not close an open popover on re-render.** `renderBoard` calls
+`closePopover()` at the top of every render; `renderCenter` does not. A pick-driven
+re-render can therefore leave a detail or glossary popover on screen pointing at DOM
+that has been replaced. Harmless today because both are read-only, but chunk E's pick
+editor is interactive and must not survive the render it triggered.
+
+**`.tablewrap`'s `max-height: calc(100vh - 320px)` is tuned to the chrome that sits
+above the table today** — pick info, control bar, recommendations, filters. Chunk D adds
+a sleepers panel above it and will need to revisit the constant, or replace it with a
+layout that does not hardcode one.
+
 ## Deferred: distribution to non-technical users
 
 Recorded 2026-08-30, after chunks A and B shipped. Not yet specced.
