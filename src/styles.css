@@ -138,7 +138,9 @@ table.players tr:hover td { background: #22262f; }
    compute to auto, so this became a scrollport that never scrolled — and the sticky
    header resolved against it and scrolled away with the panel. A height constraint
    is what makes the pin work. */
-.tablewrap { overflow: auto; max-height: calc(100vh - 320px); }
+.tablewrap { overflow: auto; }
+.panel.center { display: flex; flex-direction: column; }
+.panel.center .tablewrap { flex: 1 1 auto; min-height: 120px; }
 table.players tr.taken td { color: #545b6b; }
 table.players tr.taken:hover td { background: transparent; }
 table.players td.owner { color: var(--muted); font-style: italic; white-space: nowrap; }

@@ -2,7 +2,7 @@ import { el, clear, POSITION_COLORS, formatPick } from './dom.js';
 import { recommend, sleepers } from '../core/recommend.js';
 import { byeConflict } from '../core/roster.js';
 import { isRookie, priorSummary } from '../core/player.js';
-import { showPopover } from './popover.js';
+import { showPopover, closePopover } from './popover.js';
 
 export const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 export const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -215,6 +215,7 @@ let rerender = () => {};
 
 export function renderCenter(container, ctx, handlers) {
   rerender = () => renderCenter(container, ctx, handlers);
+  closePopover();
   clear(container);
 
   const {

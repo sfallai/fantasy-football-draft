@@ -342,3 +342,15 @@ test('a candidate sharing a bye with a same-position starter is flagged', () => 
   assert.equal(warn.length, 1);
   assert.match(warn[0].textContent, /My Back/);
 });
+
+test('re-rendering the panel closes an open popover', () => {
+  // A stale popover would point at DOM the re-render has already replaced — harmless
+  // for a read-only detail card, not harmless for chunk E's pick editor.
+  const container = document.createElement('div');
+  const draw = () => renderCenter(container, ctx([player()]), { onPick() {}, onUndo() {}, onOffList() {} });
+  draw();
+  find(container, (n) => n.className === 'pname')[0].listeners.click[0]({ clientX: 10, clientY: 10 });
+  assert.equal(document.body.children.filter((n) => n.className.includes('pop')).length, 1);
+  draw();
+  assert.equal(document.body.children.filter((n) => n.className.includes('pop')).length, 0);
+});

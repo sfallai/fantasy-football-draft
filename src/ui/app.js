@@ -125,7 +125,7 @@ function renderDraft() {
 
   clear(container);
   const left = el('div', { class: 'panel' }, []);
-  const center = el('div', { class: 'panel' }, []);
+  const center = el('div', { class: 'panel center' }, []);
   const right = el('div', { class: 'panel' }, []);
 
   // localStorage can be unavailable or throw (Safari on file://, blocked site data,

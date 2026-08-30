@@ -101,6 +101,7 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 .pos-counts { margin-top: 14px; color: var(--muted); font-size: 12px; letter-spacing: 0.02em; white-space: pre-wrap; }
 .needs { margin-top: 14px; }
 .need-row { display: flex; justify-content: space-between; padding: 3px 0; }
+.need-row.set { color: var(--muted); }
 .tier { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
 .tier-high { color: #f87171; font-weight: 600; }
 .tier-medium { color: var(--accent); }
@@ -130,6 +131,9 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 .rec .pname { font-size: 16px; font-weight: 600; }
 .rec .meta { color: var(--muted); font-size: 12px; }
 .rec .why { color: #c3c9d6; font-size: 12px; margin-top: 4px; }
+.rec.sleeper { border-left-style: dashed; }
+.rec .gamble { font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 4px; margin-left: 6px; }
+.rec .bye-warn { color: var(--te); font-size: 11.5px; margin-top: 3px; }
 .notes { border: 1px solid #4a3a12; background: #241d08; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; }
 
 table.players { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -140,7 +144,9 @@ table.players tr:hover td { background: #22262f; }
    compute to auto, so this became a scrollport that never scrolled — and the sticky
    header resolved against it and scrolled away with the panel. A height constraint
    is what makes the pin work. */
-.tablewrap { overflow: auto; max-height: calc(100vh - 320px); }
+.tablewrap { overflow: auto; }
+.panel.center { display: flex; flex-direction: column; }
+.panel.center .tablewrap { flex: 1 1 auto; min-height: 120px; }
 table.players tr.taken td { color: #545b6b; }
 table.players tr.taken:hover td { background: transparent; }
 table.players td.owner { color: var(--muted); font-style: italic; white-space: nowrap; }
@@ -382,6 +388,67 @@ function reasonsFor(player, pool, ctx) {
   return reasons.slice(0, 2);
 }
 
+// A sleeper is a gamble, so the bar is deliberately higher than the "Value" reason
+// already shown on recommendation cards (ADP_VALUE_GAP, 8 picks). Anything lower and
+// the two lists would say the same thing about the same player.
+const SLEEPER_ADP_GAP = 15;
+// How many overall ranks either side to compare a player's projection against.
+const SLEEPER_RANK_BAND = 20;
+const SLEEPER_PROJECTION_EDGE = 15;
+
+// Enough neighbours that a median means something; below this the band is too sparse
+// near the very top or bottom of the pool to judge anyone against.
+const MIN_BAND_NEIGHBOURS = 3;
+
+function picksPastAdp(player, currentPick) {
+  if (player.adp === null || player.adp === undefined) return null;
+  return currentPick - player.adp;
+}
+
+function projectionEdge(player, pool) {
+  const near = pool.filter((x) => x.id !== player.id
+    && Math.abs(x.overallRank - player.overallRank) <= SLEEPER_RANK_BAND / 2);
+  if (near.length < MIN_BAND_NEIGHBOURS) return null;
+  const points = near.map((x) => x.projectedPoints).sort((a, b) => a - b);
+  const median = points[Math.floor(points.length / 2)];
+  return player.projectedPoints - median;
+}
+
+// Gambles, kept apart from the top three on purpose: mixing them in would let a flier
+// displace the best available player without the user ever choosing to take the risk.
+function sleepers(pool, ctx, limit = 2) {
+  const exclude = ctx.excludeIds || new Set();
+  const found = [];
+
+  for (const player of pool) {
+    if (exclude.has(player.id)) continue;
+
+    const past = picksPastAdp(player, ctx.currentPick);
+    if (past !== null && past >= SLEEPER_ADP_GAP) {
+      found.push({
+        player,
+        rank: past,
+        why: `Still here ${Math.round(past)} picks past his ADP of ${Math.round(player.adp)}`,
+      });
+      continue;
+    }
+
+    const edge = projectionEdge(player, pool);
+    if (edge !== null && edge >= SLEEPER_PROJECTION_EDGE) {
+      found.push({
+        player,
+        rank: edge,
+        why: `Projects ${Math.round(edge)} pts above the players ranked around him`,
+      });
+    }
+  }
+
+  return found
+    .sort((a, b) => b.rank - a.rank || a.player.overallRank - b.player.overallRank)
+    .slice(0, limit)
+    .map(({ player, why }) => ({ player, why }));
+}
+
 function recommend(pool, ctx, limit = 3) {
   if (pool.length === 0) return [];
 
@@ -418,6 +485,10 @@ __exports.STREAMED_POSITIONS = STREAMED_POSITIONS;
 __exports.BENCH_DECAY_STREAMED = BENCH_DECAY_STREAMED;
 __exports.scorePlayer = scorePlayer;
 __exports.reasonsFor = reasonsFor;
+__exports.SLEEPER_ADP_GAP = SLEEPER_ADP_GAP;
+__exports.SLEEPER_RANK_BAND = SLEEPER_RANK_BAND;
+__exports.SLEEPER_PROJECTION_EDGE = SLEEPER_PROJECTION_EDGE;
+__exports.sleepers = sleepers;
 __exports.recommend = recommend;
 
 });
@@ -514,6 +585,21 @@ function benchDepthIfAdded(players, slots) {
   return depth;
 }
 
+// Only a projected STARTER at the SAME position counts. Bench depth is
+// position-specific, so an RB and a WR sharing a bye is coverable while RB1 and RB2
+// sharing one leaves a slot empty that week. A null bye is missing data, never a
+// collision — two unknowns are not a known clash.
+function byeConflict(player, roster, slots) {
+  if (player.bye === null || player.bye === undefined) return null;
+
+  const starter = assignSlots(roster, slots)
+    .filter((slot) => !slot.label.startsWith('BN') && slot.player)
+    .map((slot) => slot.player)
+    .find((other) => other.position === player.position && other.bye === player.bye);
+
+  return starter ? starter.name : null;
+}
+
 function positionalNeeds(players, slots, round, totalRounds) {
   const counts = countByPosition(players);
   const needs = {};
@@ -554,6 +640,7 @@ __exports.slotLabels = slotLabels;
 __exports.assignSlots = assignSlots;
 __exports.countByPosition = countByPosition;
 __exports.benchDepthIfAdded = benchDepthIfAdded;
+__exports.byeConflict = byeConflict;
 __exports.positionalNeeds = positionalNeeds;
 
 });
@@ -1034,7 +1121,7 @@ function renderDraft() {
 
   clear(container);
   const left = el('div', { class: 'panel' }, []);
-  const center = el('div', { class: 'panel' }, []);
+  const center = el('div', { class: 'panel center' }, []);
   const right = el('div', { class: 'panel' }, []);
 
   // localStorage can be unavailable or throw (Safari on file://, blocked site data,
@@ -1065,6 +1152,7 @@ function renderDraft() {
     pool,
     tablePlayers,
     myRoster,
+    slots: config.slots,
     needs,
     surplus,
     currentPick,
@@ -1224,9 +1312,10 @@ __exports.renderBoard = renderBoard;
 });
 __def("ui/center.js", function (__exports, __req) {
 const { el, clear, POSITION_COLORS, formatPick } = __req('ui/dom.js');
-const { recommend } = __req('core/recommend.js');
+const { recommend, sleepers } = __req('core/recommend.js');
+const { byeConflict } = __req('core/roster.js');
 const { isRookie, priorSummary } = __req('core/player.js');
-const { showPopover } = __req('ui/popover.js');
+const { showPopover, closePopover } = __req('ui/popover.js');
 
 const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -1260,8 +1349,9 @@ function sortPlayers(pool, key) {
   return copy.sort((a, b) => a.overallRank - b.overallRank);
 }
 
-function filterByPosition(pool, position) {
-  return position === 'ALL' ? [...pool] : pool.filter((pl) => pl.position === position);
+function filterByPositions(pool, positions) {
+  if (!positions || positions.length === 0) return [...pool];
+  return pool.filter((pl) => positions.includes(pl.position));
 }
 
 // Below-replacement players are common late, so the sign has to come from the
@@ -1276,7 +1366,7 @@ function formatVbd(vbd) {
 // `availableOnly` defaults on: the spec requires every player to have a row, but by
 // the middle rounds most of the region you scroll is greyed noise, and renderDraft
 // rebuilds the panel every pick so scroll position resets to the top each time.
-const DEFAULT_VIEW = { sortKey: 'overallRank', filter: 'ALL', query: '', availableOnly: true };
+const DEFAULT_VIEW = { sortKey: 'overallRank', positions: [], query: '', availableOnly: true };
 const view = { ...DEFAULT_VIEW };
 
 // Module state outlives a draft, so a reset has to put it back explicitly.
@@ -1295,12 +1385,17 @@ function visiblePlayers(tablePlayers) {
   // the unfiltered list; the moment a query narrows the pool, its matches — drafted
   // or not — must all surface, so the toggle only applies when there is no query.
   const hasQuery = view.query.trim().length > 0;
-  return filterByPosition(sortPlayers(tablePlayers, view.sortKey), view.filter)
+  return filterByPositions(sortPlayers(tablePlayers, view.sortKey), view.positions)
     .filter((pl) => matchesQuery(pl, view.query))
     .filter((pl) => hasQuery || !view.availableOnly || !isTaken(pl));
 }
 
-function recommendationCard(rec) {
+function byeWarning(player, myRoster, slots) {
+  const clash = myRoster && slots ? byeConflict(player, myRoster, slots) : null;
+  return clash ? el('div', { class: 'bye-warn', text: `⚠ Bye ${player.bye} — same week as your ${player.position} ${clash}` }, []) : null;
+}
+
+function recommendationCard(rec, myRoster, slots) {
   const pl = rec.player;
   return el('div', {
     class: 'rec',
@@ -1318,6 +1413,22 @@ function recommendationCard(rec) {
       text: `${pl.position} need: ${rec.need}${pl.adp === null ? '' : ` · ADP ${Math.round(pl.adp)}`}`,
     }, []),
     ...rec.reasons.map((reason) => el('div', { class: 'why', text: reason }, [])),
+    byeWarning(pl, myRoster, slots),
+  ]);
+}
+
+function sleeperCard(gamble, myRoster, slots) {
+  const pl = gamble.player;
+  return el('div', { class: 'rec sleeper', style: { borderLeftColor: POSITION_COLORS[pl.position] } }, [
+    el('div', { class: 'top' }, [
+      el('span', { class: 'pname' }, [
+        el('span', { text: pl.name }, []),
+        el('span', { class: 'gamble', text: 'GAMBLE' }, []),
+      ]),
+      el('span', { class: 'meta', text: `${pl.position} · ${pl.team} · #${pl.overallRank}` }, []),
+    ]),
+    el('div', { class: 'why', text: gamble.why }, []),
+    byeWarning(pl, myRoster, slots),
   ]);
 }
 
@@ -1417,11 +1528,12 @@ let rerender = () => {};
 
 function renderCenter(container, ctx, handlers) {
   rerender = () => renderCenter(container, ctx, handlers);
+  closePopover();
   clear(container);
 
   const {
     pool, tablePlayers, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
-    vbdScale,
+    vbdScale, myRoster, slots,
   } = ctx;
 
   container.appendChild(el('div', { class: 'pick-info' }, [
@@ -1456,9 +1568,25 @@ function renderCenter(container, ctx, handlers) {
   }
 
   if (isMyPick && pool.length) {
-    container.appendChild(el('h2', { text: 'Recommended' }, []));
-    const recs = recommend(pool, { needs, surplus, currentPick, nextPick, round, vbdScale }, 3);
-    for (const rec of recs) container.appendChild(recommendationCard(rec));
+    // The same selection drives the table and the recommendations — one control, one
+    // meaning. vbdScale stays the whole-pool value passed in ctx, so narrowing the
+    // input here cannot change what a VBD point is worth.
+    const targeted = filterByPositions(pool, view.positions);
+    const recs = recommend(targeted, { needs, surplus, currentPick, nextPick, round, vbdScale }, 3);
+
+    container.appendChild(el('h2', {
+      text: view.positions.length ? `Recommended — ${view.positions.join(', ')}` : 'Recommended',
+    }, []));
+    for (const rec of recs) container.appendChild(recommendationCard(rec, myRoster, slots));
+
+    const gambles = sleepers(targeted, {
+      currentPick,
+      excludeIds: new Set(recs.map((r) => r.player.id)),
+    }, 2);
+    if (gambles.length) {
+      container.appendChild(el('h2', { text: 'Sleepers' }, []));
+      for (const g of gambles) container.appendChild(sleeperCard(g, myRoster, slots));
+    }
   }
 
   const headingText = () =>
@@ -1499,9 +1627,25 @@ function renderCenter(container, ctx, handlers) {
 
   const filters = el('div', { class: 'filters' }, [
     ...POSITION_FILTERS.map((position) => el('button', {
-      class: view.filter === position ? 'selected' : '',
+      class: position === 'ALL'
+        ? (view.positions.length === 0 ? 'selected' : '')
+        : (view.positions.includes(position) ? 'selected' : ''),
       text: position,
-      onClick: () => { view.filter = position; rerender(); },
+      title: position === 'ALL'
+        ? 'Show every position'
+        : `Target ${position} — filters the list and the recommendations`,
+      // A full re-render, not redrawTable: these buttons now drive the
+      // recommendations as well as the table, and a partial redraw would leave the
+      // recommendations stale with no visible symptom.
+      onClick: () => {
+        if (position === 'ALL') view.positions = [];
+        else if (view.positions.includes(position)) {
+          view.positions = view.positions.filter((x) => x !== position);
+        } else {
+          view.positions = [...view.positions, position];
+        }
+        rerender();
+      },
     }, [])),
     filterInput,
     el('button', { text: '✕', title: 'Clear the filter', onClick: () => { view.query = ''; rerender(); } }, []),
@@ -1522,7 +1666,7 @@ __exports.SORT_KEYS = SORT_KEYS;
 __exports.POSITION_FILTERS = POSITION_FILTERS;
 __exports.matchesQuery = matchesQuery;
 __exports.sortPlayers = sortPlayers;
-__exports.filterByPosition = filterByPosition;
+__exports.filterByPositions = filterByPositions;
 __exports.formatVbd = formatVbd;
 __exports.resetView = resetView;
 __exports.isTaken = isTaken;
@@ -1590,7 +1734,7 @@ __exports.formatPick = formatPick;
 });
 __def("ui/myteam.js", function (__exports, __req) {
 const { el, clear, POSITION_COLORS } = __req('ui/dom.js');
-const { assignSlots, positionalNeeds, countByPosition, ALL_POSITIONS, NEED_TIERS, LATE_ROUND_WINDOW } = __req('core/roster.js');
+const { assignSlots, positionalNeeds, countByPosition, ALL_POSITIONS, NEED_TIERS, LATE_ROUND_WINDOW, FLEX_POSITIONS } = __req('core/roster.js');
 const { slotRow } = __req('ui/slotrow.js');
 
 function needLabel(position, tier, have, required, totalRounds) {
@@ -1601,12 +1745,14 @@ function needLabel(position, tier, have, required, totalRounds) {
   }
   if (tier === 'high') return required > 1 ? `${position}1 needed` : `${position} needed`;
   if (tier === 'medium') return `${position}${have + 1} needed`;
-  if (have >= required && required > 0) {
-    return position === 'QB' || position === 'TE'
-      ? `${position} set — depth only`
-      : 'FLEX / bench depth';
-  }
-  return 'FLEX / bench depth';
+  // 'bench' means every startable slot at this position is full: this is a plain
+  // confirmation, not a weak recommendation to keep drafting there.
+  if (tier === 'bench') return `${position} set`;
+  // 'low' is still a ranked row — starters are covered but a FLEX slot (for a
+  // FLEX-eligible position) or nothing further (for one that isn't) could still take
+  // one. "set" is reserved for rows that are actually out of the ranking (tier
+  // 'bench', above), so this must never say it.
+  return FLEX_POSITIONS.includes(position) ? 'FLEX / bench depth' : 'depth only';
 }
 
 function needSummary(roster, slots, round, totalRounds) {
@@ -1617,10 +1763,20 @@ function needSummary(roster, slots, round, totalRounds) {
     .map((position) => ({
       position,
       tier: needs[position],
+      // 'bench' means every startable slot at this position is full, so another
+      // player there cannot enter the lineup. It stays in the list as a
+      // confirmation — "QB set" — but is no longer a ranked need. The tier itself
+      // stays in positionalNeeds because scorePlayer uses it to devalue surplus picks.
+      set: needs[position] === 'bench',
       label: needLabel(position, needs[position], counts[position], slots[position] || 0, totalRounds),
     }))
-    .sort((a, b) => NEED_TIERS.indexOf(a.tier) - NEED_TIERS.indexOf(b.tier)
-      || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position));
+    .sort((a, b) => {
+      // Set positions sink below every ranked tier, including 'none' — a satisfied
+      // position ranks below one whose need has not even arrived yet.
+      if (a.set !== b.set) return a.set ? 1 : -1;
+      return NEED_TIERS.indexOf(a.tier) - NEED_TIERS.indexOf(b.tier)
+        || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position);
+    });
 }
 
 // Two spaces between entries: at 12px a single space runs "QB:1 RB:2" together.
@@ -1647,12 +1803,14 @@ function renderMyTeam(container, ctx) {
 
   const needs = el('div', { class: 'needs' }, [el('h2', { text: 'Positional Needs' }, [])]);
   for (const need of needSummary(roster, slots, round, totalRounds)) {
-    needs.appendChild(el('div', { class: 'need-row' }, [
+    // A set position is not a ranking any more, so it gets no tier chip and a
+    // muted label instead of its position color (.need-row.set in styles.css).
+    needs.appendChild(el('div', { class: need.set ? 'need-row set' : 'need-row' }, [
       el('span', {
         text: need.label,
-        style: { color: POSITION_COLORS[need.position] },
+        style: { color: need.set ? null : POSITION_COLORS[need.position] },
       }, []),
-      el('span', { class: `tier tier-${need.tier}`, text: need.tier }, []),
+      need.set ? null : el('span', { class: `tier tier-${need.tier}`, text: need.tier }, []),
     ]));
   }
   container.appendChild(needs);
