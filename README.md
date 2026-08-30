@@ -14,27 +14,42 @@ If you do want fresher rankings, run this the morning of the draft, on a machine
 with internet, **in this order**:
 
 ```bash
-npm run fetch     # refresh data/players.json from ESPN + Fantasy Football Calculator
-npm test          # validate the new data BEFORE it is baked into the page
-npm run build     # regenerate draft.html
+npm run fetch     # refresh data/players.json and data/fetched-at.json
+npm run build     # regenerate draft.html from the new data
+npm test          # validate — including the data now baked into draft.html
 ```
 
-`npm run fetch` overwrites `data/players.json` in place, so it has to be validated
-before `build` bakes it in. If the tests fail — or anything about the new data looks
-wrong — restore the committed file and rebuild from that:
+This is fetch, then build, then test — not the more intuitive fetch-then-test.
+`npm run fetch` also rewrites `data/fetched-at.json` (the "as of" stamp), and every
+run changes it, whether or not any player moved. Testing between the fetch and the
+rebuild compares a `draft.html` still carrying the *old* stamp against data carrying
+the *new* one and fails every single time on that mismatch alone — a false alarm that
+looks exactly like a real one. Nothing is lost by testing last: the checks that catch
+bad upstream data (coverage floors for projections, age, ADP, prior season, rookies)
+read `data/players.json` directly, not the bundle, so they still fail before you ship
+if the fetch actually broke something. This is also the order CI runs in.
+
+`npm run fetch` overwrites `data/players.json` and `data/fetched-at.json` in place,
+so they have to be validated before you rely on them. If the tests fail — or
+anything about the new data looks wrong — restore both committed files together and
+rebuild from those:
 
 ```bash
-git checkout data/players.json
+git checkout data/players.json data/fetched-at.json
 npm run build
 ```
+
+Restoring only `data/players.json` leaves the *new* fetch's timestamp in place over
+the *old* fetch's data — the page would then claim the rankings are as fresh as
+today's failed run, when they are really as old as the last good one.
 
 `npm run fetch` now makes roughly 400 requests (one per skill-position player, to fetch
 age and experience) instead of 3, so it takes appreciably longer — expect it to run for a
 while, with periodic `...N/M athlete lookups done` progress lines so it doesn't look hung.
-If a test complains about age, prior-season, or rookie coverage being too low, that means
-the age/experience/prior-season lookups mostly failed or came back in an unexpected shape
-— it is not safe to draft from that data. `git checkout data/players.json` as above and
-rebuild from the known-good file.
+If a test complains about age, ADP, prior-season, or rookie coverage being too low, that
+means the corresponding lookups mostly failed or came back in an unexpected shape — it is
+not safe to draft from that data. `git checkout data/players.json data/fetched-at.json` as
+above and rebuild from the known-good files.
 
 Requires **Node 22 or newer** (the test script relies on the runner's own glob
 expansion). Then open `draft.html` by double-clicking it — **Chrome is recommended**
