@@ -34,13 +34,45 @@ test('needSummary reports depth once starters are full', () => {
   assert.equal(rb.label, 'FLEX / bench depth');
 });
 
-test('needSummary marks a filled position as set', () => {
+test('needSummary never says "set" on a filled-but-FLEX-open position', () => {
   // TE, not QB: QB has no FLEX slot to fall back to, so a filled QB always lands in
-  // the 'bench' tier and is dropped from needSummary entirely (see the drops test
-  // below). TE is FLEX-eligible, so one TE with a FLEX slot still open lands in
-  // 'low' instead, and is the tier that actually reaches this "set — depth only" label.
+  // the 'bench' tier and is dropped from needSummary's ranking entirely (see the
+  // drops test below). TE is FLEX-eligible, so one TE with a FLEX slot still open
+  // lands in 'low' instead — still ranked, so "set" (reserved for the 'bench' tier)
+  // must never appear in its label, even though its starter slot is full.
   const te = needSummary([p('t', 'TE')], DEFAULT_SLOTS, 3, 15).find((n) => n.position === 'TE');
-  assert.equal(te.label, 'TE set — depth only');
+  assert.equal(te.tier, 'low');
+  assert.equal(te.set, false);
+  assert.equal(te.label, 'FLEX / bench depth');
+});
+
+test('needSummary says "depth only", not "set", for a non-FLEX-eligible position at the low tier', () => {
+  // QB is never FLEX-eligible, so the only way it reaches the 'low' tier is a league
+  // with no dedicated QB slot at all (required === 0). Non-FLEX-eligible + 'low' must
+  // read "depth only" rather than reusing "set", which is reserved for 'bench'.
+  const slots = { ...DEFAULT_SLOTS, QB: 0 };
+  const qb = needSummary([], slots, 5, 15).find((n) => n.position === 'QB');
+  assert.equal(qb.tier, 'low');
+  assert.equal(qb.set, false);
+  assert.equal(qb.label, 'depth only');
+});
+
+test('a roster of 1 QB, 2 RB, 2 WR, 1 TE renders "set" only on the set row', () => {
+  // The wording collision this correction fixes: before it, a filled TE (still
+  // ranked, tier 'low') and a filled QB (out of the ranking, tier 'bench') both said
+  // "set", so the word stopped meaning "out of the ranking". Pin the whole scenario:
+  // no ranked row may say "set", and the one genuinely set row still does.
+  const roster = [
+    p('q', 'QB'), p('r1', 'RB'), p('r2', 'RB'), p('w1', 'WR'), p('w2', 'WR'), p('t', 'TE'),
+  ];
+  const summary = needSummary(roster, DEFAULT_SLOTS, 5, 15);
+
+  const ranked = summary.filter((n) => !n.set);
+  assert.ok(ranked.every((n) => !n.label.includes('set')), 'no ranked row ever says "set"');
+
+  const qb = summary.find((n) => n.position === 'QB');
+  assert.equal(qb.set, true);
+  assert.equal(qb.label, 'QB set');
 });
 
 test('needSummary defers K and DEF until late', () => {

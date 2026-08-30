@@ -1,5 +1,5 @@
 import { el, clear, POSITION_COLORS } from './dom.js';
-import { assignSlots, positionalNeeds, countByPosition, ALL_POSITIONS, NEED_TIERS, LATE_ROUND_WINDOW } from '../core/roster.js';
+import { assignSlots, positionalNeeds, countByPosition, ALL_POSITIONS, NEED_TIERS, LATE_ROUND_WINDOW, FLEX_POSITIONS } from '../core/roster.js';
 import { slotRow } from './slotrow.js';
 
 function needLabel(position, tier, have, required, totalRounds) {
@@ -13,12 +13,11 @@ function needLabel(position, tier, have, required, totalRounds) {
   // 'bench' means every startable slot at this position is full: this is a plain
   // confirmation, not a weak recommendation to keep drafting there.
   if (tier === 'bench') return `${position} set`;
-  if (have >= required && required > 0) {
-    return position === 'QB' || position === 'TE'
-      ? `${position} set — depth only`
-      : 'FLEX / bench depth';
-  }
-  return 'FLEX / bench depth';
+  // 'low' is still a ranked row — starters are covered but a FLEX slot (for a
+  // FLEX-eligible position) or nothing further (for one that isn't) could still take
+  // one. "set" is reserved for rows that are actually out of the ranking (tier
+  // 'bench', above), so this must never say it.
+  return FLEX_POSITIONS.includes(position) ? 'FLEX / bench depth' : 'depth only';
 }
 
 export function needSummary(roster, slots, round, totalRounds) {
