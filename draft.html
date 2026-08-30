@@ -97,6 +97,8 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 .slot .label { color: var(--muted); font-size: 12px; width: 46px; flex: none; }
 .slot .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slot .name.empty { color: #4b5263; font-style: italic; }
+.slot .meta { color: var(--muted); font-size: 11px; flex: none; white-space: nowrap; }
+.pos-counts { margin-top: 14px; color: var(--muted); font-size: 12px; letter-spacing: 0.02em; }
 .needs { margin-top: 14px; }
 .need-row { display: flex; justify-content: space-between; padding: 3px 0; }
 .tier { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -1498,6 +1500,19 @@ function needSummary(roster, slots, round, totalRounds) {
       || ALL_POSITIONS.indexOf(a.position) - ALL_POSITIONS.indexOf(b.position));
 }
 
+// Team and bye belong on the row, not in a title attribute — a tooltip you have to
+// hover for is no use when you are scanning the roster for a bye-week clash on the clock.
+function slotMeta(player) {
+  if (!player) return '';
+  return `${player.team} · ${player.bye === null || player.bye === undefined ? 'no bye' : `bye ${player.bye}`}`;
+}
+
+// Two spaces between entries: at 12px a single space runs "QB:1 RB:2" together.
+function positionCountLine(roster) {
+  const counts = countByPosition(roster);
+  return ALL_POSITIONS.map((position) => `${position}:${counts[position]}`).join('  ');
+}
+
 function renderMyTeam(container, ctx) {
   const { roster, slots, round, totalRounds, teamName } = ctx;
   clear(container);
@@ -1510,12 +1525,18 @@ function renderMyTeam(container, ctx) {
       el('span', { class: 'label', text: slot.label }, []),
       el('span', {
         class: `name${player ? '' : ' empty'}`,
-        text: player ? `${player.name} (${player.team})` : 'empty',
+        text: player ? player.name : 'empty',
         style: player ? { color: POSITION_COLORS[player.position] } : {},
-        title: player ? `${player.position} · ${player.projectedPoints} proj · bye ${player.bye ?? '—'}` : '',
+        title: player ? `${player.position} · ${player.projectedPoints} proj` : '',
       }, []),
+      el('span', { class: 'meta', text: slotMeta(player) }, []),
     ]));
   }
+
+  container.appendChild(el('div', {
+    class: 'pos-counts',
+    text: positionCountLine(roster),
+  }, []));
 
   const needs = el('div', { class: 'needs' }, [el('h2', { text: 'Positional Needs' }, [])]);
   for (const need of needSummary(roster, slots, round, totalRounds)) {
@@ -1531,6 +1552,8 @@ function renderMyTeam(container, ctx) {
 }
 
 __exports.needSummary = needSummary;
+__exports.slotMeta = slotMeta;
+__exports.positionCountLine = positionCountLine;
 __exports.renderMyTeam = renderMyTeam;
 
 });

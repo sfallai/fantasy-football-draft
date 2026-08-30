@@ -91,6 +91,8 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 .slot .label { color: var(--muted); font-size: 12px; width: 46px; flex: none; }
 .slot .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slot .name.empty { color: #4b5263; font-style: italic; }
+.slot .meta { color: var(--muted); font-size: 11px; flex: none; white-space: nowrap; }
+.pos-counts { margin-top: 14px; color: var(--muted); font-size: 12px; letter-spacing: 0.02em; }
 .needs { margin-top: 14px; }
 .need-row { display: flex; justify-content: space-between; padding: 3px 0; }
 .tier { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }

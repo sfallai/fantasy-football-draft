@@ -56,12 +56,18 @@ export function renderMyTeam(container, ctx) {
       el('span', { class: 'label', text: slot.label }, []),
       el('span', {
         class: `name${player ? '' : ' empty'}`,
-        text: player ? `${player.name} (${player.team})` : 'empty',
+        text: player ? player.name : 'empty',
         style: player ? { color: POSITION_COLORS[player.position] } : {},
-        title: player ? `${player.position} · ${player.projectedPoints} proj · bye ${player.bye ?? '—'}` : '',
+        title: player ? `${player.position} · ${player.projectedPoints} proj` : '',
       }, []),
+      el('span', { class: 'meta', text: slotMeta(player) }, []),
     ]));
   }
+
+  container.appendChild(el('div', {
+    class: 'pos-counts',
+    text: positionCountLine(roster),
+  }, []));
 
   const needs = el('div', { class: 'needs' }, [el('h2', { text: 'Positional Needs' }, [])]);
   for (const need of needSummary(roster, slots, round, totalRounds)) {
