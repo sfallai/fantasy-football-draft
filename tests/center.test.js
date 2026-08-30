@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { searchPlayers, sortPlayers, filterByPosition, formatVbd, SORT_KEYS } from '../src/ui/center.js';
+import { matchesQuery, sortPlayers, filterByPosition, formatVbd, SORT_KEYS } from '../src/ui/center.js';
 
 const p = (id, name, position, overallRank, extra) => ({
   id, name, team: (extra && extra.team) || 'XX', position, overallRank,
@@ -21,32 +21,27 @@ test('SORT_KEYS covers the four sorts named in the spec', () => {
   assert.deepEqual(SORT_KEYS, ['overallRank', 'position', 'vbd', 'adp']);
 });
 
-test('searchPlayers matches a partial name, case-insensitively', () => {
-  assert.deepEqual(searchPlayers(POOL, 'gib').map((x) => x.id), ['1']);
-  assert.deepEqual(searchPlayers(POOL, 'ROBIN').map((x) => x.id), ['2']);
+test('matchesQuery matches a partial name, case-insensitively', () => {
+  assert.equal(matchesQuery(POOL[0], 'gib'), true);
+  assert.equal(matchesQuery(POOL[1], 'ROBIN'), true);
+  assert.equal(matchesQuery(POOL[0], 'robin'), false);
 });
 
-test('searchPlayers matches on team abbreviation', () => {
-  assert.deepEqual(searchPlayers(POOL, 'cin').map((x) => x.id), ['3']);
+test('matchesQuery matches a team abbreviation by substring', () => {
+  // Typing a team is how you find a QB-WR stack.
+  assert.equal(matchesQuery(POOL[2], 'cin'), true);
+  assert.equal(matchesQuery(POOL[2], 'ci'), true);
 });
 
-test('searchPlayers matches team by substring, not just exact equality', () => {
-  assert.deepEqual(searchPlayers(POOL, 'ci').map((x) => x.id), ['3']);
+test('matchesQuery handles apostrophes in names', () => {
+  assert.equal(matchesQuery(POOL[2], "ja'marr"), true);
 });
 
-test('searchPlayers handles apostrophes in names', () => {
-  assert.deepEqual(searchPlayers(POOL, "ja'marr").map((x) => x.id), ['3']);
-});
-
-test('searchPlayers returns best rank first and honours the limit', () => {
-  const many = Array.from({ length: 20 }, (_, i) => p(`x${i}`, `Test Player ${i}`, 'WR', 20 - i));
-  const found = searchPlayers(many, 'test', 5);
-  assert.equal(found.length, 5);
-  assert.equal(found[0].overallRank, 1);
-});
-
-test('searchPlayers returns nothing for a blank query', () => {
-  assert.deepEqual(searchPlayers(POOL, '  '), []);
+test('matchesQuery passes everything through for a blank query', () => {
+  // The table shows the whole pool until the user types, so blank cannot mean
+  // "match nothing" the way it did for the old autocomplete.
+  assert.equal(matchesQuery(POOL[0], ''), true);
+  assert.equal(matchesQuery(POOL[0], '   '), true);
 });
 
 test('sortPlayers by overallRank is ascending', () => {

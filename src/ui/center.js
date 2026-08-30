@@ -5,13 +5,13 @@ export const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 export const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 
-export function searchPlayers(pool, query, limit = 8) {
+// Name or team, so typing "CIN" surfaces a quarterback and his receiver together.
+// A blank query matches everything: the table shows the full pool until you type.
+export function matchesQuery(player, query) {
   const needle = String(query || '').trim().toLowerCase();
-  if (!needle) return [];
-  return pool
-    .filter((pl) => pl.name.toLowerCase().includes(needle) || pl.team.toLowerCase().includes(needle))
-    .sort((a, b) => a.overallRank - b.overallRank)
-    .slice(0, limit);
+  if (!needle) return true;
+  return player.name.toLowerCase().includes(needle)
+    || player.team.toLowerCase().includes(needle);
 }
 
 export function sortPlayers(pool, key) {
@@ -76,7 +76,7 @@ function pickEntry(pool, onPick, onUndo, onOffList) {
   }
 
   input.addEventListener('input', () => {
-    matches = searchPlayers(pool, input.value);
+    matches = input.value.trim() ? pool.filter((pl) => matchesQuery(pl, input.value)).slice(0, 8) : [];
     active = 0;
     draw();
   });
