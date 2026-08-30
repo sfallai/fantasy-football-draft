@@ -57,7 +57,12 @@ Three fields are added to each player record in `data/players.json`:
 | `experience` | number \| null | ESPN athlete endpoint (`experience.years`) | Defenses; request failure |
 | `prior` | `{points, games, ppg}` \| null | ESPN prior-season stat row | No prior-season row |
 
-A player is a **rookie** when `experience !== null && experience <= 1`.
+A player is a **rookie** when `experience !== null && experience <= 1 && prior === null`.
+ESPN's `experience` is not a self-consistent years-played counter on its own: the sole
+`experience === 1` player in the data is a veteran who changed teams (a prior season on
+record), while some genuine rookies come back with `experience === 2`. Requiring no prior
+season makes the predicate correct regardless of what `experience` means in a given
+response.
 
 Cost: roughly 16KB across 400 players, against a current `draft.html` of 125KB.
 

@@ -539,6 +539,12 @@ Chunk A is done when all of the following hold:
 - `npm test` passes with more tests than the 137 at the start of the chunk.
 - `node -e 'const p=require("./data/players.json"); console.log(p[0])'` shows `age`, `experience`, and `prior` on the first record.
 - The rookie count reported by `npm run fetch` is plausible for a 400-player pool (roughly 20–60).
-- `draft.html` was rebuilt after the data changed, so the page and `data/players.json` agree. `npm test` includes `build.test.js`, which is what enforces this.
+- `draft.html` was rebuilt after the data changed, so the page and `data/players.json` agree.
+  **Correction (code review, task 4):** at the time this plan was executed, `build.test.js`
+  did *not* enforce that — it checked only existence, self-containment, absence of leftover
+  module syntax, and a length floor, all of which a six-month-old `draft.html` would also
+  pass. A test asserting `draft.html` contains `window.PLAYERS = ` followed by the exact
+  JSON of `data/players.json` was added in the review-fix pass; that is what actually
+  enforces this claim now.
 
 Nothing in the UI changes in this chunk. Chunks B and C consume these fields.

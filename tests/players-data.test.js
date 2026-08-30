@@ -185,6 +185,8 @@ test('mapWithConcurrency never runs more than the limit at once', async () => {
     return null;
   });
   assert.ok(peak <= 4, `peak concurrency was ${peak}, expected at most 4`);
+  assert.ok(peak > 1, `peak concurrency was ${peak}, expected concurrent execution (a purely `
+    + 'sequential implementation would also pass the <= 4 check above)');
 });
 
 test('mapWithConcurrency handles an empty list without hanging', async () => {
@@ -213,6 +215,10 @@ test('generated data/players.json matches the schema and covers all positions', 
     assert.ok(p.adp === null || typeof p.adp === 'number');
     assert.ok(p.bye === null || typeof p.bye === 'number');
     assert.ok(p.age === null || typeof p.age === 'number', `${p.name} age`);
+    assert.ok(
+      p.age === null || (p.age >= 18 && p.age <= 50),
+      `${p.name} age ${p.age} is out of plausible range`,
+    );
     assert.ok(p.experience === null || typeof p.experience === 'number', `${p.name} experience`);
     assert.ok(
       p.prior === null
@@ -220,6 +226,10 @@ test('generated data/players.json matches the schema and covers all positions', 
           && typeof p.prior.games === 'number'
           && typeof p.prior.ppg === 'number'),
       `${p.name} prior`,
+    );
+    assert.ok(
+      p.prior === null || p.prior.games <= 17,
+      `${p.name} prior.games ${p.prior && p.prior.games} exceeds a 17-game season`,
     );
   }
 
@@ -249,6 +259,23 @@ test('generated data/players.json matches the schema and covers all positions', 
     + 'run `git checkout data/players.json` to restore the committed file',
   );
 
-  const rookies = skill.filter((p) => p.experience !== null && p.experience <= 1).length;
+  // prior has the largest silent-failure surface of the three new fields: if ESPN narrows
+  // the stats filter or changes statSourceId semantics, every prior becomes null, every
+  // per-player type check above still passes (null is legal), and the suite stays green.
+  const withPrior = players.filter((p) => p.prior !== null).length;
+  const priorFloor = Math.floor(players.length * 0.5);
+  assert.ok(
+    withPrior >= priorFloor,
+    `only ${withPrior} of ${players.length} players have a prior season (expected at least `
+    + `${priorFloor}) — the prior-season stats filter probably changed; `
+    + 'run `git checkout data/players.json` to restore the committed file',
+  );
+
+  // A rookie has no prior season by definition — that's what makes this predicate
+  // convention-independent. ESPN's `experience` is not a self-consistent years-played
+  // counter on its own (see fetch-players.mjs main()).
+  const rookies = skill.filter(
+    (p) => p.experience !== null && p.experience <= 1 && p.prior === null,
+  ).length;
   assert.ok(rookies > 0, 'no rookies in the pool — experience is not being read correctly');
 });

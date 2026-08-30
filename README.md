@@ -28,6 +28,14 @@ git checkout data/players.json
 npm run build
 ```
 
+`npm run fetch` now makes roughly 400 requests (one per skill-position player, to fetch
+age and experience) instead of 3, so it takes appreciably longer — expect it to run for a
+while, with periodic `...N/M athlete lookups done` progress lines so it doesn't look hung.
+If a test complains about age, prior-season, or rookie coverage being too low, that means
+the age/experience/prior-season lookups mostly failed or came back in an unexpected shape
+— it is not safe to draft from that data. `git checkout data/players.json` as above and
+rebuild from the known-good file.
+
 Requires **Node 22 or newer** (the test script relies on the runner's own glob
 expansion). Then open `draft.html` by double-clicking it — **Chrome is recommended**
 for draft day. **No internet is needed after this point** — the page is fully
@@ -70,6 +78,8 @@ self-contained.
 | Overall rank, projected points | ESPN fantasy standard-scoring projections |
 | ADP | Fantasy Football Calculator, 10-team non-PPR mock drafts |
 | Bye weeks | ESPN pro-team schedule |
+| Age, experience | ESPN athlete endpoint (`sports.core.api.espn.com`), one request per player |
+| Prior-season points, games, ppg | ESPN fantasy projections response, last season's actuals |
 
 ## Development
 

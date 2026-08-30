@@ -64,3 +64,12 @@ test('built draft.html is self-contained and has no module syntax left', () => {
   assert.match(html, /__PLAYERS__|window\.PLAYERS/, 'player data is inlined');
   assert.ok(html.length > 50_000, `expected a substantial bundle, got ${html.length} bytes`);
 });
+
+test('draft.html was rebuilt from the committed data/players.json', () => {
+  const html = readFileSync(new URL('../draft.html', import.meta.url), 'utf8');
+  const players = readFileSync(new URL('../data/players.json', import.meta.url), 'utf8');
+  assert.ok(
+    html.includes(`window.PLAYERS = ${JSON.stringify(JSON.parse(players))};`),
+    'draft.html does not match data/players.json — run `node scripts/build.mjs`',
+  );
+});

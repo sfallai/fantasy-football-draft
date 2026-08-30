@@ -13,6 +13,9 @@ const FFC_ADP = `https://fantasyfootballcalculator.com/api/v1/adp/standard?teams
 const ESPN_ATHLETE = (id) => `https://sports.core.api.espn.com/v3/sports/football/nfl/athletes/${id}`;
 // Polite to the endpoint and still finishes 400 lookups in well under a minute.
 const ATHLETE_CONCURRENCY = 8;
+// A regular season is 17 games. Games derived below can exceed that for a player who
+// changed teams mid-season, since ESPN's own appliedAverage denominator spans both teams.
+const MAX_GAMES = 17;
 
 const ESPN_FILTER = JSON.stringify({
   players: {
@@ -54,7 +57,15 @@ export function priorSeasonLine(player, priorSeason) {
   if (!row) return null;
 
   const points = Math.round((row.appliedTotal || 0) * 10) / 10;
-  const games = row.appliedAverage > 0 ? Math.round(row.appliedTotal / row.appliedAverage) : 0;
+  // appliedAverage can be legitimately negative (a season with a negative average is real,
+  // e.g. Jarrett Stidham's -0.1), so the guard is "not zero", not "positive" — `> 0` was
+  // rejecting those seasons and reporting them as 0 games, which is internally
+  // contradictory with a non-zero points total. Games can also come out above a 17-game
+  // season for a player who changed teams mid-season, since ESPN's own appliedAverage is
+  // computed over a denominator spanning both teams (e.g. Rashid Shaheed derives 18);
+  // clamp rather than publish an impossible number.
+  const rawGames = row.appliedAverage !== 0 ? Math.round(row.appliedTotal / row.appliedAverage) : 0;
+  const games = Math.min(rawGames, MAX_GAMES);
   const ppg = games > 0 ? Math.round((points / games) * 10) / 10 : 0;
   return { points, games, ppg };
 }
@@ -72,6 +83,9 @@ export function athleteFields(athlete) {
 
 // 400 requests, a few at a time. Workers pull from a shared cursor rather than being
 // handed fixed slices, so one slow response cannot leave a worker idle while others queue.
+// Contract: `fn` must not throw/reject — a rejection propagates through Promise.all and
+// aborts every in-flight worker, discarding whatever they had already resolved. Safe today
+// because the only caller, fetchAthlete, catches everything internally and resolves null.
 export async function mapWithConcurrency(items, limit, fn) {
   const out = new Array(items.length);
   let next = 0;
@@ -167,7 +181,10 @@ async function getJson(url, headers = {}) {
 // that player simply has no age, rather than the whole morning's fetch dying on one 404.
 async function fetchAthlete(id) {
   try {
-    const res = await fetch(ESPN_ATHLETE(id), { headers: { 'User-Agent': UA } });
+    const res = await fetch(ESPN_ATHLETE(id), {
+      headers: { 'User-Agent': UA },
+      signal: AbortSignal.timeout(8000),
+    });
     return res.ok ? await res.json() : null;
   } catch {
     return null;
@@ -185,20 +202,49 @@ async function main() {
   // Defenses have no athlete record — their id is derived from the team abbreviation.
   const athleteIds = espn.players
     .map((entry) => entry.player)
-    .filter((p) => POSITION_BY_ID[p.defaultPositionId] && p.defaultPositionId !== 16)
+    .filter((p) => POSITION_BY_ID[p.defaultPositionId] && POSITION_BY_ID[p.defaultPositionId] !== 'DEF')
     .map((p) => String(p.id));
 
   console.log(`Fetching age and experience for ${athleteIds.length} players...`);
-  const athleteResponses = await mapWithConcurrency(athleteIds, ATHLETE_CONCURRENCY, fetchAthlete);
+  let completed = 0;
+  const trackProgress = (id) => {
+    const result = fetchAthlete(id);
+    result.then(() => {
+      completed += 1;
+      if (completed % 50 === 0) console.log(`  ...${completed}/${athleteIds.length} athlete lookups done`);
+    });
+    return result;
+  };
+  const firstPass = await mapWithConcurrency(athleteIds, ATHLETE_CONCURRENCY, trackProgress);
+
+  // A transient failure (a stall, a dropped connection) is not permanent — retry once,
+  // limited to the ids that came back null, before accepting them as missing.
+  const missingIds = athleteIds.filter((id, i) => !firstPass[i]);
+  console.log(`  ${athleteIds.length - missingIds.length}/${athleteIds.length} succeeded on the first pass`
+    + (missingIds.length > 0 ? `; retrying ${missingIds.length}...` : ''));
+  const retryResponses = missingIds.length > 0
+    ? await mapWithConcurrency(missingIds, ATHLETE_CONCURRENCY, fetchAthlete)
+    : [];
+  const retryById = new Map(missingIds.map((id, i) => [id, retryResponses[i]]));
+
+  const athleteResponses = athleteIds.map((id, i) => firstPass[i] ?? retryById.get(id) ?? null);
   const athletesById = new Map(athleteIds.map((id, i) => [id, athleteResponses[i]]));
   const foundAthletes = athleteResponses.filter(Boolean).length;
-  console.log(`  ${foundAthletes}/${athleteIds.length} athlete lookups succeeded`);
+  const recoveredByRetry = retryResponses.filter(Boolean).length;
+  console.log(`  ${foundAthletes}/${athleteIds.length} athlete lookups succeeded overall `
+    + `(${recoveredByRetry} recovered by retry)`);
 
   const players = mergePlayers(espn, teams, ffc, athletesById);
   const withAdp = players.filter((p) => p.adp !== null).length;
   const withAge = players.filter((p) => p.age !== null).length;
   const withPrior = players.filter((p) => p.prior !== null).length;
-  const rookies = players.filter((p) => p.experience !== null && p.experience <= 1).length;
+  // A rookie has no prior season by definition — that's what makes the predicate
+  // convention-independent. ESPN's `experience` counter is not self-consistent on its own:
+  // the sole experience===1 player in the pool has a full prior season on record (a team
+  // change, not a rookie season), while some rookies come back with experience===2.
+  const rookies = players.filter(
+    (p) => p.experience !== null && p.experience <= 1 && p.prior === null,
+  ).length;
 
   const out = fileURLToPath(new URL('../data/players.json', import.meta.url));
   mkdirSync(dirname(out), { recursive: true });
