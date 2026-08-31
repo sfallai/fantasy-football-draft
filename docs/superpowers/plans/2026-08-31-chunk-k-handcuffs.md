@@ -34,7 +34,7 @@
 | `data/players.json`, `data/fetched-at.json` (regenerated) | Task 2 only, via `npm run fetch`. |
 | `src/core/handcuff.js` (new) | `handcuffIdsFor(roster, slots)` — the ids backing up this roster's starters. Pure. |
 | `src/ui/center.js` (modify) | A `Handcuffs` toggle in `.filters`, ANDed into `visiblePlayers`, plus the empty-state sentence and a line on the recommendation card. |
-| `src/ui/app.js` (modify) | Pass the handcuff id set and the available-id set into `renderCenter`. |
+| `src/ui/app.js` (modify) | Pass the handcuff id set into `renderCenter`. Only that: `ctx.pool` is already the available players and `ctx.tablePlayers` is already every player, so no id set is needed for either. |
 | `src/styles.css` (modify) | One rule for the empty-state sentence. |
 | `draft.html` (regenerated) | Final task only. |
 
@@ -682,6 +682,14 @@ sentence instead of an empty table:
 Append its result (when not null) directly after the table, and rebuild it in
 `redrawTable` alongside the heading count so it tracks the filter.
 
+> **Corrected by the fix wave, twice.** (a) Two cases is wrong — the variant must be
+> decided against the unfiltered available `pool`, not the filtered rows, or every other
+> active filter claims your handcuffs have been drafted; and "still on the board" must not
+> be said about a backup who is outside the top 400 and was never listed. Four cases now.
+> (b) The note goes *inside* `.tablewrap`, not after it: appended to the panel's flex
+> column it renders below a full-height empty table and gets clipped on a short viewport.
+> See `tableSection` in `src/ui/center.js`.
+
 - [ ] **Step 5: Wire it in app.js**
 
 Add the import as its own single line:
@@ -695,7 +703,9 @@ In `renderDraft`, beside the existing `myRoster` computation, derive the set and
 
 - [ ] **Step 6: Style the note**
 
-Append to `src/styles.css`:
+Append to `src/styles.css` — but **check where the `@media print` block closes first**.
+That block is near the end of the file, and a naive append lands inside it, giving a rule
+that only exists on paper.
 
 ```css
 /* Shown in place of an empty table when the handcuff filter has nothing to list. */
@@ -784,6 +794,11 @@ function backupNote(player, pool) {
 
 Call it from `recommendationCard` next to the existing `byeWarning(...)` call, appending
 its result when not null. Pass `pool` through to the card if it is not already a parameter.
+
+> **Corrected by the fix wave:** the guard is
+> `if (!player.backupId || !HANDCUFF_POSITIONS.includes(player.position)) return null;`.
+> Ungated, this line was false on the four most-viewed cards in the app — a handcuff is a
+> running-back fact. See the spec's "What a handcuff is".
 
 Append to `src/styles.css`:
 
