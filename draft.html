@@ -2892,16 +2892,27 @@ function backupNote(player, pool) {
 // "24%" when the model cannot. The inputs go underneath so the reading is auditable and
 // obviously a model rather than a fact — including `adpDrafts`, which is what lets a
 // reader discount a band resting on nine drafts instead of a hundred.
-function oddsNote(player, currentPick, nextPick) {
+function oddsNote(player, currentPick, nextPick, numTeams) {
   const odds = availabilityOdds(player, currentPick, nextPick);
   if (!odds) return null;
   const drafts = player.adpDrafts ? ` across ${player.adpDrafts} drafts` : '';
+  // ± 1 rather than ± 0: a spread under half a pick rounds to zero and reads as
+  // certainty, from a model that refuses a spread of exactly zero as no information.
+  // No shipped player rounds to 0 today (the minimum is 0.6), but the pool is
+  // regenerated daily and one below 0.5 would print "ADP 3 ± 0".
+  const spread = Math.max(1, Math.round(player.adpStdev));
+  // The band and the pick it is about, in one bolded phrase. "Almost certainly gone" on
+  // its own is present tense about a player visibly on the board and being recommended
+  // right now — and the bolded fragment is what a reader under a draft clock takes in.
+  // "by" carries every band: gone by, still there by, coin flip by.
+  //
+  // formatPick, not the raw overall number: the header two inches above says "Your next:
+  // 10.08", and this line said "116" for the same pick. It was the only place in the app
+  // printing a bare overall pick, and this audience thinks in rounds.
+  const band = `${odds.band} by ${formatPick(nextPick, numTeams)}`;
   return el('div', { class: 'odds-note' }, [
-    el('span', { class: 'odds-band', text: odds.band }, []),
-    el('span', {
-      text: ` — ADP ${Math.round(player.adp)} ± ${Math.round(player.adpStdev)}${drafts}`
-        + `; you pick again at ${nextPick}`,
-    }, []),
+    el('span', { class: 'odds-band', text: band }, []),
+    el('span', { text: ` — ADP ${Math.round(player.adp)} ± ${spread}${drafts}` }, []),
   ]);
 }
 
@@ -2919,7 +2930,7 @@ function stackNote(player, myRoster) {
     : null;
 }
 
-function recommendationCard(rec, myRoster, slots, pool, currentPick, nextPick) {
+function recommendationCard(rec, myRoster, slots, pool, currentPick, nextPick, numTeams) {
   const pl = rec.player;
   return el('div', {
     class: 'rec',
@@ -2944,7 +2955,7 @@ function recommendationCard(rec, myRoster, slots, pool, currentPick, nextPick) {
     // Both are facts about what happens next rather than reasons to draft him, which is
     // why they are lines on the card and not entries in reasonsFor, whose two slots are
     // for reasons.
-    oddsNote(pl, currentPick, nextPick),
+    oddsNote(pl, currentPick, nextPick, numTeams),
     stackNote(pl, myRoster),
   ]);
 }
@@ -3136,7 +3147,7 @@ function renderCenter(container, ctx, handlers) {
       text: view.positions.length ? `Recommended — ${view.positions.join(', ')}` : 'Recommended',
     }, []));
     for (const rec of recs) {
-      scroll.appendChild(recommendationCard(rec, myRoster, slots, pool, currentPick, nextPick));
+      scroll.appendChild(recommendationCard(rec, myRoster, slots, pool, currentPick, nextPick, numTeams));
     }
 
     const gambles = sleepers(targeted, {

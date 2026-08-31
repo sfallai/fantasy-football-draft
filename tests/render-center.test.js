@@ -614,7 +614,9 @@ const allText = (node) => find(node, () => true).map((n) => n.textContent).join(
 
 // currentPick 8 → nextPick 15 against ADP 12.4 ± 6 lands at p ≈ 0.458: the middle band,
 // which is the one that most obviously must not be printed as a number.
-const LASTS = () => player({ adp: 12.4, adpStdev: 6, adpDrafts: 118, adpLatest: 40 });
+// adpStdev 6.4, not 6: an integer makes Math.round a no-op, and removing the round
+// survived the whole suite. Real spreads are 10.1, 5.9, 22.4 — the rounding is live.
+const LASTS = () => player({ adp: 12.4, adpStdev: 6.4, adpDrafts: 118, adpLatest: 40 });
 const AT_PICK_8 = { currentPick: 8, nextPick: 15 };
 
 test('a recommendation says how likely the player is to last', () => {
@@ -625,12 +627,30 @@ test('a recommendation says how likely the player is to last', () => {
 
   const band = find(notes[0], (n) => n.className === 'odds-band');
   assert.equal(band.length, 1, 'the band is its own element, so it can be weighted');
-  assert.equal(band[0].textContent, 'Coin flip');
+  // The pick is INSIDE the bolded band, not stranded at the end of the evidence.
+  // "Almost certainly gone" alone is present tense about a player visibly on the board,
+  // and the bolded fragment is what a reader under a draft clock takes in.
+  assert.equal(band[0].textContent, 'Coin flip by 2.05');
 
   const text = allText(notes[0]);
-  assert.match(text, /ADP 12 ± 6/, 'the inputs under the band, so the reading is auditable');
-  assert.match(text, /across 118 drafts/, 'and the sample size it rests on');
-  assert.match(text, /you pick again at 15/, 'and the pick it is actually answering about');
+  // One string, not two loose fragments: /ADP 12 ± 6/ alone matches "± 6.4" as a prefix,
+  // so dropping the Math.round on the spread survived it.
+  assert.match(text, /ADP 12 ± 6 across 118 drafts/,
+    'the inputs under the band, rounded, so the reading is auditable');
+  // Round.pick, never a bare overall number: the header two inches above says "Your
+  // next: 2.05", and this line used to say "15" for the same pick.
+  assert.doesNotMatch(text, /\bat 15\b/, 'no bare overall pick number anywhere');
+});
+
+test('a spread under half a pick reads as one, never as zero', () => {
+  // Rounds to 0 and prints "± 0" — visual certainty from a model that refuses a spread
+  // of exactly 0 as no information. No shipped player is under 0.5 today (the minimum is
+  // 0.6), but the pool is regenerated daily.
+  const container = renderRecs([player({ adp: 3.2, adpStdev: 0.4, adpDrafts: 900, adpLatest: 40 })],
+    { currentPick: 2, nextPick: 9 });
+  const text = allText(find(container, (n) => n.className === 'odds-note')[0]);
+  assert.match(text, /± 1\b/);
+  assert.doesNotMatch(text, /± 0\b/);
 });
 
 test('no odds line when the model refuses to answer', () => {

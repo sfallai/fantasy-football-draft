@@ -27,6 +27,16 @@ test('two running backs on one team are a committee, not a stack', () => {
   assert.equal(stackPartner(pl('montgomery', 'RB', 'DET'), roster), null);
 });
 
+test('a quarterback does not stack with his own running back', () => {
+  // The QB->X direction was only ever tested against WR and TE partners, so nothing
+  // pinned what it must EXCLUDE: widening it to ['WR','TE','RB'] passed the entire
+  // suite and rendered "Same NFL team as your RB, Saquon Barkley" under Jalen Hurts.
+  // A committee back is negatively correlated with his quarterback — the goal-line
+  // carry is the throw that did not happen.
+  const roster = [pl('cook', 'RB', 'BUF', 'James Cook III')];
+  assert.equal(stackPartner(pl('allen', 'QB', 'BUF'), roster), null);
+});
+
 test('a receiver does not stack with another receiver', () => {
   const roster = [pl('arsb', 'WR', 'DET')];
   assert.equal(stackPartner(pl('jamo', 'WR', 'DET'), roster), null);
