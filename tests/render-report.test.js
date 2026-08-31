@@ -26,8 +26,8 @@ const sectionText = (container, heading) => {
 
 const FULL = {
   waivers: [{ position: 'QB', players: [pl('q', 'Jordan Love', 'QB', 259, 9, 198)] }],
-  steals: [{ pickNumber: 96, round: 10, teamName: 'Rival', player: pl('s', 'Steal Guy', 'RB', 180), adp: 62, delta: 34 }],
-  reaches: [{ pickNumber: 14, round: 2, teamName: 'Mine', player: pl('r', 'Reach Guy', 'WR', 150), adp: 59, delta: -45 }],
+  steals: [{ pickNumber: 96, round: 10, teamName: 'Rival', player: pl('s', 'Steal Guy', 'RB', 180), adp: 61.8, shownAdp: 62, delta: 34 }],
+  reaches: [{ pickNumber: 14, round: 2, teamName: 'Mine', player: pl('r', 'Reach Guy', 'WR', 150), adp: 58.7, shownAdp: 59, delta: -45 }],
   // The bar sits BELOW the best man left, because leagueBlindSpot only ever emits
   // players projecting above it. A fixture with best < bar renders prose the code
   // cannot produce — "above the replacement level of 288.3 … at 259.0" — and a test
@@ -41,12 +41,12 @@ const FULL = {
     // the previous fixture gave these two both byes at once.
     spine: [{ label: 'QB', player: pl('a', 'Spine QB', 'QB', 300, 10) }, { label: 'RB1', player: pl('c', 'Spine RB', 'RB', 200, 10) }],
     clashes: [{ week: 10, players: [pl('a', 'Spine QB', 'QB', 300, 10), pl('c', 'Spine RB', 'RB', 200, 10)] }],
-    bestValue: { pickNumber: 96, round: 10, player: pl('s', 'Steal Guy', 'RB', 180), adp: 62, delta: 34 },
+    bestValue: { pickNumber: 96, round: 10, player: pl('s', 'Steal Guy', 'RB', 180), adp: 61.8, shownAdp: 62, delta: 34 },
     // Non-null, and a player who appears nowhere else in the fixture. With this null
     // the whole per-team block was unpinned: the sign negation the spec singles out,
     // both ADP lines and the spine guard all survived mutation. Reusing Reach Guy here
     // would let the league-wide reaches section satisfy an assertion aimed at the team.
-    biggestReach: { pickNumber: 18, round: 2, player: pl('e', 'Early Guy', 'TE', 120), adp: 30, delta: -12 },
+    biggestReach: { pickNumber: 18, round: 2, player: pl('e', 'Early Guy', 'TE', 120), adp: 29.6, shownAdp: 30, delta: -12 },
   }],
 };
 const render = (report) => {
@@ -112,12 +112,12 @@ test('a team block carries its labelled spine, its best value and its earliest p
 // sections and the two lines inside a team block.
 const ONE = {
   waivers: [], blindSpot: [], benched: [],
-  steals: [{ pickNumber: 5, round: 1, teamName: 'Rival', player: pl('s1', 'One Late', 'RB', 100), adp: 4, delta: 1 }],
-  reaches: [{ pickNumber: 3, round: 1, teamName: 'Mine', player: pl('r1', 'One Early', 'WR', 100), adp: 4, delta: -1 }],
+  steals: [{ pickNumber: 5, round: 1, teamName: 'Rival', player: pl('s1', 'One Late', 'RB', 100), adp: 4.2, shownAdp: 4, delta: 1 }],
+  reaches: [{ pickNumber: 3, round: 1, teamName: 'Mine', player: pl('r1', 'One Early', 'WR', 100), adp: 4.2, shownAdp: 4, delta: -1 }],
   teams: [{
     teamIndex: 1, name: 'Mine', spine: [], clashes: [],
-    bestValue: { pickNumber: 5, round: 1, player: pl('s1', 'One Late', 'RB', 100), adp: 4, delta: 1 },
-    biggestReach: { pickNumber: 3, round: 1, player: pl('r1', 'One Early', 'WR', 100), adp: 4, delta: -1 },
+    bestValue: { pickNumber: 5, round: 1, player: pl('s1', 'One Late', 'RB', 100), adp: 4.2, shownAdp: 4, delta: 1 },
+    biggestReach: { pickNumber: 3, round: 1, player: pl('r1', 'One Early', 'WR', 100), adp: 4.2, shownAdp: 4, delta: -1 },
   }],
 };
 
@@ -164,6 +164,27 @@ test('nothing on the report predicts a finish', () => {
   const text = textOf(render(FULL));
   assert.doesNotMatch(text, /\b\d+-\d+\b/, 'no win-loss record anywhere');
   assert.doesNotMatch(text, /\bwill\b/i, 'no prediction');
+});
+
+test('the printed ADP is the one the gap was measured against, not a second rounding', () => {
+  // The renderer used to re-derive Math.round(v.adp) for display while the core derived
+  // the gap from its own rounding. Two derivations of the guarantee the section rests
+  // on — printed ADP plus printed gap equals the pick. This value object carries only
+  // the field pickValues now hands over; the old renderer would print NaN.
+  const c = render({
+    waivers: [], reaches: [], blindSpot: [], benched: [], teams: [],
+    steals: [{ pickNumber: 96, round: 10, teamName: 'Rival', player: pl('s', 'Steal Guy', 'RB', 180), shownAdp: 62, delta: 34 }],
+  });
+  assert.match(sectionText(c, 'Biggest steals'), /34 picks after an ADP of 62/);
+});
+
+test('every ADP line reconciles to the pick that was made', () => {
+  // 62 + 34 = 96, 59 - 45 = 14, 30 - 12 = 18. The fixture's raw ADPs are fractional,
+  // as 193 of the 219 in the shipped pool are.
+  for (const v of [...FULL.steals, ...FULL.reaches, FULL.teams[0].bestValue, FULL.teams[0].biggestReach]) {
+    assert.equal(v.shownAdp, Math.round(v.adp));
+    assert.equal(v.shownAdp + v.delta, v.pickNumber);
+  }
 });
 
 test('renderReport clears nothing and appends one node', () => {

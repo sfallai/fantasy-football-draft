@@ -89,7 +89,14 @@ export function pickValues(state, allPlayers) {
       teamIndex: entry.teamIndex,
       teamName: team ? team.name : `Team ${entry.teamIndex}`,
       player,
+      // Two fields, and the renderer prints the second. `adp` is the pool's raw value;
+      // `shownAdp` is the one this delta was measured against and the one the report
+      // displays. The reconciliation the wave before this one bought — printed ADP plus
+      // printed gap equals the pick — held only because the renderer happened to round
+      // the same way here. Deriving it twice is one edit away from losing it, so it is
+      // derived once and carried.
       adp: player.adp,
+      shownAdp: Math.round(player.adp),
       delta: pickNumber - Math.round(player.adp),
     });
   }

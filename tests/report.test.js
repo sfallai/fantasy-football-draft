@@ -106,8 +106,12 @@ test('delta is a whole number of picks against the ADP as it is displayed', () =
   assert.deepEqual(values.map((v) => [v.player.id, v.delta]),
     [['onadp', 0], ['reached', -4], ['plain', 0], ['fellback', 2], ['halfway', 2]]);
   // The two numbers the report prints have to reconcile to the pick that was made.
-  // Rounding them independently puts "12 picks after an ADP of 9" on pick 20.
-  for (const v of values) assert.equal(Math.round(v.adp) + v.delta, v.pickNumber);
+  // Rounding them independently puts "12 picks after an ADP of 9" on pick 20 — so the
+  // rounded ADP is carried, not re-derived downstream, and shownAdp is the field the
+  // renderer prints. `adp` stays the pool's raw value.
+  assert.deepEqual(values.map((v) => [v.adp, v.shownAdp]),
+    [[1.4, 1], [6.4, 6], [3, 3], [1.6, 2], [2.5, 3]]);
+  for (const v of values) assert.equal(v.shownAdp + v.delta, v.pickNumber);
 });
 
 test('a pick less than half a pick from his ADP is neither a steal nor a reach', () => {

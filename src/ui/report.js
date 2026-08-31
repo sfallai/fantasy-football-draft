@@ -25,8 +25,13 @@ const picks = (n) => (n === 1 ? '1 pick' : `${n} picks`);
 
 // "an ADP", never "his ADP": Eagles D/ST does not have a his, and the possessive adds
 // nothing to a player either.
-const fellTo = (v) => `${picks(v.delta)} after an ADP of ${Math.round(v.adp)}`;
-const wentAt = (v) => `${picks(-v.delta)} before an ADP of ${Math.round(v.adp)}`;
+//
+// `shownAdp`, not `Math.round(v.adp)`: the core measured the gap against the rounded
+// ADP, so printing a second, independent rounding beside it is two derivations of the
+// one guarantee this section rests on — that the ADP and the gap add back up to the
+// pick number. There is now one derivation, in pickValues, and this prints it.
+const fellTo = (v) => `${picks(v.delta)} after an ADP of ${v.shownAdp}`;
+const wentAt = (v) => `${picks(-v.delta)} before an ADP of ${v.shownAdp}`;
 
 function waiverLines(waivers) {
   return waivers.map((group) => el('div', { class: 'rep-line' }, [
