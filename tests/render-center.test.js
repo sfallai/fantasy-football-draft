@@ -431,11 +431,56 @@ test('the handcuff button says why the list is empty rather than showing nothing
 test('the empty note tells "none yet" apart from "their backups are gone"', () => {
   // The two cases resolve differently: one fixes itself as you draft, the other means
   // the board genuinely has nothing left to show.
-  const container = renderWithHandcuffs(handcuffPool(), new Set(['already-drafted']));
+  const pool = handcuffPool();
+  pool[1] = { ...pool[1], ownerName: 'Team 3' };
+  const container = renderWithHandcuffs(pool, new Set(['pacheco']));
   button(container, 'Handcuffs').listeners.click[0]();
   const note = find(container, (n) => n.className === 'empty-note')[0];
   assert.ok(note, 'the empty table is explained here too');
   assert.match(note.textContent, /still on the board/i);
+});
+
+// The variant has to be decided against the unfiltered available pool, not against the
+// fully-filtered rows. Deciding it on the rows made every other active filter — a
+// position chip, a search box — claim your handcuffs had been drafted, which is false
+// and sends you to look for a replacement you do not need.
+test('a position filter hiding your handcuff does not claim he is gone', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['pacheco']));
+  button(container, 'QB').listeners.click[0]();
+  button(container, 'Handcuffs').listeners.click[0]();
+  assert.equal(bodyRows(container).length, 0);
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.ok(note, 'the empty table is still explained');
+  assert.doesNotMatch(note.textContent, /still on the board/i,
+    'Pacheco is on the board — the QB button is what is hiding him');
+  assert.match(note.textContent, /hiding/i);
+  assert.match(note.textContent, /\b1\b/, 'and says how many are being hidden');
+});
+
+test('a search box hiding your handcuff does not claim he is gone either', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['pacheco']));
+  const input = find(container, (n) => n.tagName === 'input')[0];
+  button(container, 'Handcuffs').listeners.click[0]();
+  input.listeners.input[0]({ target: { value: 'zzzz' } });
+  assert.equal(bodyRows(container).length, 0);
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.ok(note, 'the empty table is still explained');
+  assert.doesNotMatch(note.textContent, /still on the board/i);
+  assert.match(note.textContent, /hiding/i);
+});
+
+// 121 of the 309 shipped backupIds point outside the 400-player pool — Josh Allen's,
+// for one. "Nobody took him" and "he was never in this app" are different absences and
+// resolve differently, so the copy must not conflate them.
+test('a backup who is not in the list at all is not reported as drafted', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['deep-reserve']));
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.ok(note);
+  assert.doesNotMatch(note.textContent, /still on the board/i,
+    'he was never on the board — nobody drafted him');
+  assert.match(note.textContent, /not draftable here/i);
+  assert.match(note.textContent, /\b3\b/, 'and names the size of the list he is outside');
 });
 
 test('the empty note is gone once the filter has something to show', () => {

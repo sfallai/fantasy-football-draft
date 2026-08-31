@@ -359,13 +359,34 @@ export function renderCenter(container, ctx, handlers) {
     onClick: () => { view.handcuffsOnly = !view.handcuffsOnly; rerender(); },
   }, []);
 
-  // An empty table reads as a bug. Which of the two reasons it is matters: one
-  // resolves itself as you draft, the other means the board genuinely has nothing.
+  // An empty table reads as a bug, so it gets a sentence. Which reason it is matters —
+  // they resolve four different ways — and the reason is decided against the UNFILTERED
+  // pool, never against the rows. Deciding it on the rows was the original bug: any
+  // other active filter (a position chip, a search box) emptied the table and the note
+  // then claimed your handcuffs had been drafted, which sends you hunting a replacement
+  // you do not need.
+  //
+  // `pool` is the available players and `tablePlayers` is every player in the list, and
+  // the difference between them is the difference between "somebody took him" and "he
+  // was never in this app": 121 of the 309 shipped backupIds point outside the top 400.
   function handcuffEmptyNote() {
     if (!view.handcuffsOnly || visiblePlayers(tablePlayers, handcuffIds).length > 0) return null;
-    const text = handcuffIds.size === 0
-      ? 'No handcuffs yet — this shows the backups to the players in your starting lineup, once you have some.'
-      : 'None of your starters\' backups are still on the board.';
+    const availableHandcuffs = pool.filter((pl) => handcuffIds.has(pl.id)).length;
+    const listedHandcuffs = tablePlayers.filter((pl) => handcuffIds.has(pl.id)).length;
+    let text;
+    if (handcuffIds.size === 0) {
+      text = 'No handcuffs yet — this shows the backups to the players in your starting lineup, once you have some.';
+    } else if (availableHandcuffs > 0) {
+      text = availableHandcuffs === 1
+        ? '1 of your starters\' backups is still available — your other filters are hiding him.'
+        : `${availableHandcuffs} of your starters' backups are still available — your other filters are hiding them.`;
+    } else if (listedHandcuffs > 0) {
+      text = 'None of your starters\' backups are still on the board.';
+    } else {
+      // Never drafted — never here. Saying "gone" about a player who was never listed
+      // is the one thing this sentence must not do.
+      text = `Your starters' backups are outside this list of ${tablePlayers.length} players, so they are not draftable here.`;
+    }
     return el('div', { class: 'empty-note', text }, []);
   }
 
