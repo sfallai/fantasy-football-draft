@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeName, mergePlayers, priorSeasonLine, athleteFields, mapWithConcurrency, fetchedAtPayload } from '../scripts/fetch-players.mjs';
+import { normalizeName, mergePlayers, priorSeasonLine, athleteFields, mapWithConcurrency, fetchedAtPayload, depthMapFromCharts } from '../scripts/fetch-players.mjs';
 
 test('normalizeName strips punctuation, case, and suffixes', () => {
   assert.equal(normalizeName("Ka'imi Fairbairn"), 'kaimifairbairn');
@@ -46,6 +46,7 @@ test('mergePlayers joins ESPN projections with FFC adp and team byes', () => {
     overallRank: 1, positionRank: 1, projectedPoints: 297.1, adp: 1.4, bye: 6,
     adpStdev: null, adpEarliest: null, adpLatest: null, adpDrafts: null,
     age: null, experience: null, prior: null,
+    depthRank: null, backupId: null,
   });
 
   const def = out.find((p) => p.position === 'DEF');
@@ -412,4 +413,108 @@ test('generated data/players.json matches the schema and covers all positions', 
     (p) => p.experience !== null && p.experience <= 1 && p.prior === null,
   ).length;
   assert.ok(rookies > 0, 'no rookies in the pool — experience is not being read correctly');
+});
+
+const chart = (groups) => ({ items: groups });
+const athlete = (id, rank) => ({ rank, athlete: { $ref: `http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/${id}?lang=en` } });
+
+test('depthMapFromCharts records each player rank and the player directly below him', () => {
+  const charts = [chart([
+    { name: '3WR 1TE', positions: {
+      qb: { athletes: [athlete('goff', 1), athlete('backup-qb', 2)] },
+      rb: { athletes: [athlete('gibbs', 1), athlete('pacheco', 2), athlete('third', 3)] },
+    } },
+  ])];
+  const map = depthMapFromCharts(charts);
+  assert.deepEqual(map.get('gibbs'), { depthRank: 1, backupId: 'pacheco' });
+  assert.deepEqual(map.get('pacheco'), { depthRank: 2, backupId: 'third' });
+  assert.deepEqual(map.get('third'), { depthRank: 3, backupId: null }, 'the last man backs up nobody');
+});
+
+test('the offensive group is found by its positions, never by its name', () => {
+  // Measured: the defensive group is "Base 3-4 D" on some teams and "Base 4-3 D" on
+  // others, and the offensive group's name is a formation that can change. Only the
+  // positions are stable.
+  const charts = [chart([
+    { name: 'Base 3-4 D', positions: { lde: { athletes: [athlete('lineman', 1)] } } },
+    { name: 'Special Teams', positions: { pk: { athletes: [athlete('kicker', 1)] } } },
+    { name: 'Some Formation Nobody Predicted', positions: {
+      qb: { athletes: [athlete('goff', 1)] },
+      rb: { athletes: [athlete('gibbs', 1), athlete('pacheco', 2)] },
+    } },
+  ])];
+  const map = depthMapFromCharts(charts);
+  assert.equal(map.get('gibbs').backupId, 'pacheco');
+  assert.equal(map.has('lineman'), false, 'defenders are not in the map');
+  assert.equal(map.has('kicker'), false, 'and neither are kickers');
+});
+
+test('athletes are ordered by rank, not by the order the feed lists them', () => {
+  const charts = [chart([
+    { name: '3WR 1TE', positions: {
+      qb: { athletes: [athlete('goff', 1)] },
+      rb: { athletes: [athlete('third', 3), athlete('gibbs', 1), athlete('pacheco', 2)] },
+    } },
+  ])];
+  assert.equal(depthMapFromCharts(charts).get('gibbs').backupId, 'pacheco');
+});
+
+test('only qb, rb, wr and te are mapped', () => {
+  // K and DEF live in the Special Teams group, have no meaningful handcuff, and are
+  // already excluded from the grade and the waiver list.
+  const charts = [chart([
+    { name: '3WR 1TE', positions: {
+      qb: { athletes: [athlete('goff', 1)] },
+      rb: { athletes: [athlete('gibbs', 1)] },
+      wr: { athletes: [athlete('arsb', 1), athlete('jamo', 2)] },
+      te: { athletes: [athlete('laporta', 1)] },
+      lt: { athletes: [athlete('tackle', 1)] },
+    } },
+  ])];
+  const map = depthMapFromCharts(charts);
+  assert.equal(map.get('arsb').backupId, 'jamo');
+  assert.equal(map.has('tackle'), false);
+});
+
+test('a team whose chart failed is skipped, not fatal', () => {
+  const charts = [
+    null,
+    chart([{ name: '3WR 1TE', positions: {
+      qb: { athletes: [athlete('goff', 1)] },
+      rb: { athletes: [athlete('gibbs', 1), athlete('pacheco', 2)] },
+    } }]),
+  ];
+  const map = depthMapFromCharts(charts);
+  assert.equal(map.get('gibbs').backupId, 'pacheco', 'the teams that did resolve still count');
+});
+
+test('a chart with no offensive group contributes nothing rather than throwing', () => {
+  const charts = [chart([{ name: 'Base 4-3 D', positions: { lde: { athletes: [athlete('x', 1)] } } }])];
+  assert.equal(depthMapFromCharts(charts).size, 0);
+});
+
+test('mergePlayers attaches depth rank and backup id', () => {
+  const espn = { players: [{ player: {
+    id: 111, fullName: 'Jahmyr Gibbs', defaultPositionId: 2, proTeamId: 8,
+    draftRanksByRankType: { STANDARD: { rank: 1 } },
+    stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 297.1 }],
+  } }] };
+  const teams = { settings: { proTeams: [{ id: 8, abbrev: 'DET', byeWeek: 6 }] } };
+  const depth = new Map([['111', { depthRank: 1, backupId: '222' }]]);
+
+  const [gibbs] = mergePlayers(espn, teams, { players: [] }, new Map(), depth);
+  assert.equal(gibbs.depthRank, 1);
+  assert.equal(gibbs.backupId, '222');
+});
+
+test('a player with no depth-chart entry gets null for both, not undefined', () => {
+  const espn = { players: [{ player: {
+    id: 333, fullName: 'Deep Sleeper', defaultPositionId: 3, proTeamId: 8,
+    draftRanksByRankType: { STANDARD: { rank: 250 } },
+    stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 40 }],
+  } }] };
+  const teams = { settings: { proTeams: [{ id: 8, abbrev: 'DET', byeWeek: 6 }] } };
+  const [p] = mergePlayers(espn, teams, { players: [] });
+  assert.equal(p.depthRank, null);
+  assert.equal(p.backupId, null);
 });
