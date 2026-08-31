@@ -132,7 +132,7 @@ function playerPicker(players, initialId, onChange) {
   return wrap;
 }
 
-export function renderSetup(root, initialConfig, onStart, onImport) {
+export function renderSetup(root, initialConfig, onStart, onImport, tour = {}) {
   const players = window.PLAYERS || [];
   const config = { ...DEFAULT_CONFIG, ...initialConfig };
 
@@ -257,6 +257,13 @@ export function renderSetup(root, initialConfig, onStart, onImport) {
   root.appendChild(el('div', { class: 'panel setup' }, [
     el('h1', { text: 'Draft Assistant — Setup' }, []),
     errorBox,
+
+    // Shown once. Most first-time users would never find a button nobody told them
+    // about; anyone who has done this before loses one line of text.
+    tour.offerTour ? el('div', { class: 'tour-offer' }, [
+      el('span', { text: 'First time here?' }, []),
+      el('button', { class: 'btn-tour', text: 'Show me around', onClick: tour.onStartTour }, []),
+    ]) : null,
 
     el('div', { class: 'setup-section', dataset: { tour: 'league' } }, [
       el('h2', { text: 'League Settings' }, []),

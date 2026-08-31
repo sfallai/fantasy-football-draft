@@ -1,4 +1,5 @@
 import { el, clear, formatFetchedAt } from './dom.js';
+import { startTour, SETUP_STEPS, DRAFT_STEPS, hasSeenTour } from './tour.js';
 import { renderSetup } from './setup.js';
 import { renderMyTeam } from './myteam.js';
 import { renderCenter, resetView } from './center.js';
@@ -90,7 +91,10 @@ function showSetup() {
   // Import lives here as well as on the draft screen. Every catastrophe a backup
   // exists for — wiped storage, another browser, another laptop — lands the user on
   // this screen, where the draft-screen buttons do not exist yet.
-  renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport);
+  renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport, {
+    offerTour: !hasSeenTour(),
+    onStartTour: () => startTour(SETUP_STEPS),
+  });
   appendFreshness(container, { wrap: 'freshness-card' });
 }
 
@@ -290,6 +294,10 @@ function renderDraft() {
   }, []);
   left.appendChild(el('button', { class: 'btn-import', text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
   left.appendChild(importInput);
+  left.appendChild(el('button', {
+    class: 'btn-tour', text: 'Show me around', style: { marginTop: '8px' },
+    onClick: () => startTour(DRAFT_STEPS),
+  }, []));
 
   renderCenter(center, {
     pool,

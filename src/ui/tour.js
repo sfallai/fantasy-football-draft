@@ -1,3 +1,5 @@
+import { el, clear } from './dom.js';
+
 export const TOUR_SEEN_KEY = 'ffdraft.tour.seen.v1';
 
 // Five steps, in the order someone actually fills the screen in.
@@ -102,4 +104,67 @@ export function markTourSeen(storage) {
   } catch {
     // Nothing to do — the offer will simply appear again.
   }
+}
+
+// The ring and the dim are one element: a transparent box outlined around the target,
+// carrying a spread large enough to darken the rest of the page. Two elements would need
+// four rectangles to cut a hole, and they would disagree at the corners.
+const RING_PAD = 6;
+
+export function startTour(steps, doc = document) {
+  const tour = createTour(steps);
+  const layer = el('div', { class: 'tour-layer' }, []);
+  doc.body.appendChild(layer);
+
+  function close() {
+    markTourSeen();
+    if (layer.parentNode) layer.parentNode.removeChild(layer);
+    doc.removeEventListener('keydown', onKey);
+  }
+
+  function onKey(e) {
+    if (e && e.key === 'Escape') close();
+  }
+  doc.addEventListener('keydown', onKey);
+
+  function draw() {
+    clear(layer);
+    const step = tour.step();
+    if (!step) { close(); return; }
+
+    // A missing anchor is expected, not exceptional — see the suggestions step.
+    const target = doc.querySelector ? doc.querySelector(step.anchor) : null;
+    const box = target && target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+
+    if (box && box.width) {
+      layer.appendChild(el('div', {
+        class: 'tour-ring',
+        style: {
+          left: `${box.left - RING_PAD}px`, top: `${box.top - RING_PAD}px`,
+          width: `${box.width + RING_PAD * 2}px`, height: `${box.height + RING_PAD * 2}px`,
+        },
+      }, []));
+    } else {
+      // No target to cut a hole around, so dim the whole page and centre the card.
+      layer.appendChild(el('div', { class: 'tour-dim' }, []));
+    }
+
+    layer.appendChild(el('div', { class: box && box.width ? 'tour-card' : 'tour-card centred' }, [
+      el('div', { class: 'tour-count', text: `${tour.index() + 1} of ${tour.total}` }, []),
+      el('h3', { text: step.title }, []),
+      el('p', { text: step.body }, []),
+      el('div', { class: 'tour-controls' }, [
+        el('button', { class: 'tour-skip', text: 'Skip', onClick: close }, []),
+        tour.index() > 0 ? el('button', { text: 'Back', onClick: () => { tour.back(); draw(); } }, []) : null,
+        el('button', {
+          class: 'primary',
+          text: tour.isLast() ? 'Done' : 'Next',
+          onClick: () => { if (tour.next()) draw(); else close(); },
+        }, []),
+      ]),
+    ]));
+  }
+
+  draw();
+  return close;
 }

@@ -78,3 +78,83 @@ test('unusable storage means the offer simply reappears, never a crash', () => {
   assert.doesNotThrow(() => markTourSeen(throwing));
   assert.equal(hasSeenTour(null), false);
 });
+
+import { installDomStub } from './dom-stub.js';
+
+function stubDoc() {
+  const document = installDomStub();
+  const body = document.createElement('body');
+  body.removeChild = (c) => {
+    body.childNodes = body.childNodes.filter((x) => x !== c);
+    body.children = body.children.filter((x) => x !== c);
+    return c;
+  };
+  document.body = body;
+  document.addEventListener = () => {};
+  document.removeEventListener = () => {};
+  globalThis.window = { innerWidth: 1400, innerHeight: 900 };
+  return document;
+}
+const walk = (n, o = []) => { o.push(n); for (const c of n.children || []) walk(c, o); return o; };
+
+test('the tour mounts a card showing the first step', async () => {
+  const doc = stubDoc();
+  const { startTour } = await import('../src/ui/tour.js');
+  startTour(SETUP_STEPS, doc);
+  const text = walk(doc.body).map((n) => n.textContent || '').join(' ');
+  assert.match(text, /Your league/);
+  assert.match(text, /1 of 5/, 'and says where you are in the tour');
+});
+
+test('Next advances and Back returns', async () => {
+  const doc = stubDoc();
+  const { startTour } = await import('../src/ui/tour.js');
+  startTour(SETUP_STEPS, doc);
+  const button = (label) => walk(doc.body).find((n) => n.tagName === 'button' && n.textContent === label);
+  button('Next').listeners.click[0]();
+  assert.match(walk(doc.body).map((n) => n.textContent || '').join(' '), /Where you pick/);
+  button('Back').listeners.click[0]();
+  assert.match(walk(doc.body).map((n) => n.textContent || '').join(' '), /Your league/);
+});
+
+test('finishing the tour removes it and records that it was seen', async () => {
+  const doc = stubDoc();
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  const { startTour, hasSeenTour } = await import('../src/ui/tour.js');
+  startTour(SETUP_STEPS, doc);
+  const nextBtn = () => walk(doc.body).find((n) => n.tagName === 'button' && n.textContent === 'Next');
+  for (let i = 0; i < SETUP_STEPS.length - 1; i += 1) nextBtn().listeners.click[0]();
+  walk(doc.body).find((n) => n.tagName === 'button' && n.textContent === 'Done').listeners.click[0]();
+  assert.equal(walk(doc.body).filter((n) => String(n.className).includes('tour')).length, 0);
+  assert.equal(hasSeenTour(), true);
+});
+
+test('Skip closes the tour and also records it as seen', async () => {
+  const doc = stubDoc();
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  const { startTour, hasSeenTour } = await import('../src/ui/tour.js');
+  startTour(SETUP_STEPS, doc);
+  walk(doc.body).find((n) => n.tagName === 'button' && n.textContent === 'Skip').listeners.click[0]();
+  assert.equal(walk(doc.body).filter((n) => String(n.className).includes('tour')).length, 0);
+  assert.equal(hasSeenTour(), true, 'skipping is a decision, not a postponement');
+});
+
+test('a step whose anchor is missing still shows its card', async () => {
+  // The suggestions step's anchor only exists on your own pick. Skipping it would
+  // quietly teach a newcomer the app has five steps rather than six.
+  const doc = stubDoc();
+  doc.querySelector = () => null;
+  const { startTour } = await import('../src/ui/tour.js');
+  startTour(DRAFT_STEPS, doc);
+  assert.match(walk(doc.body).map((n) => n.textContent || '').join(' '), /Who is on the clock/);
+});
