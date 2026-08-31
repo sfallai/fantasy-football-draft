@@ -39,7 +39,11 @@ const FULL = {
     spine: [{ label: 'QB', player: pl('a', 'Spine QB', 'QB', 300) }, { label: 'RB1', player: pl('c', 'Spine RB', 'RB', 200) }],
     clashes: [{ week: 10, players: [pl('a', 'Spine QB', 'QB', 300, 10), pl('c', 'Spine RB', 'RB', 200, 10)] }],
     bestValue: { pickNumber: 96, round: 10, player: pl('s', 'Steal Guy', 'RB', 180), adp: 62, delta: 34 },
-    biggestReach: null,
+    // Non-null, and a player who appears nowhere else in the fixture. With this null
+    // the whole per-team block was unpinned: the sign negation the spec singles out,
+    // both ADP lines and the spine guard all survived mutation. Reusing Reach Guy here
+    // would let the league-wide reaches section satisfy an assertion aimed at the team.
+    biggestReach: { pickNumber: 18, round: 2, player: pl('e', 'Early Guy', 'TE', 120), adp: 30, delta: -12 },
   }],
 };
 const render = (report) => {
@@ -48,34 +52,56 @@ const render = (report) => {
   return c;
 };
 
-test('every section renders its fact', () => {
-  const text = textOf(render(FULL));
-  assert.match(text, /Jordan Love/);
-  assert.match(text, /Steal Guy/);
-  assert.match(text, /Reach Guy/);
-  assert.match(text, /Bench Guy/);
-  assert.match(text, /Spine QB/);
+test('every section renders its fact, in its own section', () => {
+  // Every one of these was a whole-tree substring match, and the fixture names Jordan
+  // Love in two sections — so deleting the waivers block left the suite green.
+  const c = render(FULL);
+  assert.match(sectionText(c, 'Still on waivers'), /Jordan Love/);
+  assert.match(sectionText(c, 'Biggest steals'), /Steal Guy/);
+  assert.match(sectionText(c, 'Biggest reaches'), /Reach Guy/);
+  assert.match(sectionText(c, 'Where the league was wrong'), /Jordan Love/);
+  assert.match(sectionText(c, 'Earliest picks that never start'), /Bench Guy/);
+  assert.match(sectionText(c, 'Team by team'), /Spine QB/);
+});
+
+test('a waiver names his position, his projection to one decimal, and his rank', () => {
+  assert.match(sectionText(render(FULL), 'Still on waivers'),
+    /QB Jordan Love — 259\.0 \(rank 198\)/);
 });
 
 test('a steal states how far he fell and from what', () => {
-  const text = textOf(render(FULL));
-  assert.match(text, /34 picks after an ADP of 62/);
-  assert.match(text, /Round 10/);
+  assert.match(sectionText(render(FULL), 'Biggest steals'),
+    /Round 10 · Rival — Steal Guy, 34 picks after an ADP of 62/);
 });
 
 test('a reach states how far early, as a positive count of picks', () => {
   // The delta is stored negative. Rendering "-45 picks before" reads as a double
   // negative; the sign is carried by the word "before".
-  const text = textOf(render(FULL));
-  assert.match(text, /45 picks before an ADP of 59/);
-  assert.doesNotMatch(text, /-45/);
+  const reaches = sectionText(render(FULL), 'Biggest reaches');
+  assert.match(reaches, /Round 2 · Mine — Reach Guy, 45 picks before an ADP of 59/);
+  assert.doesNotMatch(reaches, /-45/);
 });
 
 test('the blind spot states the count, the bar, and the best man left', () => {
-  const text = textOf(render(FULL));
-  assert.match(text, /4 startable QBs went undrafted/);
-  assert.match(text, /240\.0/, 'the bar, to one decimal');
-  assert.match(text, /259\.0/, 'and the best man still there, who must clear it');
+  const spot = sectionText(render(FULL), 'Where the league was wrong');
+  assert.match(spot, /4 startable QBs went undrafted/);
+  assert.match(spot, /replacement level of 240\.0/, 'the bar, to one decimal');
+  // Scoped, because the waiver line renders 259.0 for the same player: unscoped, this
+  // assertion held with the whole clause deleted and with toFixed(1) removed.
+  assert.match(spot, /The best still there is Jordan Love, at 259\.0\./);
+});
+
+test('a benched pick names the round that bought him and the team that did', () => {
+  assert.match(sectionText(render(FULL), 'Earliest picks that never start'),
+    /Round 3 · Rival — Bench Guy does not make their starting lineup\./);
+});
+
+test('a team block carries its labelled spine, its best value and its earliest pick', () => {
+  const team = sectionText(render(FULL), 'Team by team');
+  assert.match(team, /Spine QB Spine QB · RB1 Spine RB/, 'the slot label, then the man in it');
+  assert.match(team, /Best value: Steal Guy, 34 picks after an ADP of 62/);
+  assert.match(team, /Earliest pick: Early Guy, 12 picks before an ADP of 30/);
+  assert.doesNotMatch(team, /-12/, 'the sign is carried by the word "before", not printed');
 });
 
 // A gap of one pick is common — three of the six plural slips in one simulated draft
@@ -119,7 +145,11 @@ test('a team with no clash and no notable pick still gets its heading', () => {
     waivers: [], steals: [], reaches: [], blindSpot: [], benched: [],
     teams: [{ teamIndex: 1, name: 'Quiet', spine: [], clashes: [], bestValue: null, biggestReach: null }],
   };
-  assert.match(textOf(render(one)), /Quiet/);
+  const text = textOf(render(one));
+  assert.match(text, /Quiet/);
+  // And nothing else: an empty Spine row is a label over blank space, which reads as
+  // a team with no starters rather than one whose spine is not worth stating.
+  assert.doesNotMatch(text, /Spine/);
 });
 
 test('a bye clash names the week and counts the starters', () => {
