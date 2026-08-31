@@ -301,3 +301,81 @@ table.board td.cell.filled { cursor: pointer; }
    with the same weight as "Show me around" would read as a second offer. */
 .tour-offer .btn-dismiss { border-color: transparent; background: transparent; color: var(--muted); padding: 2px 8px; font-size: 15px; line-height: 1; }
 .tour-offer .btn-dismiss:hover { border-color: var(--border); color: var(--text); }
+
+/* ---- Print ----
+   The app is dark-on-dark. Printed as-is it is a black rectangle, and on a colour
+   printer an expensive one, so the print sheet is not a nicety — it is the whole of
+   the export feature. "Save as PDF" lives in every browser's print dialog, which is
+   why exporting needs no download code and no dependency.
+
+   Only tokens are redefined where possible, so the rules above keep applying and the
+   two themes cannot drift apart. */
+@media print {
+  :root {
+    --bg: #fff;
+    --panel: #fff;
+    --panel-2: #fff;
+    --border: #ccc;
+    --text: #000;
+    --muted: #444;
+    --accent: #000;
+  }
+
+  /* The screen column is 620px because that is a comfortable reading measure; a sheet
+     of paper already is one, and the margin is the printer's job. */
+  .summary { max-width: none; margin: 0; padding: 0; }
+  .freshness-summary { max-width: none; }
+
+  /* Controls do not survive a page. Back to draft, print, and the tour overlay if one
+     is somehow open. */
+  .sum-title button, .rep-back, .pop, .roster-pop,
+  .tour-layer, .tour-ring, .tour-dim, .tour-card {
+    display: none !important;
+  }
+
+  /* On screen your own team is a filled panel. On paper that is a block of ink for no
+     information, so the same fact is carried by weight and a rule instead.
+     A border, not the inset box-shadow this first used: browsers print with background
+     graphics OFF by default and drop box-shadow along with backgrounds, so the bar
+     would have vanished for most people — and it is the only mark saying which of
+     twelve teams belongs to whoever is holding the page. font-weight alone is a weak
+     signal at 14px. Borders print regardless of that setting. */
+  .sum-row.mine {
+    background: none; font-weight: 600;
+    border-left: 2px solid #000; padding-left: 6px;
+  }
+  .sum-grade { color: #000; font-weight: 700; }
+
+  /* A team's note split across a page boundary is the one break that loses meaning —
+     a bye-week clash reads as a different team's.
+     NOT .rep-section: "Team by team" holds every team block, so for a twelve-team
+     league it is taller than a page. An unfittable avoid gets retried at the top of the
+     next page before the engine gives up, so it would abandon whatever was left of the
+     previous sheet and then break internally regardless — .rep-team already handles the
+     break that matters. A waivers row wraps to two or three lines and splits the same
+     way, so it gets the same protection. */
+  .rep-team, .rep-line { break-inside: avoid; page-break-inside: avoid; }
+  .rep-section h2, .rep-team h3 { break-after: avoid; page-break-after: avoid; }
+
+  /* Ctrl+P works on every screen, and someone will eventually press it on the draft
+     board. Before this sheet existed that produced an obviously broken black rectangle
+     nobody would keep. Without these rules it produces a plausible-looking page that is
+     silently truncated at the first fold — a worse failure for people who will not
+     report it as a bug. Only the summary was designed for print; these three make the
+     others merely long instead of lossy. */
+  .layout { height: auto; display: block; }
+  .panel, .tablewrap, .panel.center, .panel.center .center-scroll { overflow: visible; }
+  .teams-scroll { height: auto; overflow-y: visible; }
+  table.teams th, table.players th { position: static; }
+  /* --accent is black in print, and these three pair an accent BACKGROUND with #1a1205
+     text — black on black for anyone printing with background graphics on. */
+  button.primary, .pos-btn.selected, .filters button.selected { background: none; color: #000; }
+
+  /* The report's rules and the ranking table's are on the same left edge, so they have
+     to be the same weight; #ddd made the lower half of the page visibly fainter and is
+     the grey a printer drops first. */
+  .rep-line { border-bottom: 1px solid var(--border); }
+  /* .summary loses its padding above, so the report's rows would sit 8px left of the
+     ranking rows they line up under. */
+  .rep-line, .rep-spine, .rep-note { padding-left: 8px; }
+}

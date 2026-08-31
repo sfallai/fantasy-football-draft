@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  STORAGE_KEY, DEFAULT_CONFIG, createState, currentPickNumber, applyPick, undoPick,
+  STORAGE_KEY, DEFAULT_CONFIG, createState, currentPickNumber, applyPick, undoPick, printTitle,
   availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter,
   applyOffListPick, isOffListId, saveState, loadState, clearState, playersWithOwners,
   setPick, serialize, deserialize, backupFilename, playersWithPickNumbers, OFF_LIST_PREFIX,
@@ -594,4 +594,41 @@ test('setPick can mark an earlier pick off-list without leaving a hole', () => {
   assert.equal(state.picks[1].playerId, `${OFF_LIST_PREFIX}1`);
   assert.equal(currentPickNumber(state), 3, 'the cell is still filled, so the clock has not moved');
   assert.equal(undoPick(state).picks[1].playerId, 'a');
+});
+
+test('printTitle names the report from the league', () => {
+  // Browsers use document.title as the default PDF filename, so without this every
+  // league member's export is "Draft Assistant.pdf".
+  const state = createState({ numTeams: 10, rounds: 15, myTeamIndex: 1 });
+  assert.equal(printTitle(state), 'Team 1 — draft report card — 10 teams, 15 rounds');
+});
+
+test('printTitle names WHOSE report it is', () => {
+  // Twelve people exporting the same draft would otherwise produce twelve identical
+  // filenames, which defeats the point of a file you send to your league.
+  const config = {
+    numTeams: 2,
+    rounds: 3,
+    myTeamIndex: 2,
+    teams: [{ name: 'Rival' }, { name: 'My Team' }],
+  };
+  assert.match(printTitle(createState(config)), /^My Team — /);
+});
+
+test('printTitle survives a team with no name', () => {
+  const state = createState({ numTeams: 2, rounds: 3, myTeamIndex: 1 });
+  state.config.teams[0].name = '';
+  assert.equal(printTitle(state), 'draft report card — 2 teams, 3 rounds');
+});
+
+test('printTitle stays singular for a one-round draft', () => {
+  const state = createState({ numTeams: 2, rounds: 1, myTeamIndex: 1 });
+  assert.match(printTitle(state), /2 teams, 1 round$/);
+});
+
+test('printTitle carries no date, because the app does not know one', () => {
+  // DATA_FETCHED_AT is when the projections were fetched, not when anyone drafted.
+  // Putting it in the filename would state a fact this app does not have.
+  const state = createState({ numTeams: 10, rounds: 15, myTeamIndex: 1 });
+  assert.doesNotMatch(printTitle(state), /\d{4}-\d{2}-\d{2}|20\d\d/);
 });

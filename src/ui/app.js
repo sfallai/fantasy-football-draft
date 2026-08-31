@@ -12,7 +12,7 @@ import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
 import { gradeTeams } from '../core/grade.js';
 import { buildReport } from '../core/report.js';
-import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename } from '../core/state.js';
+import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename, printTitle } from '../core/state.js';
 
 let state = null;
 let allPlayers = [];
@@ -128,6 +128,10 @@ function showSummary() {
     rows, myTeamIndex: state.config.myTeamIndex, report, complete,
   }, {
     onBack: () => { screen = 'draft'; render(); },
+    // Every real browser defines window.print, so this guard is not a compatibility
+    // check — it is what lets the test stub stand in for a host that has none. Hiding
+    // the button costs nothing either way, since Ctrl+P still works.
+    onPrint: typeof window.print === 'function' ? handlePrint : null,
   });
   // The other two screens both say how fresh the projections are, and this screen is
   // nothing but a ranking derived from them — it needs the caveat more than either.
@@ -201,6 +205,33 @@ function handleBackup() {
   // by the time click() returns, and revoking on the same tick silently produces an
   // empty or failed download. This is the one path in the chunk nobody can test here.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// The browser's print dialog is the export: "Save as PDF" is built into every one of
+// them, so this needs no download code and no dependency. The title swap is the whole
+// trick — browsers name the saved file after document.title, which is otherwise
+// "Draft Assistant" for every league member's report.
+function handlePrint() {
+  const previous = document.title;
+  document.title = printTitle(state);
+  try {
+    window.print();
+  } finally {
+    // finally, not a plain assignment after the call. Dismissing the dialog does NOT
+    // need this — where print() blocks, the user has already dismissed it by the time
+    // the call returns. It is here for the throw: printing can be disabled by policy or
+    // by a sandboxed frame, and without it the tab keeps the report's title for the rest
+    // of the session, so the next save-as-PDF from any other screen inherits it.
+    //
+    // Known limitation, untestable here and unfixable without guessing: on engines where
+    // print() does NOT block — iOS Safari, some Android WebViews — this restores the
+    // title before the print UI has read it, and the file saves as "Draft Assistant.pdf"
+    // again. An `afterprint` listener would cover those, but it does not fire reliably
+    // in the same engines, and relying on it would trade a wrong filename on mobile for
+    // a permanently wrong tab title on desktop. The desktop path is the one that works;
+    // this is recorded rather than papered over.
+    document.title = previous;
+  }
 }
 
 // Exported for the tests: everything about an import except reading the bytes, which

@@ -241,6 +241,24 @@ export function backupFilename(state) {
   return `ffdraft-${numTeams}team-r${round}-p${made}-e${state.history.length}.json`;
 }
 
+// Browsers use document.title as the default filename when the print dialog saves a
+// PDF, and the page's own title is "Draft Assistant" — so without this every league
+// member's export lands as "Draft Assistant.pdf".
+//
+// The team name is in it because the league is the audience: twelve people exporting
+// the same draft would otherwise produce twelve byte-identical filenames, and the file
+// only does its job once you can tell whose it is.
+//
+// Deliberately no date. DATA_FETCHED_AT is when the projections were fetched, not when
+// anyone drafted, and nothing in state records a draft date; putting either in the name
+// would state a fact this app does not have.
+export function printTitle(state) {
+  const { numTeams, rounds, teams, myTeamIndex } = state.config;
+  const mine = teams[myTeamIndex - 1];
+  const who = mine && mine.name ? `${mine.name} — ` : '';
+  return `${who}draft report card — ${numTeams} teams, ${rounds} round${rounds === 1 ? '' : 's'}`;
+}
+
 // Drafts saved before pick editing stored history as bare pick numbers. Mid-draft
 // reloads have to keep working across the upgrade. An entry that survives here is
 // one undoPick can safely apply: a missing `previous` used to be written straight
