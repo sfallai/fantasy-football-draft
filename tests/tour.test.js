@@ -81,17 +81,11 @@ test('unusable storage means the offer simply reappears, never a crash', () => {
 
 import { installDomStub } from './dom-stub.js';
 
+// A fresh document per test, with its listener registry left intact: `document.listeners`
+// is the documented test-only view of what is registered, and stubbing it out is how a
+// tour that leaks a keydown listener would go unnoticed.
 function stubDoc() {
   const document = installDomStub();
-  const body = document.createElement('body');
-  body.removeChild = (c) => {
-    body.childNodes = body.childNodes.filter((x) => x !== c);
-    body.children = body.children.filter((x) => x !== c);
-    return c;
-  };
-  document.body = body;
-  document.addEventListener = () => {};
-  document.removeEventListener = () => {};
   globalThis.window = { innerWidth: 1400, innerHeight: 900 };
   return document;
 }
@@ -219,16 +213,75 @@ test('a step whose anchor is missing still shows its card', async () => {
   assert.match(String(card.className), /centred/);
 });
 
-test('opening a second tour closes the first, leaving exactly one overlay', async () => {
+test('opening a second tour closes the first, listeners and all', async () => {
   // Both call sites invoke startTour bare, with nothing tracking whether a tour is
   // already open — a stray double-click must not stack two full-viewport layers and
   // two keydown listeners on top of each other.
   const doc = stubDoc();
   const { startTour } = await import('../src/ui/tour.js');
   startTour(SETUP_STEPS, doc);
-  startTour(DRAFT_STEPS, doc);
+  // keydown, plus the capture-phase scroll. resize goes on window, which the stub
+  // does not give addEventListener, so on()/off() skip it.
+  assert.deepEqual(doc.listeners.map((l) => l.type).sort(), ['keydown', 'scroll']);
+
+  const close = startTour(DRAFT_STEPS, doc);
   assert.equal(doc.body.children.filter((n) => String(n.className).includes('tour-layer')).length, 1);
+  assert.deepEqual(doc.listeners.map((l) => l.type).sort(), ['keydown', 'scroll'],
+    'one set of registrations, not two');
   const text = walk(doc.body).map((n) => n.textContent || '').join(' ');
   assert.match(text, /Who is on the clock/);
   assert.doesNotMatch(text, /Your league/);
+
+  close();
+  assert.deepEqual(doc.listeners, [], 'and closing leaves nothing behind');
+});
+
+test('Escape closes the tour; three closes are as safe as one', async () => {
+  const doc = stubDoc();
+  const { startTour } = await import('../src/ui/tour.js');
+  const close = startTour(SETUP_STEPS, doc);
+  const onKey = doc.listeners.find((l) => l.type === 'keydown').handler;
+  onKey({ key: 'a' });
+  assert.equal(doc.body.children.filter((n) => String(n.className) === 'tour-layer').length, 1);
+  onKey({ key: 'Escape' });
+  assert.equal(doc.body.children.filter((n) => String(n.className) === 'tour-layer').length, 0);
+  assert.deepEqual(doc.listeners, []);
+  assert.doesNotThrow(() => { close(); close(); });
+});
+
+test('a burst of scrolls redraws once, and closing cancels a redraw already queued', async () => {
+  // The scroll listener is capture-phase on the document, so it sees every scroller
+  // on the page — the player table and the teams list both scroll heavily — and
+  // draw() is a full teardown, rebuild and forced layout.
+  const doc = stubDoc();
+  const frames = [];
+  const cancelled = [];
+  globalThis.window.requestAnimationFrame = (cb) => frames.push(cb);
+  globalThis.window.cancelAnimationFrame = (id) => cancelled.push(id);
+  const { startTour } = await import('../src/ui/tour.js');
+  const close = startTour(SETUP_STEPS, doc);
+
+  const onScroll = doc.listeners.find((l) => l.type === 'scroll').handler;
+  onScroll(); onScroll(); onScroll();
+  assert.equal(frames.length, 1, 'three scroll events, one queued redraw');
+  frames[0]();
+  onScroll();
+  assert.equal(frames.length, 2, 'and the next burst queues a fresh one');
+
+  close();
+  assert.deepEqual(cancelled, [2], 'the queued redraw went with the tour');
+  // Belt and braces: even if the frame ran anyway it must not remount the layer.
+  frames[1]();
+  assert.equal(doc.body.children.filter((n) => String(n.className) === 'tour-layer').length, 0);
+});
+
+test('with no requestAnimationFrame the tour still repositions', async () => {
+  // The stub does not model rAF, and neither does every browser context. Falling
+  // back to a direct draw() is what keeps the ring honest there.
+  const doc = stubDoc();
+  const { startTour } = await import('../src/ui/tour.js');
+  startTour(SETUP_STEPS, doc);
+  const onScroll = doc.listeners.find((l) => l.type === 'scroll').handler;
+  assert.doesNotThrow(onScroll);
+  assert.equal(doc.body.children.filter((n) => String(n.className) === 'tour-layer').length, 1);
 });

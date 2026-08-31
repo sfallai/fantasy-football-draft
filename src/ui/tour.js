@@ -157,6 +157,9 @@ export function startTour(steps, doc = document, onClose = null) {
     // stops that recursing, and unmounting first is what stops a throw inside the
     // callback from leaving an orphaned overlay pinned over the page.
     if (layer.parentNode) layer.parentNode.removeChild(layer);
+    // Before the listeners come off, so a frame queued by the scroll that is closing
+    // the tour cannot fire into a torn-down layer.
+    cancelPending();
     off(doc, 'keydown', onKey);
     off(win, 'resize', onReposition);
     off(doc, 'scroll', onReposition, true);
@@ -172,7 +175,24 @@ export function startTour(steps, doc = document, onClose = null) {
   // re-render the app mid-tour, leaving the ring measured against a node that no
   // longer exists. Re-measuring on resize and scroll keeps it honest without ever
   // blocking that click-through, which is worth more than a perfectly stable ring.
-  function onReposition() { draw(); }
+  //
+  // Coalesced into one frame because the listener is capture-phase on the document:
+  // it sees every scroll from every scroller, and the player table and teams list
+  // both scroll heavily, while draw() is a full teardown, rebuild, forced layout and
+  // scrollIntoView — which can itself fire the scroll event that re-enters draw().
+  // requestAnimationFrame is no more modelled by the test stub than addEventListener
+  // is, so it gets the same guard and the same direct fallback.
+  let frame = null;
+  function onReposition() {
+    if (!win || typeof win.requestAnimationFrame !== 'function') { draw(); return; }
+    if (frame !== null) return;
+    frame = win.requestAnimationFrame(() => { frame = null; draw(); });
+  }
+  function cancelPending() {
+    if (frame === null) return;
+    if (win && typeof win.cancelAnimationFrame === 'function') win.cancelAnimationFrame(frame);
+    frame = null;
+  }
 
   on(doc, 'keydown', onKey);
   on(win, 'resize', onReposition);
