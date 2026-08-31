@@ -169,8 +169,13 @@ export function startTour(steps, doc = document) {
       target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
     const box = target && target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+    // Decided once, used twice. `.center-scroll` exists on every draft render but is
+    // EMPTY whenever it is not your pick — panel width, zero height — and a ring
+    // around that is a thin box drawn around blank space. Two separate guards on
+    // `box && box.width` could also drift apart into a ring with a centred card.
+    const hasRing = Boolean(box && box.width > 0 && box.height > 0);
 
-    if (box && box.width) {
+    if (hasRing) {
       layer.appendChild(el('div', {
         class: 'tour-ring',
         style: {
@@ -179,11 +184,11 @@ export function startTour(steps, doc = document) {
         },
       }, []));
     } else {
-      // No target to cut a hole around, so dim the whole page and centre the card.
+      // Nothing to cut a hole around, so dim the whole page and centre the card.
       layer.appendChild(el('div', { class: 'tour-dim' }, []));
     }
 
-    layer.appendChild(el('div', { class: box && box.width ? 'tour-card' : 'tour-card centred' }, [
+    layer.appendChild(el('div', { class: hasRing ? 'tour-card' : 'tour-card centred' }, [
       el('div', { class: 'tour-count', text: `${tour.index() + 1} of ${tour.total}` }, []),
       el('h3', { text: step.title }, []),
       el('p', { text: step.body }, []),

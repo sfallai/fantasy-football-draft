@@ -149,11 +149,63 @@ test('Skip closes the tour and also records it as seen', async () => {
   assert.equal(hasSeenTour(), true, 'skipping is a decision, not a postponement');
 });
 
+// The stub has no layout engine, so a rectangle exists only where a test says it
+// does. These two are the only geometry in the suite: one anchor a user can see,
+// and one that is present but empty.
+function anchor(doc, className, rect) {
+  const node = doc.createElement('div');
+  node.className = className;
+  if (rect) node.getBoundingClientRect = () => rect;
+  doc.body.appendChild(node);
+  return node;
+}
+
+test('an anchor with a real box gets a ring around it, and an uncentred card', async () => {
+  const doc = stubDoc();
+  anchor(doc, 'panel left', {
+    left: 400, top: 120, width: 520, height: 180,
+  });
+  const { startTour } = await import('../src/ui/tour.js');
+  startTour([{ anchor: '.panel.left', title: 'Your roster', body: 'what you hold' }], doc);
+
+  const ring = walk(doc.body).find((n) => String(n.className) === 'tour-ring');
+  assert.ok(ring, 'the ring branch ran at all');
+  // RING_PAD is 6, so the ring sits 6px outside the box on every side.
+  assert.deepEqual(ring.style, {
+    left: '394px', top: '114px', width: '532px', height: '192px',
+  });
+  assert.equal(walk(doc.body).filter((n) => String(n.className) === 'tour-dim').length, 0);
+  const card = walk(doc.body).find((n) => String(n.className).startsWith('tour-card'));
+  assert.doesNotMatch(String(card.className), /centred/, 'the card points at the ring');
+});
+
+test('an anchor that is present but empty is dimmed, not ringed', async () => {
+  // `.center-scroll` is created unconditionally and is empty whenever it is not your
+  // pick, the pool is exhausted, or the draft is done: full panel width, zero height.
+  // A ring there is a ~12px box drawn around nothing.
+  const doc = stubDoc();
+  anchor(doc, 'center-scroll', {
+    left: 400, top: 300, width: 520, height: 0,
+  });
+  const { startTour } = await import('../src/ui/tour.js');
+  startTour([{ anchor: '.center-scroll', title: 'What to take', body: 'suggestions' }], doc);
+
+  const nodes = walk(doc.body);
+  assert.equal(nodes.filter((n) => String(n.className) === 'tour-ring').length, 0, 'no ring around nothing');
+  assert.equal(nodes.filter((n) => String(n.className) === 'tour-dim').length, 1, 'the page is dimmed instead');
+  const card = nodes.find((n) => String(n.className).startsWith('tour-card'));
+  assert.match(String(card.className), /centred/, 'and the card has nothing to point at');
+});
+
 test('a step whose anchor is missing still shows its card', async () => {
   // The suggestions step's anchor only exists on your own pick. Skipping it would
   // quietly teach a newcomer the app has five steps rather than six.
   const doc = stubDoc();
-  doc.querySelector = () => null;
+  // A capable document with the anchor genuinely absent — not a document that
+  // cannot look. The distinction is the whole value of this test.
+  anchor(doc, 'filters');
+  assert.ok(doc.querySelector('.filters'), 'the stub really does resolve selectors');
+  assert.equal(doc.querySelector('.pick-info'), null, 'and this anchor is genuinely absent');
   const { startTour } = await import('../src/ui/tour.js');
   startTour(DRAFT_STEPS, doc);
   const nodes = walk(doc.body);
