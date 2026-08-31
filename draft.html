@@ -18,6 +18,16 @@
   --te: #f97316;
   --k: #9ca3af;
   --def: #9ca3af;
+
+  /* Stacking order, stated once. Popovers are appended to document.body, the same
+     stacking context as the tour overlay, so anything below --z-tour paints under a
+     62%-black wash for the whole tour — and both tours tell people to open exactly
+     these things (a board square, a team header, the keeper picker). Every popover
+     therefore sits ABOVE the tour, keeping their order among themselves. */
+  --z-tour: 60;
+  --z-dropdown: 70;
+  --z-pop: 80;
+  --z-roster-pop: 90;
 }
 
 * { box-sizing: border-box; }
@@ -119,7 +129,7 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 
 .suggest { position: relative; }
 .suggest-list {
-  position: absolute; z-index: 20; left: 0; right: 0; top: 100%;
+  position: absolute; z-index: var(--z-dropdown); left: 0; right: 0; top: 100%;
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
   max-height: 260px; overflow: auto;
 }
@@ -191,7 +201,7 @@ table.players td.owner { color: var(--muted); font-style: italic; white-space: n
 .rookie { font-size: 9px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 3px; margin-right: 5px; vertical-align: middle; }
 .filters { display: flex; gap: 6px; align-items: center; margin: 10px 0 6px; flex-wrap: wrap; }
 .filters button.selected { background: var(--accent); color: #1a1205; }
-.pop { position: fixed; z-index: 30; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-width: 300px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+.pop { position: fixed; z-index: var(--z-pop); background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-width: 300px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
 .pop h3 { margin: 0 0 6px; font-size: 13px; }
 .pop dt { color: var(--accent); font-weight: 600; margin-top: 6px; }
 .pop dd { margin: 0; color: var(--muted); }
@@ -212,7 +222,7 @@ table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
    showPopover clamps top to max(0, innerHeight - height), so an over-tall popover pins
    to top: 0 and everything past the fold — the picks and the grade — simply cannot be
    seen, because nothing scrolls. Capped, that clamp is correct and the rest scrolls. */
-.roster-pop { position: fixed; z-index: 40; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; max-height: 80vh; overflow-y: auto; font-size: 12px; }
+.roster-pop { position: fixed; z-index: var(--z-roster-pop); background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; max-height: 80vh; overflow-y: auto; font-size: 12px; }
 .pop-offlist { margin-top: 6px; color: var(--muted); font-size: 11px; font-style: italic; }
 table.board th .team-grade { font-size: 10px; font-weight: 600; color: var(--accent); letter-spacing: 0.04em; }
 .pop-pick { display: grid; grid-template-columns: 28px 1fr 40px; gap: 6px; align-items: baseline; padding: 2px 0; font-size: 11px; }
@@ -250,7 +260,7 @@ table.board td.cell.filled { cursor: pointer; }
 .sum-head span:last-child { text-align: right; }
 
 /* ---- Guided tour ---- */
-.tour-layer { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+.tour-layer { position: fixed; inset: 0; z-index: var(--z-tour); pointer-events: none; }
 .tour-ring { position: fixed; border: 2px solid var(--accent); border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62); pointer-events: none; }
 .tour-dim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.62); }
 .tour-card { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.5); pointer-events: auto; }
@@ -261,6 +271,10 @@ table.board td.cell.filled { cursor: pointer; }
 .tour-controls { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
 .tour-controls .tour-skip { margin-right: auto; color: var(--muted); }
 .tour-offer { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; color: var(--muted); font-size: 13px; }
+/* Quiet on purpose: declining the tour is not a call to action, and a second button
+   with the same weight as "Show me around" would read as a second offer. */
+.tour-offer .btn-dismiss { border-color: transparent; background: transparent; color: var(--muted); padding: 2px 8px; font-size: 15px; line-height: 1; }
+.tour-offer .btn-dismiss:hover { border-color: var(--border); color: var(--text); }
 </style>
 </head>
 <body>
@@ -1376,7 +1390,7 @@ __exports.withVbd = withVbd;
 });
 __def("ui/app.js", function (__exports, __req) {
 const { el, clear, formatFetchedAt } = __req('ui/dom.js');
-const { startTour, SETUP_STEPS, DRAFT_STEPS, hasSeenTour } = __req('ui/tour.js');
+const { startTour, closeTour, SETUP_STEPS, DRAFT_STEPS, hasSeenTour, markTourSeen } = __req('ui/tour.js');
 const { renderSetup } = __req('ui/setup.js');
 const { renderMyTeam } = __req('ui/myteam.js');
 const { renderCenter, resetView } = __req('ui/center.js');
@@ -1448,6 +1462,11 @@ function appendFreshness(container, { wrap = null } = {}) {
 // this rather than calling a screen function directly, so `screen` and what the user is
 // looking at cannot drift apart.
 function render() {
+  // A tour describes the screen it was started on. Click-through is deliberate, so
+  // the very steps that ring Start Draft and End draft invite the click that changes
+  // screens — which would otherwise leave a stale ring at the old button's
+  // coordinates and a card counting steps of a screen that is no longer there.
+  closeTour();
   if (screen === 'setup') showSetup();
   else if (screen === 'summary') showSummary();
   else renderDraft();
@@ -1470,7 +1489,14 @@ function showSetup() {
   // this screen, where the draft-screen buttons do not exist yet.
   renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport, {
     offerTour: !hasSeenTour(),
-    onStartTour: () => startTour(SETUP_STEPS),
+    // The tour sets the seen flag on close, but `offerTour` was read before it ran —
+    // so the line would sit there until the next visit. Re-render once the tour is
+    // done, whichever way it ended. Only if setup is still what is on screen: closing
+    // the tour by clicking Start Draft through the dim arrives here with `screen`
+    // already 'draft', and re-rendering setup would undo the draft the user started.
+    onStartTour: () => startTour(SETUP_STEPS, document, () => { if (screen === 'setup') render(); }),
+    // Dismissing is a decision, same as skipping: the offer never returns.
+    onDismiss: () => { markTourSeen(); render(); },
   });
   appendFreshness(container, { wrap: 'freshness-card' });
 }
@@ -2892,6 +2918,13 @@ function renderSetup(root, initialConfig, onStart, onImport, tour = {}) {
     tour.offerTour ? el('div', { class: 'tour-offer' }, [
       el('span', { text: 'First time here?' }, []),
       el('button', { class: 'btn-tour', text: 'Show me around', onClick: tour.onStartTour }, []),
+      // Dismissible, per the spec: once dismissed the line never returns. Without it
+      // someone who does not want the tour reads this on every visit forever, because
+      // the seen flag is only ever set by the tour itself. The glyph carries no
+      // meaning to a screen reader, hence the label.
+      tour.onDismiss ? el('button', {
+        class: 'btn-dismiss', text: '×', title: 'Dismiss', 'aria-label': 'Dismiss', onClick: tour.onDismiss,
+      }, []) : null,
     ]) : null,
 
     el('div', { class: 'setup-section', dataset: { tour: 'league' } }, [
@@ -3048,7 +3081,7 @@ const SETUP_STEPS = [
   {
     anchor: '[data-tour="league"]',
     title: 'Your league',
-    body: 'How many teams, and how many rounds. The defaults match a standard ten-team, fifteen-round draft, so most people change nothing here.',
+    body: 'How many teams, and how many rounds. The defaults match a standard ten-team, fifteen-round draft, so most people change nothing here. Scoring and draft type are fixed: standard non-PPR, snake.',
   },
   {
     anchor: '[data-tour="position"]',
@@ -3063,7 +3096,7 @@ const SETUP_STEPS = [
   {
     anchor: '[data-tour="teams"]',
     title: 'Everyone else',
-    body: 'Name the other teams if you like, and add any keepers with the round they cost. A keeper needs both a player and a round.',
+    body: 'Every team in the league, yours included — it is the row numbered with the slot you picked a moment ago. Name them if you like, and add any keepers with the round they cost; a keeper needs both.',
   },
   {
     anchor: '[data-tour="start"]',
@@ -3082,7 +3115,7 @@ const DRAFT_STEPS = [
   {
     anchor: '.filters',
     title: 'Recording a pick',
-    body: 'Type any part of a name or a team into the box, then double-click the player in the list below. Do this for every pick, including other teams — the app follows the whole draft, not just yours.',
+    body: 'Type any part of a name or a team into the box, then double-click the player in the list below. Do this for every pick, including other teams — the app follows the whole draft, not just yours. In the bar above, Undo takes back a mistype and Skip / off-list covers a player this list does not have.',
   },
   {
     anchor: '.center-scroll',
@@ -3092,7 +3125,7 @@ const DRAFT_STEPS = [
   {
     anchor: '.panel.left',
     title: 'Your roster',
-    body: 'Your lineup as it fills up, what you still need, and how many of each position you hold. Positions you have already covered drop out of the ranking.',
+    body: 'Your lineup as it fills, what you still need, and how many you hold at each position — covered ones drop out of the ranking. Below it: reset, end the draft, and Save backup / Import backup. A draft lives in this one browser, so that file is the only way to move or rescue it.',
   },
   {
     anchor: 'table.board',
@@ -3166,7 +3199,18 @@ function off(target, type, handler, options) {
 // keydown listener on top of it.
 let openClose = null;
 
-function startTour(steps, doc = document) {
+// Nothing else knows whether a tour is up. `render()` calls this before drawing a
+// new screen, because a tour describing the screen you just left — a ring at the old
+// Start Draft's coordinates, a card reading "5 of 5" — is worse than no tour at all.
+// A no-op when none is open, so callers never have to ask first.
+function closeTour() {
+  if (openClose) openClose();
+}
+
+// `onClose` runs after the tour is fully torn down, however it ended: Done, Skip,
+// Escape, or superseded by another tour. Optional — the draft screen has nothing to
+// do afterwards, and omitting it must stay valid.
+function startTour(steps, doc = document, onClose = null) {
   if (openClose) openClose();
 
   const tour = createTour(steps);
@@ -3174,13 +3218,27 @@ function startTour(steps, doc = document) {
   doc.body.appendChild(layer);
   const win = typeof window !== 'undefined' ? window : null;
 
+  let closed = false;
+
   function close() {
+    // Skip, Done, Escape and a screen change can all arrive for the same tour, and
+    // `onClose` re-renders — running twice would re-render twice.
+    if (closed) return;
+    closed = true;
     markTourSeen();
+    // Every trace of the tour goes BEFORE the callback. `onClose` re-renders the
+    // screen and may itself reach closeTour(); clearing `openClose` first is what
+    // stops that recursing, and unmounting first is what stops a throw inside the
+    // callback from leaving an orphaned overlay pinned over the page.
     if (layer.parentNode) layer.parentNode.removeChild(layer);
-    doc.removeEventListener('keydown', onKey);
+    // Before the listeners come off, so a frame queued by the scroll that is closing
+    // the tour cannot fire into a torn-down layer.
+    cancelPending();
+    off(doc, 'keydown', onKey);
     off(win, 'resize', onReposition);
     off(doc, 'scroll', onReposition, true);
     if (openClose === close) openClose = null;
+    if (typeof onClose === 'function') onClose();
   }
 
   function onKey(e) {
@@ -3191,9 +3249,26 @@ function startTour(steps, doc = document) {
   // re-render the app mid-tour, leaving the ring measured against a node that no
   // longer exists. Re-measuring on resize and scroll keeps it honest without ever
   // blocking that click-through, which is worth more than a perfectly stable ring.
-  function onReposition() { draw(); }
+  //
+  // Coalesced into one frame because the listener is capture-phase on the document:
+  // it sees every scroll from every scroller, and the player table and teams list
+  // both scroll heavily, while draw() is a full teardown, rebuild, forced layout and
+  // scrollIntoView — which can itself fire the scroll event that re-enters draw().
+  // requestAnimationFrame is no more modelled by the test stub than addEventListener
+  // is, so it gets the same guard and the same direct fallback.
+  let frame = null;
+  function onReposition() {
+    if (!win || typeof win.requestAnimationFrame !== 'function') { draw(); return; }
+    if (frame !== null) return;
+    frame = win.requestAnimationFrame(() => { frame = null; draw(); });
+  }
+  function cancelPending() {
+    if (frame === null) return;
+    if (win && typeof win.cancelAnimationFrame === 'function') win.cancelAnimationFrame(frame);
+    frame = null;
+  }
 
-  doc.addEventListener('keydown', onKey);
+  on(doc, 'keydown', onKey);
   on(win, 'resize', onReposition);
   on(doc, 'scroll', onReposition, true);
 
@@ -3210,8 +3285,13 @@ function startTour(steps, doc = document) {
       target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
     const box = target && target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+    // Decided once, used twice. `.center-scroll` exists on every draft render but is
+    // EMPTY whenever it is not your pick — panel width, zero height — and a ring
+    // around that is a thin box drawn around blank space. Two separate guards on
+    // `box && box.width` could also drift apart into a ring with a centred card.
+    const hasRing = Boolean(box && box.width > 0 && box.height > 0);
 
-    if (box && box.width) {
+    if (hasRing) {
       layer.appendChild(el('div', {
         class: 'tour-ring',
         style: {
@@ -3220,11 +3300,11 @@ function startTour(steps, doc = document) {
         },
       }, []));
     } else {
-      // No target to cut a hole around, so dim the whole page and centre the card.
+      // Nothing to cut a hole around, so dim the whole page and centre the card.
       layer.appendChild(el('div', { class: 'tour-dim' }, []));
     }
 
-    layer.appendChild(el('div', { class: box && box.width ? 'tour-card' : 'tour-card centred' }, [
+    layer.appendChild(el('div', { class: hasRing ? 'tour-card' : 'tour-card centred' }, [
       el('div', { class: 'tour-count', text: `${tour.index() + 1} of ${tour.total}` }, []),
       el('h3', { text: step.title }, []),
       el('p', { text: step.body }, []),
@@ -3251,6 +3331,7 @@ __exports.DRAFT_STEPS = DRAFT_STEPS;
 __exports.createTour = createTour;
 __exports.hasSeenTour = hasSeenTour;
 __exports.markTourSeen = markTourSeen;
+__exports.closeTour = closeTour;
 __exports.startTour = startTour;
 
 });
