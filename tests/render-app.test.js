@@ -641,3 +641,39 @@ test('Print on the draft screen prints, and names the file for the board', () =>
   assert.equal(globalThis.document.title, 'Draft Assistant — league night');
   delete globalThis.window.print;
 });
+
+test('the downloaded link is in the document when it is clicked', () => {
+  // Firefox will not start a download from a programmatic click on a detached anchor;
+  // Chrome and Safari will. Dropping the appendChild therefore ships green and breaks
+  // silently for whoever in the league is on Firefox.
+  const clicked = [];
+  globalThis.URL = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
+  globalThis.Blob = class { constructor(parts, opts) { this.parts = parts; this.type = opts && opts.type; } };
+  const realAppend = document.body.appendChild.bind(document.body);
+  document.body.appendChild = (node) => {
+    const out = realAppend(node);
+    if (node.attributes && node.attributes.download) clicked.push(node);
+    return out;
+  };
+
+  start();
+  button(panels().right, 'Export CSV').listeners.click[0]();
+  document.body.appendChild = realAppend;
+
+  assert.equal(clicked.length, 1, 'the anchor was put in the document');
+  assert.equal(clicked[0].clickedWhileConnected, true, 'and was still in it when clicked');
+  assert.equal(clicked[0].parentNode, null, 'then taken back out');
+});
+
+test('printing the board asks for landscape, and stops asking afterwards', () => {
+  // Sixteen teams across a portrait page is ~33px a column. @page is document-global,
+  // so it cannot simply live in the stylesheet — the report card reads better portrait.
+  globalThis.window.print = () => {
+    const rules = document.head.children.map((n) => n.textContent).join(' ');
+    assert.match(rules, /@page\s*\{\s*size:\s*landscape/, 'in force while printing');
+  };
+  start();
+  button(panels().right, 'Print / Save as PDF').listeners.click[0]();
+  assert.equal(document.head.children.length, 0, 'and gone again after');
+  delete globalThis.window.print;
+});

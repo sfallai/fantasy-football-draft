@@ -302,6 +302,11 @@ table.board td.cell.filled { cursor: pointer; }
 .tour-offer .btn-dismiss { border-color: transparent; background: transparent; color: var(--muted); padding: 2px 8px; font-size: 15px; line-height: 1; }
 .tour-offer .btn-dismiss:hover { border-color: var(--border); color: var(--text); }
 
+/* Under the board, so the controls that export it sit with it. Declared BEFORE the
+   print block: a media query adds no specificity, so an override living after it would
+   lose on source order and the buttons would print on every exported sheet. */
+.board-exports { display: flex; gap: 8px; margin-top: 10px; }
+
 /* ---- Print ----
    The app is dark-on-dark. Printed as-is it is a black rectangle, and on a colour
    printer an expensive one, so the print sheet is not a nicety — it is the whole of
@@ -375,12 +380,25 @@ table.board td.cell.filled { cursor: pointer; }
      Ellipsis truncation is a screen affordance: the full name is a hover away, and the
      cell has to stay one row tall so fifteen rounds fit a viewport. On paper there is
      no hover and nothing to scroll, so `text-overflow: ellipsis` is permanent data
-     loss — the export would quietly print "Jaxon Smith-Njig…". Names wrap instead. */
+     loss — a cell already abbreviated to "J. Smith-Njigba" would print as "J. Smith-Njig…".
+     Names wrap instead. */
   table.board td {
     white-space: normal; overflow: visible; height: auto;
-    font-size: 9px; line-height: 1.25; padding: 2px;
+    font-size: 10px; line-height: 1.25; padding: 2px;
+    /* overflow: visible stops the clipping but lets a word wider than a fixed column
+       paint over the next team's pick. "Whittington" has no hyphen to break at and
+       needs ~48px in a 33px cell at sixteen teams. */
+    overflow-wrap: break-word;
+    /* !important, which nothing else here needs: board.js sets the position colour as
+       an INLINE style on every filled cell, and an inline style outranks any rule
+       without it. Left alone the printed board is 10px text in #22c55e and #9ca3af —
+       roughly half-tone grey on a mono printer, and the colour ink this sheet exists
+       to avoid on a colour one. */
+    color: #000 !important;
   }
-  table.board { font-size: 9px; }
+  table.board { font-size: 10px; }
+  /* A row that wraps to three lines otherwise splits at the fold. */
+  table.board tr { break-inside: avoid; page-break-inside: avoid; }
   /* Your column is a dark fill on screen. Ink, and dropped anyway when the browser
      prints with background graphics off — which is its default — so the column is
      marked with rules that always print. */
@@ -393,7 +411,10 @@ table.board td.cell.filled { cursor: pointer; }
      noise nobody asked for, and it is the one panel with nothing to say after the
      draft. The roster beside the board is fifteen lines and worth keeping. */
   .panel.center { display: none; }
-  .board-exports { display: none; }
+  /* Seven buttons of chrome otherwise print in the margins of an export: the board's
+     own two, and Reset draft / End draft / Save backup / Import backup / Show me
+     around in the roster panel beside it. */
+  .board-exports, .panel.left button, .btn-tour { display: none; }
 
   /* The report's rules and the ranking table's are on the same left edge, so they have
      to be the same weight; #ddd made the lower half of the page visibly fainter and is
@@ -403,6 +424,3 @@ table.board td.cell.filled { cursor: pointer; }
      ranking rows they line up under. */
   .rep-line, .rep-spine, .rep-note { padding-left: 8px; }
 }
-
-/* Under the board, so the controls that export it sit with it. */
-.board-exports { display: flex; gap: 8px; margin-top: 10px; }

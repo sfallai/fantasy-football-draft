@@ -226,9 +226,17 @@ function handleExportCsv() {
 function handlePrintBoard() {
   const previous = document.title;
   document.title = printTitle(state, 'board');
+  // The board is wide — sixteen teams across — and the report card reads better
+  // portrait. @page is document-global and cannot be scoped by a selector, so the
+  // orientation is attached for this print only and taken off again afterwards.
+  const page = el('style', { text: '@page { size: landscape; }' }, []);
+  if (document.head) document.head.appendChild(page);
   try {
     window.print();
   } finally {
+    // Same caveat as the title: on engines where print() does not block, this is
+    // removed before the dialog reads it and the sheet comes out portrait.
+    if (page.parentNode) page.parentNode.removeChild(page);
     document.title = previous;
   }
 }

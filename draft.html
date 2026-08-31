@@ -308,6 +308,11 @@ table.board td.cell.filled { cursor: pointer; }
 .tour-offer .btn-dismiss { border-color: transparent; background: transparent; color: var(--muted); padding: 2px 8px; font-size: 15px; line-height: 1; }
 .tour-offer .btn-dismiss:hover { border-color: var(--border); color: var(--text); }
 
+/* Under the board, so the controls that export it sit with it. Declared BEFORE the
+   print block: a media query adds no specificity, so an override living after it would
+   lose on source order and the buttons would print on every exported sheet. */
+.board-exports { display: flex; gap: 8px; margin-top: 10px; }
+
 /* ---- Print ----
    The app is dark-on-dark. Printed as-is it is a black rectangle, and on a colour
    printer an expensive one, so the print sheet is not a nicety — it is the whole of
@@ -381,12 +386,25 @@ table.board td.cell.filled { cursor: pointer; }
      Ellipsis truncation is a screen affordance: the full name is a hover away, and the
      cell has to stay one row tall so fifteen rounds fit a viewport. On paper there is
      no hover and nothing to scroll, so `text-overflow: ellipsis` is permanent data
-     loss — the export would quietly print "Jaxon Smith-Njig…". Names wrap instead. */
+     loss — a cell already abbreviated to "J. Smith-Njigba" would print as "J. Smith-Njig…".
+     Names wrap instead. */
   table.board td {
     white-space: normal; overflow: visible; height: auto;
-    font-size: 9px; line-height: 1.25; padding: 2px;
+    font-size: 10px; line-height: 1.25; padding: 2px;
+    /* overflow: visible stops the clipping but lets a word wider than a fixed column
+       paint over the next team's pick. "Whittington" has no hyphen to break at and
+       needs ~48px in a 33px cell at sixteen teams. */
+    overflow-wrap: break-word;
+    /* !important, which nothing else here needs: board.js sets the position colour as
+       an INLINE style on every filled cell, and an inline style outranks any rule
+       without it. Left alone the printed board is 10px text in #22c55e and #9ca3af —
+       roughly half-tone grey on a mono printer, and the colour ink this sheet exists
+       to avoid on a colour one. */
+    color: #000 !important;
   }
-  table.board { font-size: 9px; }
+  table.board { font-size: 10px; }
+  /* A row that wraps to three lines otherwise splits at the fold. */
+  table.board tr { break-inside: avoid; page-break-inside: avoid; }
   /* Your column is a dark fill on screen. Ink, and dropped anyway when the browser
      prints with background graphics off — which is its default — so the column is
      marked with rules that always print. */
@@ -399,7 +417,10 @@ table.board td.cell.filled { cursor: pointer; }
      noise nobody asked for, and it is the one panel with nothing to say after the
      draft. The roster beside the board is fifteen lines and worth keeping. */
   .panel.center { display: none; }
-  .board-exports { display: none; }
+  /* Seven buttons of chrome otherwise print in the margins of an export: the board's
+     own two, and Reset draft / End draft / Save backup / Import backup / Show me
+     around in the roster panel beside it. */
+  .board-exports, .panel.left button, .btn-tour { display: none; }
 
   /* The report's rules and the ranking table's are on the same left edge, so they have
      to be the same weight; #ddd made the lower half of the page visibly fainter and is
@@ -409,9 +430,6 @@ table.board td.cell.filled { cursor: pointer; }
      ranking rows they line up under. */
   .rep-line, .rep-spine, .rep-note { padding-left: 8px; }
 }
-
-/* Under the board, so the controls that export it sit with it. */
-.board-exports { display: flex; gap: 8px; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -547,6 +565,17 @@ function draftRows(state, allPlayers) {
 // double any quote inside. Team names are typed by the user on the setup screen, so a
 // comma in one is not hypothetical — unquoted it silently becomes an extra column and
 // shifts every field after it.
+// Not escaped here: a value beginning = + - or @, which Excel evaluates as a formula.
+// The usual mitigation is to prefix it with an apostrophe, and that is declined
+// deliberately. The exporter and the reader of this file are the same dozen people —
+// nobody supplies text that a different person's Excel later evaluates — while the
+// apostrophe is visible in Google Sheets and in every csv.reader consumer, so it would
+// corrupt real data to defend against an attacker who does not exist here.
+//
+// The cost is a real one and it is not security: an innocent team name like
+// "-Under Achievers-" or "+1 For Effort" displays as #NAME? in Excel. Fixing that is an
+// Excel-specific change to the Team column only, and it needs verifying in real Excel
+// before it ships, which nothing here can do.
 function escape(value) {
   const text = String(value);
   if (!/[",\r\n]/.test(text)) return text;
@@ -567,7 +596,9 @@ function csvFilename(state) {
   const who = (mine && mine.name ? mine.name : '')
     .replace(/[/\\:*?"<>|]/g, ' ')
     .trim()
-    .replace(/\s+/g, '-');
+    .replace(/\s+/g, '-')
+    // Some filesystems refuse a name past 255 bytes, and a team name is free text.
+    .slice(0, 60);
   return `${who ? `${who}-` : ''}draft-results-${numTeams}-teams.csv`;
 }
 
@@ -2136,9 +2167,17 @@ function handleExportCsv() {
 function handlePrintBoard() {
   const previous = document.title;
   document.title = printTitle(state, 'board');
+  // The board is wide — sixteen teams across — and the report card reads better
+  // portrait. @page is document-global and cannot be scoped by a selector, so the
+  // orientation is attached for this print only and taken off again afterwards.
+  const page = el('style', { text: '@page { size: landscape; }' }, []);
+  if (document.head) document.head.appendChild(page);
   try {
     window.print();
   } finally {
+    // Same caveat as the title: on engines where print() does not block, this is
+    // removed before the dialog reads it and the sheet comes out portrait.
+    if (page.parentNode) page.parentNode.removeChild(page);
     document.title = previous;
   }
 }

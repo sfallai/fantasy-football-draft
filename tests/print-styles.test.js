@@ -101,6 +101,18 @@ test('the board prints whole names, not the screen\'s ellipsis', () => {
   assert.ok(rule, 'board cells are given print treatment');
   assert.match(rule[0], /white-space:\s*normal/, 'names wrap');
   assert.match(rule[0], /overflow:\s*visible/, 'and are not clipped');
+  assert.match(rule[0], /overflow-wrap:\s*break-word/,
+    'and a name wider than its column breaks rather than painting over the next team');
+});
+
+test('the board prints in ink, not in position colours', () => {
+  // board.js sets the position colour as an INLINE style on every filled cell, and an
+  // inline style outranks any rule without !important. Without it the printed board is
+  // 10px text in #22c55e and #9ca3af — about half-tone grey on a mono printer, and the
+  // colour ink this whole sheet exists to avoid on a colour one.
+  const rule = printBlock().match(/table\.board td\s*\{[^}]*\}/);
+  assert.match(rule[0], /color:\s*#000\s*!important/,
+    'the one place here that needs !important, because it is fighting an inline style');
 });
 
 test('the four-hundred-row player table is not printed', () => {

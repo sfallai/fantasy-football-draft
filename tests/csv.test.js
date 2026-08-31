@@ -146,3 +146,19 @@ test('a team with no name still produces a usable filename', () => {
   state.config.teams[0].name = '';
   assert.match(csvFilename(state), /^draft-results.*\.csv$/);
 });
+
+test('a lone carriage return is quoted too, not just a newline', () => {
+  // Reachable through an imported backup, whose team names are not retyped on the
+  // setup screen. A bare CR terminates a record for some readers.
+  assert.match(toCsv([['two\rparts']]), /"two\rparts"/);
+});
+
+test('the filename stem is capped, and its separators are not doubled', () => {
+  const state = createState({
+    numTeams: 2, rounds: 1, myTeamIndex: 1,
+    teams: [{ name: `  ${'Wolverhampton '.repeat(12)}  ` }, { name: 'Team 2' }],
+  });
+  const name = csvFilename(state);
+  assert.ok(name.length < 120, `a filesystem will accept it: ${name.length} chars`);
+  assert.doesNotMatch(name, /--/, 'no doubled separator from a trimmed edge');
+});

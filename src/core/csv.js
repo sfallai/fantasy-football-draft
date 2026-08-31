@@ -44,6 +44,17 @@ export function draftRows(state, allPlayers) {
 // double any quote inside. Team names are typed by the user on the setup screen, so a
 // comma in one is not hypothetical — unquoted it silently becomes an extra column and
 // shifts every field after it.
+// Not escaped here: a value beginning = + - or @, which Excel evaluates as a formula.
+// The usual mitigation is to prefix it with an apostrophe, and that is declined
+// deliberately. The exporter and the reader of this file are the same dozen people —
+// nobody supplies text that a different person's Excel later evaluates — while the
+// apostrophe is visible in Google Sheets and in every csv.reader consumer, so it would
+// corrupt real data to defend against an attacker who does not exist here.
+//
+// The cost is a real one and it is not security: an innocent team name like
+// "-Under Achievers-" or "+1 For Effort" displays as #NAME? in Excel. Fixing that is an
+// Excel-specific change to the Team column only, and it needs verifying in real Excel
+// before it ships, which nothing here can do.
 function escape(value) {
   const text = String(value);
   if (!/[",\r\n]/.test(text)) return text;
@@ -64,6 +75,8 @@ export function csvFilename(state) {
   const who = (mine && mine.name ? mine.name : '')
     .replace(/[/\\:*?"<>|]/g, ' ')
     .trim()
-    .replace(/\s+/g, '-');
+    .replace(/\s+/g, '-')
+    // Some filesystems refuse a name past 255 bytes, and a team name is free text.
+    .slice(0, 60);
   return `${who ? `${who}-` : ''}draft-results-${numTeams}-teams.csv`;
 }

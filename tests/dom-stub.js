@@ -80,6 +80,11 @@ function makeElement(tag) {
     // create the link, click it, remove it. Without this the whole Blob-and-anchor
     // route was untestable, which is why it carried a comment saying so.
     click() {
+      // Recorded because the download path depends on it: Firefox will not start a
+      // download from a programmatic click on an anchor that is not in the document,
+      // and Chrome and Safari will — so dropping the appendChild ships green and
+      // breaks for whoever is on Firefox, with nothing in the console.
+      node.clickedWhileConnected = Boolean(node.parentNode);
       for (const handler of node.listeners.click || []) handler({ target: node });
     },
   };
@@ -202,6 +207,9 @@ export function installDomStub() {
   };
 
   document.body = makeElement('body');
+  // Real documents have one, and the board's print handler attaches a temporary
+  // @page rule to it.
+  document.head = makeElement('head');
   globalThis.document = document;
   globalThis.window = { innerWidth: 1200, innerHeight: 800 };
   return document;
