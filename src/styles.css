@@ -222,3 +222,11 @@ table.board td.cell.filled { cursor: pointer; }
    edge lines up with the card's, not the browser window's — .freshness is a sibling
    of .setup, not a child, so it needs its own copy of the same width and centering. */
 .freshness-card { max-width: 900px; margin: 0 auto; }
+
+/* ---- Summary ---- */
+.summary { max-width: 620px; margin: 40px auto; padding: 0 16px; }
+.sum-head, .sum-row { display: grid; grid-template-columns: 32px 1fr 56px 84px; gap: 8px; align-items: baseline; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+.sum-head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.sum-row.mine { background: #22262f; border-radius: 6px; }
+.sum-grade { font-weight: 600; color: var(--accent); }
+.sum-pts { text-align: right; font-variant-numeric: tabular-nums; }

@@ -3,6 +3,7 @@ import { renderSetup } from './setup.js';
 import { renderMyTeam } from './myteam.js';
 import { renderCenter, resetView } from './center.js';
 import { renderBoard } from './board.js';
+import { renderSummary } from './summary.js';
 import { pickToSlot } from '../core/snake.js';
 import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
@@ -13,6 +14,9 @@ import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffList
 
 let state = null;
 let allPlayers = [];
+// The summary replaces the three panels rather than overlaying them: it is a place you go,
+// and a draft that is over has nothing behind it worth seeing through a scrim.
+let showingSummary = false;
 let replacement = null;
 // Fixed for the whole draft, exactly like `replacement` — see recommend().
 let vbdScale = 1;
@@ -172,6 +176,15 @@ function handleImport(file) {
 }
 
 function renderDraft() {
+  if (showingSummary) {
+    const rows = gradeTeams(rostersByTeam(state, allPlayers), state.config.slots, state.config.teams);
+    clear(root());
+    renderSummary(root(), { rows, myTeamIndex: state.config.myTeamIndex }, {
+      onBack: () => { showingSummary = false; renderDraft(); },
+    });
+    return;
+  }
+
   const container = root();
   const { config } = state;
   const currentPick = currentPickNumber(state);
@@ -234,6 +247,10 @@ function renderDraft() {
   });
   left.appendChild(el('button', {
     text: 'Reset draft', style: { marginTop: '12px' }, onClick: handleReset,
+  }, []));
+  left.appendChild(el('button', {
+    text: 'End draft', style: { marginTop: '8px' },
+    onClick: () => { showingSummary = true; renderDraft(); },
   }, []));
   left.appendChild(el('button', { text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
   const importInput = el('input', {
