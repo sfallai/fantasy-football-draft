@@ -10,6 +10,7 @@ import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
 import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
+import { handcuffIdsFor } from '../core/handcuff.js';
 import { draftRows, toCsv, csvFilename, CSV_HEADER } from '../core/csv.js';
 import { gradeTeams } from '../core/grade.js';
 import { buildReport } from '../core/report.js';
@@ -319,6 +320,9 @@ function renderDraft() {
   const needs = positionalNeeds(myRoster, config.slots, round, config.rounds);
   // How deep the bench would get at each position if this pick went there.
   const surplus = benchDepthIfAdded(myRoster, config.slots);
+  // The backups to the players currently in your starting lineup — empty until you
+  // have one, which is why the filter it feeds does nothing in round one.
+  const handcuffIds = handcuffIdsFor(myRoster, config.slots);
   const nextPick = myNextPick(state);
   // The selection after this one — what the competitive window is measured over,
   // and what the header shows when it is already your turn.
@@ -396,6 +400,7 @@ function renderDraft() {
     tablePlayers,
     myRoster,
     slots: config.slots,
+    handcuffIds,
     needs,
     surplus,
     currentPick,

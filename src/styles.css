@@ -432,3 +432,7 @@ table.board td.cell.filled { cursor: pointer; }
      ranking rows they line up under. */
   .rep-line, .rep-spine, .rep-note { padding-left: 8px; }
 }
+
+/* Shown in place of an empty player table when the handcuff filter has nothing to
+   list — in round one it always has nothing, and silence there reads as a bug. */
+.empty-note { padding: 12px 8px; color: var(--muted); font-size: 13px; }

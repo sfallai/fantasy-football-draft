@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sortPlayers, filterByPositions, formatVbd, SORT_KEYS, setScrollHint } from '../src/ui/center.js';
+import { sortPlayers, filterByPositions, formatVbd, SORT_KEYS, setScrollHint, visiblePlayers, resetView } from '../src/ui/center.js';
 
 const p = (id, name, position, overallRank, extra) => ({
   id, name, team: (extra && extra.team) || 'XX', position, overallRank,
@@ -87,4 +87,18 @@ test('the scroll hint stops claiming there is more once you reach the end', () =
 test('the scroll hint is absent when everything already fits', () => {
   const node = { scrollHeight: 150, clientHeight: 200, scrollTop: 0, className: 'center-scroll' };
   assert.equal(setScrollHint(node), false);
+});
+
+// The handcuff filter defaults off, and the set is passed on every render — so the
+// off state has to be the one that ignores it. The rest of the toggle is covered in
+// tests/render-center.test.js, by clicking the button, because `view` is
+// module-private and deliberately has no setter.
+test('with the handcuff filter off, the handcuff set is ignored entirely', () => {
+  resetView();
+  const pool = [
+    { id: 'pacheco', name: 'Isiah Pacheco', team: 'KC', position: 'RB', overallRank: 90, projectedPoints: 120, ownerName: null },
+    { id: 'someone', name: 'Someone Else', team: 'XX', position: 'RB', overallRank: 91, projectedPoints: 118, ownerName: null },
+  ];
+  assert.equal(visiblePlayers(pool, new Set(['pacheco'])).length, 2);
+  assert.equal(visiblePlayers(pool).length, 2, 'and the argument is optional');
 });
