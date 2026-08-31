@@ -80,7 +80,20 @@ function byeWarning(player, myRoster, slots) {
   return clash ? el('div', { class: 'bye-warn', text: `⚠ Bye ${player.bye} — same week as your ${player.position} ${clash}` }, []) : null;
 }
 
-function recommendationCard(rec, myRoster, slots) {
+// A fact about what happens next, not a reason to draft him — which is why it is a line
+// on the card rather than an entry in reasonsFor, whose two slots are for reasons. The
+// pool passed in is already the available players, so membership is the whole check, and
+// a backupId pointing outside it (common — depth charts run past the top 400) is not an
+// error: the absence of the line is the message, never "no handcuff available".
+function backupNote(player, pool) {
+  if (!player.backupId || !pool) return null;
+  const backup = pool.find((pl) => pl.id === player.backupId);
+  return backup
+    ? el('div', { class: 'backup-note', text: `Handcuff available: ${backup.name}` }, [])
+    : null;
+}
+
+function recommendationCard(rec, myRoster, slots, pool) {
   const pl = rec.player;
   return el('div', {
     class: 'rec',
@@ -99,6 +112,9 @@ function recommendationCard(rec, myRoster, slots) {
     }, []),
     ...rec.reasons.map((reason) => el('div', { class: 'why', text: reason }, [])),
     byeWarning(pl, myRoster, slots),
+    // The whole pool, not the position-filtered `targeted` list: whether his backup is
+    // still there does not depend on which positions you happen to be looking at.
+    backupNote(pl, pool),
   ]);
 }
 
@@ -288,7 +304,7 @@ export function renderCenter(container, ctx, handlers) {
     scroll.appendChild(el('h2', {
       text: view.positions.length ? `Recommended — ${view.positions.join(', ')}` : 'Recommended',
     }, []));
-    for (const rec of recs) scroll.appendChild(recommendationCard(rec, myRoster, slots));
+    for (const rec of recs) scroll.appendChild(recommendationCard(rec, myRoster, slots, pool));
 
     const gambles = sleepers(targeted, {
       currentPick,

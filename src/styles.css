@@ -138,6 +138,10 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 .rec.sleeper { border-left-style: dashed; }
 .rec .gamble { font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 4px; margin-left: 6px; }
 .rec .bye-warn { color: var(--te); font-size: 11.5px; margin-top: 3px; }
+/* Same weight as the bye warning: a secondary fact under the reasons, not a reason.
+   Kept beside it rather than appended at the end of the file, which is inside the
+   print-only block at the bottom and would have scoped this to paper. */
+.rec .backup-note { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
 .notes { border: 1px solid #4a3a12; background: #241d08; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; }
 
 table.players { width: 100%; border-collapse: collapse; font-size: 13px; }

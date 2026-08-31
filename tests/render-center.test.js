@@ -443,3 +443,51 @@ test('the empty note is gone once the filter has something to show', () => {
   button(container, 'Handcuffs').listeners.click[0]();
   assert.equal(find(container, (n) => n.className === 'empty-note').length, 0);
 });
+
+// A recommendation carries a line when the player's own backup is still on the board:
+// a fact about what happens next, not a reason to draft him, which is why it lives on
+// the card rather than in reasonsFor's two slots. `pool` in ctx is already the
+// available players, so its membership is the whole test.
+const BACKED_UP_STARTER = player({ backupId: 'pacheco' });
+const THE_BACKUP = player({
+  id: 'pacheco', name: 'Isiah Pacheco', team: 'KC', position: 'RB', overallRank: 40,
+});
+
+// recommend() takes the top three, so a pool this small puts every fixture on a card —
+// the assertions below are then about the note, not about which player came back.
+function renderRecs(pool) {
+  resetView();
+  const container = document.createElement('div');
+  renderCenter(container, { ...ctx(pool), pool, isMyPick: true, needs: { RB: 'high' } },
+    { onPick() {}, onUndo() {}, onOffList() {} });
+  return container;
+}
+
+const recCards = (container) => find(container, (n) => n.className === 'rec');
+
+test('a recommendation says when the player\'s own backup is still available', () => {
+  // The useful direction: it tells you the insurance exists before you spend the pick.
+  const container = renderRecs([BACKED_UP_STARTER, THE_BACKUP]);
+  const cards = recCards(container);
+  assert.equal(cards.length, 2, 'both fixtures are recommended');
+
+  const noted = cards.filter((card) => find(card, (n) => n.className === 'backup-note').length);
+  assert.equal(noted.length, 1, 'only the player who has a backup gets the line');
+  // The card's .pname span holds the name directly, unlike the table cell's.
+  assert.equal(find(noted[0], (n) => n.className === 'pname')[0].textContent, 'Jahmyr Gibbs');
+  assert.match(find(noted[0], (n) => n.className === 'backup-note')[0].textContent, /Isiah Pacheco/);
+});
+
+test('no line when the backup has already gone', () => {
+  const container = renderRecs([BACKED_UP_STARTER]);
+  assert.equal(recCards(container).length, 1, 'he is still recommended');
+  assert.equal(find(container, (n) => n.className === 'backup-note').length, 0,
+    'omit rather than say "no backup available"');
+});
+
+test('a backup outside the pool is not an error, it is simply no line', () => {
+  // backupId routinely points past the top 400, and both consumers handle it by omission.
+  const container = renderRecs([player({ backupId: 'somebody-unranked' })]);
+  assert.equal(recCards(container).length, 1);
+  assert.equal(find(container, (n) => n.className === 'backup-note').length, 0);
+});
