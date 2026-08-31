@@ -258,37 +258,45 @@ export function renderSetup(root, initialConfig, onStart, onImport) {
     el('h1', { text: 'Draft Assistant — Setup' }, []),
     errorBox,
 
-    el('h2', { text: 'League Settings' }, []),
-    el('div', { class: 'field-row' }, [
-      numberField('Teams', 'numTeams', 4, 16, onNumTeamsChange),
-      numberField('Rounds', 'rounds', 1, 30, onRoundsChange),
-      el('div', { class: 'field' }, [
-        el('label', { text: 'Scoring' }, []),
-        el('select', { disabled: 'disabled' }, [el('option', { text: 'Standard (non-PPR)' }, [])]),
-      ]),
-      el('div', { class: 'field' }, [
-        el('label', { text: 'Draft type' }, []),
-        el('select', { disabled: 'disabled' }, [el('option', { text: 'Snake' }, [])]),
+    el('div', { class: 'setup-section', dataset: { tour: 'league' } }, [
+      el('h2', { text: 'League Settings' }, []),
+      el('div', { class: 'field-row' }, [
+        numberField('Teams', 'numTeams', 4, 16, onNumTeamsChange),
+        numberField('Rounds', 'rounds', 1, 30, onRoundsChange),
+        el('div', { class: 'field' }, [
+          el('label', { text: 'Scoring' }, []),
+          el('select', { disabled: 'disabled' }, [el('option', { text: 'Standard (non-PPR)' }, [])]),
+        ]),
+        el('div', { class: 'field' }, [
+          el('label', { text: 'Draft type' }, []),
+          el('select', { disabled: 'disabled' }, [el('option', { text: 'Snake' }, [])]),
+        ]),
       ]),
     ]),
 
-    el('h2', { text: 'Your Draft Position' }, []),
-    positionRow,
+    el('div', { class: 'setup-section', dataset: { tour: 'position' } }, [
+      el('h2', { text: 'Your Draft Position' }, []),
+      positionRow,
+    ]),
 
-    el('h2', { text: 'Roster Slots' }, []),
-    slotFields,
+    el('div', { class: 'setup-section', dataset: { tour: 'slots' } }, [
+      el('h2', { text: 'Roster Slots' }, []),
+      slotFields,
+    ]),
 
-    el('h2', { text: 'Teams & Keepers' }, []),
-    // Fixed-height scroller: changing the team count adds or removes rows inside
-    // this box rather than growing the page, so nothing below it — the Start Draft
-    // button in particular — shifts under the pointer mid-click.
-    el('div', { class: 'teams-scroll' }, [
-      el('table', { class: 'teams' }, [
-        el('thead', {}, [el('tr', {}, [
-          el('th', { text: '#' }, []), el('th', { text: 'Team name' }, []),
-          el('th', { text: 'Keeper (optional)' }, []), el('th', { text: 'Round' }, []),
-        ])]),
-        tbody,
+    el('div', { class: 'setup-section', dataset: { tour: 'teams' } }, [
+      el('h2', { text: 'Teams & Keepers' }, []),
+      // Fixed-height scroller: changing the team count adds or removes rows inside
+      // this box rather than growing the page, so nothing below it — the Start Draft
+      // button in particular — shifts under the pointer mid-click.
+      el('div', { class: 'teams-scroll' }, [
+        el('table', { class: 'teams' }, [
+          el('thead', {}, [el('tr', {}, [
+            el('th', { text: '#' }, []), el('th', { text: 'Team name' }, []),
+            el('th', { text: 'Keeper (optional)' }, []), el('th', { text: 'Round' }, []),
+          ])]),
+          tbody,
+        ]),
       ]),
     ]),
 
@@ -301,6 +309,7 @@ export function renderSetup(root, initialConfig, onStart, onImport) {
     el('button', {
       class: 'primary',
       text: 'Start Draft',
+      dataset: { tour: 'start' },
       onClick: () => {
         const built = buildConfig(form);
         const errors = validateConfig(built);

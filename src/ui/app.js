@@ -242,9 +242,9 @@ function renderDraft() {
     : [];
 
   clear(container);
-  const left = el('div', { class: 'panel' }, []);
+  const left = el('div', { class: 'panel left' }, []);
   const center = el('div', { class: 'panel center' }, []);
-  const right = el('div', { class: 'panel' }, []);
+  const right = el('div', { class: 'panel right' }, []);
 
   // localStorage can be unavailable or throw (Safari on file://, blocked site data,
   // quota). Saving then silently no-ops, and the user only finds out when a refresh

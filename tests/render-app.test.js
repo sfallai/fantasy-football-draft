@@ -421,3 +421,14 @@ test('an earlier pick can be marked off-list from the board editor', () => {
     'and the clock has not moved back');
   assert.ok(rowFor(panels().center, 'Jahmyr Gibbs'), 'Gibbs is back in the pool');
 });
+
+test('the draft screen panels are individually addressable', () => {
+  // The tour anchors steps to selectors. Three panels sharing one class gives it
+  // nothing to point at.
+  stored.clear(); resetView();
+  stored.set(STORAGE_KEY, serialize(createState(CONFIG)));
+  init();
+  assert.equal(find(appRoot, (n) => String(n.className) === 'panel left').length, 1);
+  assert.equal(find(appRoot, (n) => String(n.className) === 'panel center').length, 1);
+  assert.equal(find(appRoot, (n) => String(n.className) === 'panel right').length, 1);
+});

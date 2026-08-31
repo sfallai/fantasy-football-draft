@@ -7,13 +7,19 @@
 // contains, a class-or-tag-only querySelector, and focus.
 // Not a test file itself — the tests/**/*.test.js glob does not pick this up.
 
+// Real elements reflect `el.dataset.foo = x` into the `data-foo` attribute (and vice
+// versa) — they are two views of the same underlying storage. A selector-matcher
+// keyed on data-tour (or a test walking .attributes) has to see it either way.
+function toDataAttr(prop) {
+  return `data-${String(prop).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+}
+
 function makeElement(tag) {
   const node = {
     tagName: tag,
     nodeType: 1,
     className: '',
     style: {},
-    dataset: {},
     attributes: {},
     childNodes: [],
     children: [],
@@ -67,6 +73,19 @@ function makeElement(tag) {
       node.focused = true;
     },
   };
+
+  node.dataset = new Proxy({}, {
+    set(target, prop, value) {
+      target[prop] = value;
+      node.attributes[toDataAttr(prop)] = value;
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      delete node.attributes[toDataAttr(prop)];
+      return true;
+    },
+  });
 
   let text = '';
   Object.defineProperty(node, 'textContent', {
