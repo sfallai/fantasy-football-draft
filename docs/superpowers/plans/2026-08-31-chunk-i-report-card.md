@@ -700,7 +700,12 @@ test('a team that wasted nothing contributes nothing to that list', () => {
 });
 
 test('a team note carries its spine, its clashes, and its two most extreme picks', () => {
-  const roster = [pl('qb1', 'QB', 300, 60, 6), pl('rb1', 'RB', 250, 2, 1)];
+  // pl() defaults every player to bye 9, so an unmodified two-man roster is an
+  // accidental clash. Give them distinct byes to make this a genuine no-clash case.
+  const roster = [
+    { ...pl('qb1', 'QB', 300, 60, 6), bye: 5 },
+    { ...pl('rb1', 'RB', 250, 2, 1), bye: 9 },
+  ];
   const values = [
     { pickNumber: 1, delta: -1, player: roster[1] },
     { pickNumber: 8, delta: 12, player: roster[0] },

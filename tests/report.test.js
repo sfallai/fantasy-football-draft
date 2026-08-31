@@ -111,6 +111,18 @@ test('an off-list pick is skipped rather than crashing the report', () => {
   assert.deepEqual(pickValues(state, POOL), []);
 });
 
+test('an off-list pick is skipped by name, not by happening to match no player', () => {
+  // The sentinel is `off-list-<pickNumber>`, which normally matches no real id — so the
+  // `!player` guard on the next line absorbs it and the isOffListId check never has to
+  // fire. That made the check dead code from a coverage standpoint: deleting it left the
+  // whole suite green. This forces the two branches apart by putting a real,
+  // ADP-carrying player at exactly that id. Only the isOffListId check can skip him.
+  let state = fresh();
+  state = applyOffListPick(state);
+  const collides = [...POOL, pl('off-list-1', 'RB', 210, 3, 12)];
+  assert.deepEqual(pickValues(state, collides), []);
+});
+
 test('a player with no ADP is omitted, never guessed at', () => {
   let state = fresh();
   state = applyPick(state, 'noadp');
