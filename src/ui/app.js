@@ -14,9 +14,12 @@ import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffList
 
 let state = null;
 let allPlayers = [];
+// Which screen is showing, as one value rather than a flag plus `state === null`.
 // The summary replaces the three panels rather than overlaying them: it is a place you go,
-// and a draft that is over has nothing behind it worth seeing through a scrim.
-let showingSummary = false;
+// and a draft that is over has nothing behind it worth seeing through a scrim — so a
+// re-render has to be told which screen to draw, not guess from two variables that can
+// disagree. Anything that drives the app from outside (a guided tour, a test) can ask.
+let screen = 'setup';
 let replacement = null;
 // Fixed for the whole draft, exactly like `replacement` — see recommend().
 let vbdScale = 1;
@@ -47,35 +50,60 @@ function root() {
   return document.getElementById('app');
 }
 
-// Shown on both screens: someone deciding whether to trust these rankings needs the
-// answer before they start a draft, not only during one.
+// Shown on all three screens: someone deciding whether to trust these rankings needs
+// the answer before they start a draft, during one, and when reading the grades they
+// produced.
 //
-// `card` matches this to the 900px centred `.setup` card it sits beside — without it
-// the line is `container`'s sibling and right-aligns to the browser window instead of
-// the card, which reads as a mistake next to a panel that has visibly stopped short
-// of the edge.
-function appendFreshness(container, { card = false } = {}) {
+// `wrap` names a class that matches this to the centred card it sits beside — .setup is
+// 900px, .summary 620px. Without it the line is `container`'s sibling and right-aligns
+// to the browser window instead of the card, which reads as a mistake next to a panel
+// that has visibly stopped short of the edge. The draft screen needs no wrapper: there
+// the line goes inside the right-hand panel, which is already the right width.
+function appendFreshness(container, { wrap = null } = {}) {
   const stamp = formatFetchedAt(window.DATA_FETCHED_AT);
   if (!stamp) return;
   const line = el('div', { class: 'freshness', text: `Player data as of ${stamp}` }, []);
-  container.appendChild(card ? el('div', { class: 'freshness-card' }, [line]) : line);
+  container.appendChild(wrap ? el('div', { class: wrap }, [line]) : line);
+}
+
+// The one place that decides what is on screen. Every handler below re-renders through
+// this rather than calling a screen function directly, so `screen` and what the user is
+// looking at cannot drift apart.
+function render() {
+  if (screen === 'setup') showSetup();
+  else if (screen === 'summary') showSummary();
+  else renderDraft();
 }
 
 function startDraft(config) {
   state = createState(config);
+  screen = 'draft';
   recomputeBaselines();
   persist();
-  renderDraft();
+  render();
 }
 
 function showSetup() {
+  screen = 'setup';
   const container = root();
   clear(container);
   // Import lives here as well as on the draft screen. Every catastrophe a backup
   // exists for — wiped storage, another browser, another laptop — lands the user on
   // this screen, where the draft-screen buttons do not exist yet.
   renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport);
-  appendFreshness(container, { card: true });
+  appendFreshness(container, { wrap: 'freshness-card' });
+}
+
+function showSummary() {
+  const rows = gradeTeams(rostersByTeam(state, allPlayers), state.config.slots, state.config.teams);
+  const container = root();
+  clear(container);
+  renderSummary(container, { rows, myTeamIndex: state.config.myTeamIndex }, {
+    onBack: () => { screen = 'draft'; render(); },
+  });
+  // The other two screens both say how fresh the projections are, and this screen is
+  // nothing but a ranking derived from them — it needs the caveat more than either.
+  appendFreshness(container, { wrap: 'freshness-summary' });
 }
 
 function handlePick(playerId) {
@@ -86,7 +114,7 @@ function handlePick(playerId) {
     return;
   }
   persist();
-  renderDraft();
+  render();
 }
 
 // Someone drafted a player who is not in the loaded pool. Burn the slot so every
@@ -99,7 +127,7 @@ function handleOffListPick() {
     return;
   }
   persist();
-  renderDraft();
+  render();
 }
 
 function handleEditPick(pickNumber, playerId) {
@@ -110,13 +138,13 @@ function handleEditPick(pickNumber, playerId) {
     return;
   }
   persist();
-  renderDraft();
+  render();
 }
 
 function handleUndo() {
   state = undoPick(state);
   persist();
-  renderDraft();
+  render();
 }
 
 function handleReset() {
@@ -152,10 +180,12 @@ export function applyRestoredState(restored) {
   // The centre panel's sort, filter and position targeting are module state that
   // outlives a draft. Without this an imported draft inherits the last one's targeting.
   resetView();
+  // An import lands on the draft, never on whatever screen preceded it.
+  screen = 'draft';
   // Render BEFORE persisting. A state that cannot render must not reach localStorage:
   // it would then throw on every subsequent load, before any UI exists — including
   // the Reset button — and only devtools could recover the page.
-  renderDraft();
+  render();
   persist();
 }
 
@@ -176,15 +206,6 @@ function handleImport(file) {
 }
 
 function renderDraft() {
-  if (showingSummary) {
-    const rows = gradeTeams(rostersByTeam(state, allPlayers), state.config.slots, state.config.teams);
-    clear(root());
-    renderSummary(root(), { rows, myTeamIndex: state.config.myTeamIndex }, {
-      onBack: () => { showingSummary = false; renderDraft(); },
-    });
-    return;
-  }
-
   const container = root();
   const { config } = state;
   const currentPick = currentPickNumber(state);
@@ -245,14 +266,17 @@ function renderDraft() {
     totalRounds: config.rounds,
     teamName: config.teams[config.myTeamIndex - 1].name,
   });
+  // Each of these carries a class as well as its label. They are otherwise
+  // distinguishable only by their text, which anything anchoring to one of them — a
+  // guided tour, a test — would then have to match on a string.
   left.appendChild(el('button', {
-    text: 'Reset draft', style: { marginTop: '12px' }, onClick: handleReset,
+    class: 'btn-reset', text: 'Reset draft', style: { marginTop: '12px' }, onClick: handleReset,
   }, []));
   left.appendChild(el('button', {
-    text: 'End draft', style: { marginTop: '8px' },
-    onClick: () => { showingSummary = true; renderDraft(); },
+    class: 'btn-end-draft', text: 'End draft', style: { marginTop: '8px' },
+    onClick: () => { screen = 'summary'; render(); },
   }, []));
-  left.appendChild(el('button', { text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
+  left.appendChild(el('button', { class: 'btn-backup', text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
   const importInput = el('input', {
     type: 'file', accept: '.json,application/json', style: { display: 'none' },
     onChange: (e) => {
@@ -264,7 +288,7 @@ function renderDraft() {
       if (file) handleImport(file);
     },
   }, []);
-  left.appendChild(el('button', { text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
+  left.appendChild(el('button', { class: 'btn-import', text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
   left.appendChild(importInput);
 
   renderCenter(center, {
@@ -328,8 +352,11 @@ export function init() {
   // reachable. Falling back to setup costs the draft but never the app.
   try {
     state = saved;
+    // A load always opens the draft: `screen` is module state that outlives a draft, and
+    // a previous run left on the summary must not decide what a fresh load shows.
+    screen = 'draft';
     recomputeBaselines();
-    renderDraft();
+    render();
   } catch (err) {
     clearState();
     state = null;

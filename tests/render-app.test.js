@@ -350,6 +350,59 @@ test('a page built without a stamp shows no freshness line at all', () => {
   assert.equal(find(document.body, (n) => n.className === 'freshness').length, 0);
 });
 
+// ---- Grades and the summary --------------------------------------------------
+// Both of these pin wiring, which is the only thing this file exists for. Deleting
+// `grades,` from app.js's renderBoard ctx made every grade vanish from the live board,
+// and deleting the End draft button made the summary unreachable — and the whole suite
+// stayed green through either. board.test.js and summary.test.js render those two
+// components directly; nothing but this file renders the app that has to reach them.
+
+test('the board header carries each team\'s grade', () => {
+  start();
+  const gradesOf = () => find(panels().right, (n) => n.className === 'team-grade')
+    .map((n) => n.textContent);
+
+  assert.equal(gradesOf().length, CONFIG.numTeams, 'one grade per team column');
+  assert.deepEqual(gradesOf(), ['C+', 'C+'], 'nobody has picked, so nobody is ahead');
+
+  // Josh Allen is the only starter in the league, and the QB slot is one of two the
+  // fixture starts — so the grades have to move apart, and in the right direction.
+  rowFor(panels().center, 'Josh Allen').listeners.dblclick[0]();
+  const after = gradesOf();
+  assert.match(after[0], /^A/, 'the team that drafted him');
+  assert.match(after[1], /^D/, 'the team that has nobody');
+});
+
+test('End draft ranks every team, and Back to draft returns to the board', () => {
+  window.DATA_FETCHED_AT = '2026-08-30T11:00:00.000Z';
+  start();
+  rowFor(panels().center, 'Josh Allen').listeners.dblclick[0]();
+  button(panels().left, 'End draft').listeners.click[0]();
+
+  assert.equal(find(appRoot, (n) => n.className === 'layout').length, 0,
+    'the summary replaces the three panels rather than overlaying them');
+  const rows = find(appRoot, (n) => String(n.className).includes('sum-row'));
+  assert.equal(rows.length, CONFIG.teams.length, 'one row per team');
+  assert.ok(find(appRoot, (n) => n.className === 'freshness').length,
+    'and it says how fresh the projections behind the ranking are');
+
+  find(appRoot, (n) => n.tagName === 'button' && n.textContent === 'Back to draft')[0]
+    .listeners.click[0]();
+  assert.ok(find(panels().right, (n) => n.textContent === 'Draft Board').length,
+    'and the draft is still there to go back to');
+});
+
+test('a reload never reopens the summary the last session was left on', () => {
+  // `screen` is module state that outlives a draft, exactly like the centre panel's view.
+  start();
+  button(panels().left, 'End draft').listeners.click[0]();
+  assert.ok(find(appRoot, (n) => String(n.className).includes('sum-row')).length);
+
+  init();
+  assert.ok(find(panels().right, (n) => n.textContent === 'Draft Board').length,
+    'a fresh load opens the draft');
+});
+
 test('an earlier pick can be marked off-list from the board editor', () => {
   // applyOffListPick only fires at the clock, so once pick 2 exists there was no way
   // to say pick 1 went to someone outside the pool. The cell stays filled.

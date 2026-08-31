@@ -228,6 +228,8 @@ table.board td.cell.filled { cursor: pointer; }
    edge lines up with the card's, not the browser window's — .freshness is a sibling
    of .setup, not a child, so it needs its own copy of the same width and centering. */
 .freshness-card { max-width: 900px; margin: 0 auto; }
+/* Same trick for the summary screen, whose card is 620px wide rather than 900px. */
+.freshness-summary { max-width: 620px; margin: 0 auto; }
 
 /* ---- Summary ---- */
 .summary { max-width: 620px; margin: 40px auto; padding: 0 16px; }
