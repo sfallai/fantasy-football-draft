@@ -24,6 +24,12 @@ test('every step has something to say', () => {
   }
 });
 
+test('the last draft step describes the report, not just the ranking', () => {
+  const last = DRAFT_STEPS[DRAFT_STEPS.length - 1];
+  assert.match(last.body, /waiver/i, 'the most useful thing on that screen is named');
+  assert.doesNotMatch(last.body, /\bwill\b/i, 'no prediction, here or on the screen itself');
+});
+
 test('the suggestions step reads correctly even when it is not your turn', () => {
   // Its anchor only exists on your own pick. The card still shows, so the wording
   // cannot assume the thing it describes is on screen.
