@@ -12,6 +12,16 @@
   --te: #f97316;
   --k: #9ca3af;
   --def: #9ca3af;
+
+  /* Stacking order, stated once. Popovers are appended to document.body, the same
+     stacking context as the tour overlay, so anything below --z-tour paints under a
+     62%-black wash for the whole tour — and both tours tell people to open exactly
+     these things (a board square, a team header, the keeper picker). Every popover
+     therefore sits ABOVE the tour, keeping their order among themselves. */
+  --z-tour: 60;
+  --z-dropdown: 70;
+  --z-pop: 80;
+  --z-roster-pop: 90;
 }
 
 * { box-sizing: border-box; }
@@ -113,7 +123,7 @@ table.teams th { position: sticky; top: 0; z-index: 1; background: var(--panel);
 
 .suggest { position: relative; }
 .suggest-list {
-  position: absolute; z-index: 20; left: 0; right: 0; top: 100%;
+  position: absolute; z-index: var(--z-dropdown); left: 0; right: 0; top: 100%;
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
   max-height: 260px; overflow: auto;
 }
@@ -185,7 +195,7 @@ table.players td.owner { color: var(--muted); font-style: italic; white-space: n
 .rookie { font-size: 9px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 3px; margin-right: 5px; vertical-align: middle; }
 .filters { display: flex; gap: 6px; align-items: center; margin: 10px 0 6px; flex-wrap: wrap; }
 .filters button.selected { background: var(--accent); color: #1a1205; }
-.pop { position: fixed; z-index: 30; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-width: 300px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+.pop { position: fixed; z-index: var(--z-pop); background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-width: 300px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
 .pop h3 { margin: 0 0 6px; font-size: 13px; }
 .pop dt { color: var(--accent); font-weight: 600; margin-top: 6px; }
 .pop dd { margin: 0; color: var(--muted); }
@@ -206,7 +216,7 @@ table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
    showPopover clamps top to max(0, innerHeight - height), so an over-tall popover pins
    to top: 0 and everything past the fold — the picks and the grade — simply cannot be
    seen, because nothing scrolls. Capped, that clamp is correct and the rest scrolls. */
-.roster-pop { position: fixed; z-index: 40; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; max-height: 80vh; overflow-y: auto; font-size: 12px; }
+.roster-pop { position: fixed; z-index: var(--z-roster-pop); background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; max-height: 80vh; overflow-y: auto; font-size: 12px; }
 .pop-offlist { margin-top: 6px; color: var(--muted); font-size: 11px; font-style: italic; }
 table.board th .team-grade { font-size: 10px; font-weight: 600; color: var(--accent); letter-spacing: 0.04em; }
 .pop-pick { display: grid; grid-template-columns: 28px 1fr 40px; gap: 6px; align-items: baseline; padding: 2px 0; font-size: 11px; }
@@ -244,7 +254,7 @@ table.board td.cell.filled { cursor: pointer; }
 .sum-head span:last-child { text-align: right; }
 
 /* ---- Guided tour ---- */
-.tour-layer { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+.tour-layer { position: fixed; inset: 0; z-index: var(--z-tour); pointer-events: none; }
 .tour-ring { position: fixed; border: 2px solid var(--accent); border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62); pointer-events: none; }
 .tour-dim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.62); }
 .tour-card { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.5); pointer-events: auto; }
