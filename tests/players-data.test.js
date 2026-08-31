@@ -387,14 +387,23 @@ test('generated data/players.json matches the schema and covers all positions', 
     + 'run `git checkout data/players.json data/fetched-at.json` to restore the committed files',
   );
 
-  // A join that silently stopped matching would leave every spread null while every
-  // other check above still passed — and the availability odds would then simply never
-  // appear, with nothing to say why.
-  const withSpread = players.filter((p) => p.adpStdev !== null).length;
-  assert.ok(
-    withSpread >= withAdp * 0.9,
-    `only ${withSpread} of ${withAdp} players with an ADP also have a spread — the FFC join has broken`,
-  );
+  // FFC dropping or renaming a key it still sends `adp` for would leave the spread null
+  // while every check above still passed — the per-player checks allow null by design,
+  // and the ordering assertion short-circuits when either side is null. The availability
+  // odds would then simply never appear, with nothing to say why.
+  //
+  // All four fields, not just adpStdev, and not phrased as a broken join: a genuine join
+  // failure nulls `adp` too and trips the coverage guard above this one first. What these
+  // catch is FFC still matching but no longer sending a field. adpEarliest and adpLatest
+  // are the likeliest: they come from Math.min/Math.max over `high`/`low`, so they become
+  // NaN -> null the moment either key is renamed, while `stdev` and `adp` sail through.
+  for (const field of ['adpStdev', 'adpEarliest', 'adpLatest', 'adpDrafts']) {
+    const covered = players.filter((p) => p[field] !== null).length;
+    assert.ok(
+      covered >= withAdp * 0.9,
+      `only ${covered} of ${withAdp} players with an ADP also have ${field} — FFC has stopped sending it`,
+    );
+  }
 
   // A rookie has no prior season by definition — that's what makes this predicate
   // convention-independent. ESPN's `experience` is not a self-consistent years-played
