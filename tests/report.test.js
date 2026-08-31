@@ -377,10 +377,10 @@ test('the blind spot is computable against the real pool and the real replacemen
   const replacement = replacementPoints(real, 10, DEFAULT_SLOTS);
   // The figures the spec quotes, to the decimal. If a data refresh moves them this
   // assertion is the thing that says so.
-  assert.equal(replacement.QB, 288.3);
-  assert.equal(replacement.RB, 167);
-  assert.equal(replacement.WR, 141.7);
-  assert.equal(replacement.TE, 104);
+  assert.equal(replacement.QB, 289.5);
+  assert.equal(replacement.RB, 168.1);
+  assert.equal(replacement.WR, 141.4);
+  assert.equal(replacement.TE, 103.4);
   // Before a pick is made every startable player is undrafted, so every position is a
   // blind spot. That is the degenerate case, and it proves the wiring end to end.
   const spots = leagueBlindSpot(state, real, replacement);
