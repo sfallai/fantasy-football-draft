@@ -9,7 +9,9 @@ import { installDomStub } from './dom-stub.js';
 import { createState, serialize, STORAGE_KEY } from '../src/core/state.js';
 
 const PLAYERS = [
-  { id: 'p1', name: 'Jahmyr Gibbs', team: 'DET', position: 'RB', overallRank: 1, positionRank: 1, projectedPoints: 297.1, adp: 1.4, bye: 6, age: 24, experience: 4, prior: { points: 289.9, games: 17, ppg: 17.1 } },
+  // Gibbs carries a backupId so the Handcuffs test below has something to find. He is
+  // an RB: a handcuff is a running-back fact and the filter drops every other position.
+  { id: 'p1', name: 'Jahmyr Gibbs', team: 'DET', position: 'RB', overallRank: 1, positionRank: 1, projectedPoints: 297.1, adp: 1.4, bye: 6, age: 24, experience: 4, prior: { points: 289.9, games: 17, ppg: 17.1 }, backupId: 'p8' },
   { id: 'p2', name: 'Ja Marr Chase', team: 'CIN', position: 'WR', overallRank: 2, positionRank: 1, projectedPoints: 288.4, adp: 2.1, bye: 10, age: 25, experience: 5, prior: { points: 280.1, games: 17, ppg: 16.5 } },
   { id: 'p3', name: 'Bijan Robinson', team: 'ATL', position: 'RB', overallRank: 3, positionRank: 2, projectedPoints: 271.0, adp: 3.5, bye: 5, age: 23, experience: 3, prior: { points: 265.0, games: 17, ppg: 15.6 } },
   // The rookie: experience 0 with no prior season is exactly what badges the row.
@@ -676,4 +678,29 @@ test('printing the board asks for landscape, and stops asking afterwards', () =>
   button(panels().right, 'Print / Save as PDF').listeners.click[0]();
   assert.equal(document.head.children.length, 0, 'and gone again after');
   delete globalThis.window.print;
+});
+
+// Nothing else in the suite pins that app.js hands renderCenter the handcuff set.
+// Deleting `handcuffIds,` from the ctx literal — keeping the import and the
+// `const handcuffIds = handcuffIdsFor(...)`, so there is no unused-import smell —
+// left the whole suite green while the feature was dead in the shipped app:
+// renderCenter falls back to its empty-Set default and the button reports
+// "No handcuffs yet" in round twelve with a full lineup. That is exactly the shape
+// the concurrent-stash incident could have produced: a computation kept, its one
+// call site swept away. This test drives the button the way a user does.
+test('the Handcuffs button finds the backup to a starter the app knows you own', () => {
+  start();
+  // Gibbs goes into my one RB slot, so he is a startable starter and p8 is his backup.
+  rowFor(panels().center, 'Jahmyr Gibbs').listeners.dblclick[0]();
+
+  const { center } = panels();
+  button(center, 'Handcuffs').listeners.click[0]();
+
+  const rows = find(panels().center, (n) => n.tagName === 'tr'
+    && n.children.some((c) => c.tagName === 'td'));
+  assert.equal(rows.length, 1, 'exactly the one handcuff on the board');
+  assert.ok(find(rows[0], (n) => n.textContent === 'Backup Back').length,
+    'and he is Gibbs\' backup, not somebody else');
+  assert.equal(find(panels().center, (n) => n.className === 'empty-note').length, 0,
+    'no "no handcuffs yet" while a handcuff is right there');
 });
