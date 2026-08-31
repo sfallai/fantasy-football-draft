@@ -444,7 +444,11 @@ table.board td.cell.filled { cursor: pointer; }
 }
 
 /* Shown in place of an empty player table when the handcuff filter has nothing to
-   list — in round one it always has nothing, and silence there reads as a bug. */
+   list — in round one it always has nothing, and silence there reads as a bug.
+   Rendered INSIDE .tablewrap (see tableSection in center.js), so it sits where the
+   rows would have been and inherits that scrollport's `flex: 1 1 0; min-height: 120px`
+   rather than being the unsized last child of the panel's flex column, where a short
+   viewport shrank it to nothing and `.panel.center { overflow: hidden }` clipped it. */
 .empty-note { padding: 12px 8px; color: var(--muted); font-size: 13px; }
 </style>
 </head>
@@ -700,16 +704,34 @@ __exports.gradeTeams = gradeTeams;
 __def("core/handcuff.js", function (__exports, __req) {
 const { assignSlots } = __req('core/roster.js');
 
-// The positions a handcuff means anything for. K and DEF are streamed off waivers week
-// to week, are already out of the grade, and have no depth-chart entry — but a stale id
-// on one must not leak into the filter.
-const HANDCUFF_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
+// A handcuff is the backup who INHERITS THE WORKLOAD when the starter goes down. That
+// is a running-back fact: one back takes the carries, so his value is contingent on the
+// starter's health in a way nobody else's is. Everywhere else the rank-2 player is
+// simply another player.
+//
+// WR and TE do not work that way — targets are redistributed among several receivers,
+// and the WR2 on a depth chart is a starter in his own right. Measured on the shipped
+// 400-player pool, in-pool pairs whose *backup* is himself top-100 overall:
+//
+//   RB  64 pairs |  4      WR  87 pairs | 17      TE  23 pairs | 0      QB  14 pairs | 0
+//
+// Seventeen of the WR pairs name a top-100 starter as somebody's "handcuff", and the
+// four most-viewed cards in the app all carried one: Chase → Tee Higgins (#45), Nacua →
+// Davante Adams (#31), St. Brown → Jameson Williams (#48), Lamb → George Pickens (#28).
+//
+// QB is excluded deliberately even though a backup quarterback DOES inherit the job: in
+// a one-QB league nobody drafts one, so the line would be noise on every QB card for no
+// decision it could change. Do not "fix" this back.
+//
+// K and DEF are streamed off waivers week to week, are already out of the grade, and
+// have no depth-chart entry — but a stale id on one must not leak into the filter.
+const HANDCUFF_POSITIONS = ['RB'];
 
 // The ids that back up this roster's STARTERS. assignSlots, not a re-derivation: the
 // grade, the roster panel, the report card and this all have to agree about who starts,
 // and sharing the one function is what makes disagreeing impossible.
 //
-// Starters only. A second quarterback's backup is depth for depth, which is not what
+// Starters only. A fourth running back's backup is depth for depth, which is not what
 // anyone means by a handcuff and would fill the filter with noise.
 function handcuffIdsFor(roster, slots) {
   const ids = new Set();
@@ -2646,6 +2668,7 @@ const { recommend, sleepers } = __req('core/recommend.js');
 const { byeConflict } = __req('core/roster.js');
 const { isRookie, priorSummary, matchesQuery } = __req('core/player.js');
 const { showPopover, closePopover } = __req('ui/popover.js');
+const { HANDCUFF_POSITIONS } = __req('core/handcuff.js');
 
 const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -2728,8 +2751,14 @@ function byeWarning(player, myRoster, slots) {
 // pool passed in is already the available players, so membership is the whole check, and
 // a backupId pointing outside it (common — depth charts run past the top 400) is not an
 // error: the absence of the line is the message, never "no handcuff available".
+//
+// Running backs only, matching HANDCUFF_POSITIONS — see the reasoning there. Without
+// this gate the four most-viewed cards in the shipped pool each carried a false line:
+// "Handcuff available: Tee Higgins" under Ja'Marr Chase, and three more like it.
+// `pool` needs no guard: recommendationCard is only reached inside `if (isMyPick &&
+// pool.length)`.
 function backupNote(player, pool) {
-  if (!player.backupId || !pool) return null;
+  if (!player.backupId || !HANDCUFF_POSITIONS.includes(player.position)) return null;
   const backup = pool.find((pl) => pl.id === player.backupId);
   return backup
     ? el('div', { class: 'backup-note', text: `Handcuff available: ${backup.name}` }, [])
@@ -2995,31 +3024,60 @@ function renderCenter(container, ctx, handlers) {
     onClick: () => { view.handcuffsOnly = !view.handcuffsOnly; rerender(); },
   }, []);
 
-  // An empty table reads as a bug. Which of the two reasons it is matters: one
-  // resolves itself as you draft, the other means the board genuinely has nothing.
+  // An empty table reads as a bug, so it gets a sentence. Which reason it is matters —
+  // they resolve four different ways — and the reason is decided against the UNFILTERED
+  // pool, never against the rows. Deciding it on the rows was the original bug: any
+  // other active filter (a position chip, a search box) emptied the table and the note
+  // then claimed your handcuffs had been drafted, which sends you hunting a replacement
+  // you do not need.
+  //
+  // `pool` is the available players and `tablePlayers` is every player in the list, and
+  // the difference between them is the difference between "somebody took him" and "he
+  // was never in this app": 121 of the 309 shipped backupIds point outside the top 400.
   function handcuffEmptyNote() {
     if (!view.handcuffsOnly || visiblePlayers(tablePlayers, handcuffIds).length > 0) return null;
-    const text = handcuffIds.size === 0
-      ? 'No handcuffs yet — this shows the backups to the players in your starting lineup, once you have some.'
-      : 'None of your starters\' backups are still on the board.';
+    const availableHandcuffs = pool.filter((pl) => handcuffIds.has(pl.id)).length;
+    const listedHandcuffs = tablePlayers.filter((pl) => handcuffIds.has(pl.id)).length;
+    let text;
+    if (handcuffIds.size === 0) {
+      text = 'No handcuffs yet — this shows the backups to the players in your starting lineup, once you have some.';
+    } else if (availableHandcuffs > 0) {
+      text = availableHandcuffs === 1
+        ? '1 of your starters\' backups is still available — your other filters are hiding him.'
+        : `${availableHandcuffs} of your starters' backups are still available — your other filters are hiding them.`;
+    } else if (listedHandcuffs > 0) {
+      text = 'None of your starters\' backups are still on the board.';
+    } else {
+      // Never drafted — never here. Saying "gone" about a player who was never listed
+      // is the one thing this sentence must not do.
+      text = `Your starters' backups are outside this list of ${tablePlayers.length} players, so they are not draftable here.`;
+    }
     return el('div', { class: 'empty-note', text }, []);
   }
 
+  // The note goes INSIDE .tablewrap, in place of the rows it is explaining the absence
+  // of. Appended to the flex column instead, it landed at the very bottom of the panel
+  // with an empty table grown above it — `.panel.center .tablewrap` is `flex: 1 1 0`
+  // and takes everything the pinned chrome leaves — so the sentence sat far from what
+  // it explains. Worse, it had no `flex: 0 0 auto` and no `min-height` of its own, so
+  // on a short viewport with a full recommendations block it was the first thing to
+  // shrink and then `.panel.center { overflow: hidden }` clipped it. Inside the
+  // scrollport it inherits the table's sizing and scrolls with it instead.
+  //
   // Rebuilt rather than shown/hidden, because its text depends on the filter result.
-  let emptyNote = null;
-  function redrawEmptyNote() {
-    if (emptyNote && emptyNote.parentNode === container) container.removeChild(emptyNote);
-    emptyNote = handcuffEmptyNote();
-    if (emptyNote) container.appendChild(emptyNote);
+  function tableSection() {
+    const wrap = playerTable(tablePlayers, handlers.onPick, handcuffIds);
+    const note = handcuffEmptyNote();
+    if (note) wrap.appendChild(note);
+    return wrap;
   }
 
   function redrawTable() {
     const wrap = container.querySelector('.tablewrap');
-    if (wrap) wrap.replaceWith(playerTable(tablePlayers, handlers.onPick, handcuffIds));
+    if (wrap) wrap.replaceWith(tableSection());
     // The count is a count of what is on screen, so it moves with the table.
     heading.textContent = headingText();
     syncAvailableOnlyBtn();
-    redrawEmptyNote();
   }
 
   const filterInput = el('input', {
@@ -3058,8 +3116,7 @@ function renderCenter(container, ctx, handlers) {
 
   container.appendChild(heading);
   container.appendChild(filters);
-  container.appendChild(playerTable(tablePlayers, handlers.onPick, handcuffIds));
-  redrawEmptyNote();
+  container.appendChild(tableSection());
 
   // Focus is restored after each render so the user can filter pick after pick
   // without reaching for the mouse. preventScroll: true because focus() otherwise
