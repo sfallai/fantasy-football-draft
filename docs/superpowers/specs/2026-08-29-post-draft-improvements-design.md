@@ -352,6 +352,17 @@ proper design pass before implementation.
 
 Build order agreed: distribution, then H, then F.
 
+### I — Draft report card
+
+*From an external report card that turned out to be reproducible from data the app
+already holds. Specced separately in `2026-08-31-draft-report-card-design.md`.*
+
+Expands chunk F's summary with waivers, steals, reaches, a positional blind-spot analysis
+and per-team notes — and takes kickers and defenses out of the grade, which is what stops
+the live grade contradicting the recommendation panel beside it.
+
+Build order: after chunk H.
+
 ## Carried forward from chunk E
 
 **An unhandled throw in `renderDraft` now costs the user their draft.** `init` wraps the
