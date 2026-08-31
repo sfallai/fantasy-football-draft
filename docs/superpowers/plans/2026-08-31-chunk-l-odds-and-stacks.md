@@ -69,7 +69,19 @@ P(lasts to N | still available at C) = (1 − Φ((N − 0.5 − μ)/σ)) / (1 �
 
 1. **No usable inputs.** `adp` or `adpStdev` null, `σ <= 0`, or no `nextPick`. This is not defensive padding: `null` in JavaScript arithmetic yields **`Infinity`, not `NaN`** — `(pick − adp)/null` is `Infinity`, `null < 3` is `true` — so an unguarded model produces a **confident** answer of 0 or 1 rather than failing loudly. Verified: passing `σ = null` to the formula above returns exactly `0`, which would render "almost certainly gone".
 
-2. **The current pick is past `adpLatest`.** Then the player has already lasted longer than he has ever been observed lasting, and the model is extrapolating into the tail it is measurably worst in. Refuse rather than assert. This uses observed data as the boundary instead of an invented threshold, and it is live without being silencing — measured across the shipped pool it withholds 15 of 217 candidates at pick 24, 23 of 197 at pick 60, and 20 of 83 at pick 170.
+2. **The current pick is past `adpLatest`.** Then the player has already lasted longer than he has ever been observed lasting, and the model is extrapolating into the tail it is measurably worst in. Refuse rather than assert. This uses observed data as the boundary instead of an invented threshold.
+
+   **It is a guard, not a feature, and it fires rarely.** Measured properly — treating the
+   C lowest-ADP players as drafted at pick C, so the population is the players actually on
+   the board — it withholds **0 of 193 at pick 24, 0 of 157 at pick 60, 0 of 117 at pick
+   100, and 1 of 47 at pick 170**. That is the correct behaviour: in a draft that follows
+   ADP nobody outlasts their own observed range, so the rule stays silent. It fires when a
+   player has genuinely fallen past everything ever seen — which is exactly the case the
+   normal approximation handles worst, and exactly when a user is asking whether to keep
+   waiting.
+
+   (An earlier draft of this plan claimed 7–24%, from a proxy that counted already-drafted
+   players as candidates. The rule is unchanged; the justification is corrected.)
 
 - [ ] **Step 1: Write the failing test**
 
