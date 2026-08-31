@@ -229,6 +229,26 @@ test('the popover lists the team\'s picks as well as its slots and grade', () =>
     'and no off-list note when every pick resolved');
 });
 
+test('the popover says what the projected total leaves out', () => {
+  // The slot list right above this shows K and DEF as starting slots with players in
+  // them, and the picks list below shows each man's projection — so an unqualified
+  // "projected starter pts" is a total that visibly excludes two of the rows above it.
+  // The wording is the summary's, verbatim: two places on the same screen making the
+  // same claim must not word it two ways.
+  const { state, players } = boardFixture();
+  const container = document.createElement('div');
+  renderBoard(container, {
+    state, allPlayers: players, grades: new Map([[1, { grade: 'B', strength: 210 }]]),
+    editablePool: [], onEditPick() {},
+  });
+  find(container, (n) => n.tagName === 'th' && n.children.length)[0]
+    .listeners.click[0]({ clientX: 10, clientY: 10 });
+  const pop = document.body.children.find((n) => (n.className || '').includes('roster-pop'));
+  const grade = find(pop, (n) => n.className === 'pop-grade')[0];
+  const text = find(grade, () => true).map((n) => n.textContent || '').join(' ');
+  assert.match(text, /210 projected starter pts, not counting kickers or defenses/);
+});
+
 test('the popover says so when a team\'s picks could not all be counted', () => {
   // rosterFor drops an off-list pick, so the picks list is shorter than the team's pick
   // count and the grade treats that starting slot as empty. Silently, that reads as a
