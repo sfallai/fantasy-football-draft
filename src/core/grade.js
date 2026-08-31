@@ -36,12 +36,17 @@ export function gradeTeams(rostersByTeam, slots, teams) {
   const count = rows.length || 1;
   const mean = rows.reduce((sum, r) => sum + r.strength, 0) / count;
   const sd = Math.sqrt(rows.reduce((sum, r) => sum + (r.strength - mean) ** 2, 0) / count);
+  // A tolerance, not `sd === 0`. Equal strengths that are not exactly representable in
+  // binary (203.7, say) leave `mean` off by ~1e-13, every deviation becomes the same
+  // tiny non-zero number, and z = d/|d| collapses to exactly ±1 for the whole league —
+  // an identical league graded D+ across the board. Below this, there is no information.
+  const flat = Math.abs(sd) < 1e-9;
 
   return rows
     .map((r) => ({
       ...r,
-      z: sd === 0 ? 0 : (r.strength - mean) / sd,
-      grade: sd === 0 ? NEUTRAL_GRADE : gradeFor((r.strength - mean) / sd),
+      z: flat ? 0 : (r.strength - mean) / sd,
+      grade: flat ? NEUTRAL_GRADE : gradeFor((r.strength - mean) / sd),
     }))
     .sort((a, b) => b.strength - a.strength || a.teamIndex - b.teamIndex)
     .map((r, i) => ({ ...r, rank: i + 1 }));

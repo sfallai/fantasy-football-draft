@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { teamStrength, gradeFor, gradeTeams, NEUTRAL_GRADE } from '../src/core/grade.js';
+import { teamStrength, gradeFor, gradeTeams, GRADE_BANDS, NEUTRAL_GRADE } from '../src/core/grade.js';
 import { DEFAULT_SLOTS } from '../src/core/roster.js';
 
 const pl = (id, position, points) => ({
@@ -25,12 +25,39 @@ test('teamStrength is zero for an empty roster', () => {
   assert.equal(teamStrength([], DEFAULT_SLOTS), 0);
 });
 
+test('the band table is the spec\'s, letter for letter', () => {
+  // Written out rather than derived: this table shipped wrong once, and a test that
+  // recomputes it from the source could not have caught that. Swapping any adjacent
+  // pair of letters — A-/B+, say — is a spec violation, and this is what sees it.
+  assert.deepEqual(GRADE_BANDS, [
+    [1.5, 'A+'], [1.0, 'A'], [0.75, 'A-'], [0.5, 'B+'], [0.25, 'B'], [0, 'B-'],
+    [-0.25, 'C+'], [-0.5, 'C'], [-0.75, 'C-'], [-1.0, 'D+'], [-1.5, 'D'],
+  ]);
+});
+
 test('gradeFor maps each band, inclusive at its floor', () => {
   assert.equal(gradeFor(2.0), 'A+');
   assert.equal(gradeFor(1.5), 'A+', 'the floor belongs to the band above it');
   assert.equal(gradeFor(1.49), 'A');
+  // Every floor in the table, and a value just below it that must fall a band.
+  assert.equal(gradeFor(1.0), 'A');
+  assert.equal(gradeFor(0.99), 'A-');
+  assert.equal(gradeFor(0.75), 'A-');
+  assert.equal(gradeFor(0.74), 'B+');
+  assert.equal(gradeFor(0.5), 'B+');
+  assert.equal(gradeFor(0.49), 'B');
+  assert.equal(gradeFor(0.25), 'B');
+  assert.equal(gradeFor(0.24), 'B-');
   assert.equal(gradeFor(0), 'B-');
   assert.equal(gradeFor(-0.01), 'C+');
+  assert.equal(gradeFor(-0.25), 'C+');
+  assert.equal(gradeFor(-0.26), 'C');
+  assert.equal(gradeFor(-0.5), 'C');
+  assert.equal(gradeFor(-0.51), 'C-');
+  assert.equal(gradeFor(-0.75), 'C-');
+  assert.equal(gradeFor(-0.76), 'D+');
+  assert.equal(gradeFor(-1.0), 'D+');
+  assert.equal(gradeFor(-1.01), 'D');
   assert.equal(gradeFor(-1.5), 'D');
   assert.equal(gradeFor(-1.51), 'F');
 });
@@ -60,6 +87,18 @@ test('every team grades neutrally before anyone has picked', () => {
   const rows = gradeTeams(rosters, DEFAULT_SLOTS, teamsNamed('A', 'B', 'C'));
   assert.deepEqual(rows.map((r) => r.grade), [NEUTRAL_GRADE, NEUTRAL_GRADE, NEUTRAL_GRADE]);
   assert.deepEqual(rows.map((r) => r.z), [0, 0, 0], 'z is 0, never NaN');
+});
+
+test('teams that are equal but not exactly representable still grade neutrally', () => {
+  // 203.7 is not exact in binary, so the mean of seven of them drifts by ~1e-13 and
+  // every deviation becomes the same tiny non-zero number. With an `sd === 0` guard the
+  // division then gives z = d/|d| = exactly -1 for all seven, and an identical league
+  // is graded D+ across the board. The guard has to be a tolerance.
+  const rosters = {};
+  for (let i = 1; i <= 7; i += 1) rosters[i] = [pl(`q${i}`, 'QB', 203.7)];
+  const rows = gradeTeams(rosters, DEFAULT_SLOTS, teamsNamed('A', 'B', 'C', 'D', 'E', 'F', 'G'));
+  assert.deepEqual(rows.map((r) => r.grade), Array(7).fill(NEUTRAL_GRADE));
+  assert.deepEqual(rows.map((r) => r.z), Array(7).fill(0), 'z is 0, not ±1');
 });
 
 test('gradeTeams breaks a strength tie by team order, not at random', () => {
