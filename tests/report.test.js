@@ -375,12 +375,28 @@ test('the blind spot is computable against the real pool and the real replacemen
   const real = JSON.parse(readFileSync(new URL('../data/players.json', import.meta.url), 'utf8'));
   let state = createState({ numTeams: 10, rounds: 15, myTeamIndex: 1 });
   const replacement = replacementPoints(real, 10, DEFAULT_SLOTS);
-  // The figures the spec quotes, to the decimal. If a data refresh moves them this
-  // assertion is the thing that says so.
-  assert.equal(replacement.QB, 288.3);
-  assert.equal(replacement.RB, 167);
-  assert.equal(replacement.WR, 141.7);
-  assert.equal(replacement.TE, 104);
+  // Deliberately NOT the four literal figures this used to assert. They were the
+  // projections of whoever happened to sit at each baseline rank, so the assertion was
+  // replacementPoints(data) === replacementPoints(data) with the right side transcribed
+  // by hand — nothing to recompute from, and no way to tell a recomputation from a
+  // paste. Everything it could prove about the algorithm is proved better in
+  // tests/vbd.test.js against synthetic pools.
+  //
+  // Worse, it was load-bearing on a pipeline nobody watches: .github/workflows/refresh.yml
+  // runs fetch -> build -> `npm test` AS THE GATE, then commits. Four numbers keyed to a
+  // pool that refreshes daily meant the cron would fail, skip the commit, and leave the
+  // live site serving stale projections silently and indefinitely. It had already broken
+  // on the first refresh after it was written.
+  //
+  // The ordering is the part that is actually true of football and survives a refresh:
+  // one QB starts per team against two RBs and two WRs plus a FLEX, so the QB baseline
+  // sits at a shallower rank and therefore a higher projection.
+  assert.ok(
+    replacement.QB > replacement.RB
+      && replacement.RB > replacement.WR
+      && replacement.WR > replacement.TE,
+    `replacement levels out of order: ${JSON.stringify(replacement)}`,
+  );
   // Before a pick is made every startable player is undrafted, so every position is a
   // blind spot. That is the degenerate case, and it proves the wiring end to end.
   const spots = leagueBlindSpot(state, real, replacement);

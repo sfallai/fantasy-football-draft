@@ -81,6 +81,13 @@ export function athleteFields(athlete) {
   return { age, experience: years };
 }
 
+// Anything the feed does not carry becomes null, never NaN or undefined. Math.min of an
+// undefined is NaN, and a NaN in the data would serialize to `null` in JSON but pass a
+// `typeof === 'number'` check in memory — two different shapes for one absence.
+function num(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 // 400 requests, a few at a time. Workers pull from a shared cursor rather than being
 // handed fixed slices, so one slow response cannot leave a worker idle while others queue.
 // Contract: `fn` must not throw/reject — a rejection propagates through Promise.all and
@@ -113,13 +120,15 @@ export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Ma
     teamsById.set(t.id, { abbrev: t.abbrev, bye: t.byeWeek ?? null });
   }
 
-  // FFC lookups: skill players by normalized name, defenses by team abbrev.
+  // FFC lookups: skill players by normalized name, defenses by team abbrev. The whole
+  // record, not just `p.adp` — the spread beside it is what makes "will he last until my
+  // next pick?" answerable at all, and it was being downloaded and dropped.
   const adpByName = new Map();
   const adpByDefTeam = new Map();
   for (const p of ffcJson.players || []) {
     const position = p.position === 'PK' ? 'K' : p.position;
-    if (position === 'DEF') adpByDefTeam.set(p.team, p.adp);
-    else adpByName.set(normalizeName(p.name), p.adp);
+    if (position === 'DEF') adpByDefTeam.set(p.team, p);
+    else adpByName.set(normalizeName(p.name), p);
   }
 
   const merged = [];
@@ -133,6 +142,7 @@ export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Ma
     const isDef = position === 'DEF';
 
     const { age, experience } = athleteFields(isDef ? null : athletesById.get(String(p.id)));
+    const ffc = (isDef ? adpByDefTeam.get(abbrev) : adpByName.get(normalizeName(p.fullName))) ?? null;
 
     merged.push({
       id: isDef ? `DEF-${abbrev}` : String(p.id),
@@ -141,7 +151,16 @@ export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Ma
       position,
       espnRank: p.draftRanksByRankType?.STANDARD?.rank ?? 9999,
       projectedPoints: projectedPoints(p),
-      adp: (isDef ? adpByDefTeam.get(abbrev) : adpByName.get(normalizeName(p.fullName))) ?? null,
+      adp: num(ffc && ffc.adp),
+      adpStdev: num(ffc && ffc.stdev),
+      // FFC's `high` is drafted-high — the EARLIEST pick and the smaller number. Stored
+      // under names that say which is which, so nothing downstream has to know the
+      // convention. min/max rather than a straight rename: the feed is consistent today
+      // (high < low in 221 of 221 live players), and this keeps a future flip from
+      // silently inverting the pair.
+      adpEarliest: num(ffc && Math.min(ffc.high, ffc.low)),
+      adpLatest: num(ffc && Math.max(ffc.high, ffc.low)),
+      adpDrafts: num(ffc && ffc.times_drafted),
       bye: team ? team.bye : null,
       age,
       experience,
@@ -163,6 +182,10 @@ export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Ma
       positionRank: positionCounters[p.position],
       projectedPoints: p.projectedPoints,
       adp: p.adp,
+      adpStdev: p.adpStdev,
+      adpEarliest: p.adpEarliest,
+      adpLatest: p.adpLatest,
+      adpDrafts: p.adpDrafts,
       bye: p.bye,
       age: p.age,
       experience: p.experience,

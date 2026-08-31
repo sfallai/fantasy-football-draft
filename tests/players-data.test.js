@@ -44,6 +44,7 @@ test('mergePlayers joins ESPN projections with FFC adp and team byes', () => {
   assert.deepEqual(gibbs, {
     id: '111', name: 'Jahmyr Gibbs', team: 'DET', position: 'RB',
     overallRank: 1, positionRank: 1, projectedPoints: 297.1, adp: 1.4, bye: 6,
+    adpStdev: null, adpEarliest: null, adpLatest: null, adpDrafts: null,
     age: null, experience: null, prior: null,
   });
 
@@ -63,6 +64,93 @@ test('mergePlayers leaves adp null when FFC has no entry', () => {
   const teams = { settings: { proTeams: [{ id: 8, abbrev: 'DET', byeWeek: 6 }] } };
   const out = mergePlayers(espn, teams, { players: [] });
   assert.equal(out[0].adp, null);
+});
+
+test('mergePlayers keeps the ADP spread, not just the mean', () => {
+  const espn = { players: [{ player: {
+    id: 111, fullName: 'Jordan Love', defaultPositionId: 1, proTeamId: 8,
+    draftRanksByRankType: { STANDARD: { rank: 130 } },
+    stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 259 }],
+  } }] };
+  const teams = { settings: { proTeams: [{ id: 8, abbrev: 'GB', byeWeek: 5 }] } };
+  // FFC's own field names: `high` is the EARLIEST pick and the smaller number.
+  const ffc = { players: [
+    { name: 'Jordan Love', position: 'QB', team: 'GB', adp: 127.5, stdev: 11.1, high: 100, low: 148, times_drafted: 2017 },
+  ] };
+
+  const [love] = mergePlayers(espn, teams, ffc);
+  assert.equal(love.adp, 127.5);
+  assert.equal(love.adpStdev, 11.1);
+  assert.equal(love.adpEarliest, 100, 'FFC calls this `high` — drafted high, i.e. early');
+  assert.equal(love.adpLatest, 148);
+  assert.equal(love.adpDrafts, 2017);
+});
+
+test('the extremes are ordered by what they mean, not by what FFC calls them', () => {
+  // Belt and braces against a feed change. FFC is consistent today — high < low in
+  // 221 of 221 live players — so this is guarding a future flip, not fixing one.
+  const espn = { players: [{ player: {
+    id: 111, fullName: 'Jordan Love', defaultPositionId: 1, proTeamId: 8,
+    draftRanksByRankType: { STANDARD: { rank: 130 } },
+    stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 259 }],
+  } }] };
+  const teams = { settings: { proTeams: [{ id: 8, abbrev: 'GB', byeWeek: 5 }] } };
+  const ffc = { players: [
+    { name: 'Jordan Love', position: 'QB', team: 'GB', adp: 127.5, stdev: 11.1, high: 148, low: 100, times_drafted: 9 },
+  ] };
+
+  const [love] = mergePlayers(espn, teams, ffc);
+  assert.equal(love.adpEarliest, 100);
+  assert.equal(love.adpLatest, 148);
+});
+
+test('a defense carries the spread too, joined on team abbrev', () => {
+  const espn = { players: [{ player: {
+    id: 222, fullName: 'Seahawks D/ST', defaultPositionId: 16, proTeamId: 26,
+    draftRanksByRankType: { STANDARD: { rank: 120 } },
+    stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 104 }],
+  } }] };
+  const teams = { settings: { proTeams: [{ id: 26, abbrev: 'SEA', byeWeek: 11 }] } };
+  const ffc = { players: [
+    { name: 'Seattle Defense', position: 'DEF', team: 'SEA', adp: 133.2, stdev: 14.2, high: 110, low: 160, times_drafted: 812 },
+  ] };
+
+  const [def] = mergePlayers(espn, teams, ffc);
+  assert.equal(def.adp, 133.2, 'the ADP itself still resolves — the map now holds a record, not a number');
+  assert.equal(def.adpStdev, 14.2);
+  assert.equal(def.adpDrafts, 812);
+});
+
+test('a player FFC has never seen gets null for every ADP field', () => {
+  const espn = { players: [{ player: {
+    id: 333, fullName: 'Deep Sleeper', defaultPositionId: 3, proTeamId: 8,
+    draftRanksByRankType: { STANDARD: { rank: 250 } },
+    stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 40 }],
+  } }] };
+  const teams = { settings: { proTeams: [{ id: 8, abbrev: 'DET', byeWeek: 6 }] } };
+  const [p] = mergePlayers(espn, teams, { players: [] });
+  assert.deepEqual(
+    [p.adp, p.adpStdev, p.adpEarliest, p.adpLatest, p.adpDrafts],
+    [null, null, null, null, null],
+  );
+});
+
+test('an FFC record missing a spread yields null for it, not NaN or undefined', () => {
+  // Defenses and deep players have been seen with adp but no stdev.
+  const espn = { players: [{ player: {
+    id: 111, fullName: 'Jordan Love', defaultPositionId: 1, proTeamId: 8,
+    draftRanksByRankType: { STANDARD: { rank: 130 } },
+    stats: [{ seasonId: 2026, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 259 }],
+  } }] };
+  const teams = { settings: { proTeams: [{ id: 8, abbrev: 'GB', byeWeek: 5 }] } };
+  const ffc = { players: [{ name: 'Jordan Love', position: 'QB', team: 'GB', adp: 127.5 }] };
+
+  const [love] = mergePlayers(espn, teams, ffc);
+  assert.equal(love.adp, 127.5);
+  assert.equal(love.adpStdev, null);
+  assert.equal(love.adpEarliest, null);
+  assert.equal(love.adpLatest, null);
+  assert.equal(love.adpDrafts, null);
 });
 
 test('mergePlayers attaches age, experience, and last season line', () => {
@@ -218,6 +306,13 @@ test('generated data/players.json matches the schema and covers all positions', 
     assert.equal(typeof p.positionRank, 'number');
     assert.equal(typeof p.projectedPoints, 'number');
     assert.ok(p.adp === null || typeof p.adp === 'number');
+    for (const field of ['adpStdev', 'adpEarliest', 'adpLatest', 'adpDrafts']) {
+      assert.ok(p[field] === null || typeof p[field] === 'number', `${p.name} ${field}`);
+    }
+    assert.ok(
+      p.adpEarliest === null || p.adpLatest === null || p.adpEarliest <= p.adpLatest,
+      `${p.name} adpEarliest ${p.adpEarliest} is later than adpLatest ${p.adpLatest}`,
+    );
     assert.ok(p.bye === null || typeof p.bye === 'number');
     assert.ok(p.age === null || typeof p.age === 'number', `${p.name} age`);
     assert.ok(
@@ -291,6 +386,24 @@ test('generated data/players.json matches the schema and covers all positions', 
     + `${adpFloor}) — Fantasy Football Calculator's response shape probably changed; `
     + 'run `git checkout data/players.json data/fetched-at.json` to restore the committed files',
   );
+
+  // FFC dropping or renaming a key it still sends `adp` for would leave the spread null
+  // while every check above still passed — the per-player checks allow null by design,
+  // and the ordering assertion short-circuits when either side is null. The availability
+  // odds would then simply never appear, with nothing to say why.
+  //
+  // All four fields, not just adpStdev, and not phrased as a broken join: a genuine join
+  // failure nulls `adp` too and trips the coverage guard above this one first. What these
+  // catch is FFC still matching but no longer sending a field. adpEarliest and adpLatest
+  // are the likeliest: they come from Math.min/Math.max over `high`/`low`, so they become
+  // NaN -> null the moment either key is renamed, while `stdev` and `adp` sail through.
+  for (const field of ['adpStdev', 'adpEarliest', 'adpLatest', 'adpDrafts']) {
+    const covered = players.filter((p) => p[field] !== null).length;
+    assert.ok(
+      covered >= withAdp * 0.9,
+      `only ${covered} of ${withAdp} players with an ADP also have ${field} — FFC has stopped sending it`,
+    );
+  }
 
   // A rookie has no prior season by definition — that's what makes this predicate
   // convention-independent. ESPN's `experience` is not a self-consistent years-played
