@@ -23,6 +23,10 @@ export function stackPartner(player, roster) {
   return (roster || [])
     .filter((owned) => owned
       && owned.team === player.team
+      // Unreachable today and kept deliberately: no position pairs with its own, so a
+      // candidate can never match himself on position. It becomes load-bearing the day
+      // someone adds a same-position pairing — and tests/stack.test.js goes red on the
+      // same day to say so.
       && owned.id !== player.id
       && wanted.includes(owned.position))
     .sort((a, b) => b.projectedPoints - a.projectedPoints)[0] || null;

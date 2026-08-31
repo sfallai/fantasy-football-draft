@@ -49,6 +49,22 @@ test('an unknown team never matches, even against itself', () => {
   assert.equal(stackPartner(pl('b', 'WR', 'FA'), roster), null);
 });
 
+test('no position pairs with its own, so nobody can stack with himself', () => {
+  // This is what makes the module's `owned.id !== player.id` filter unreachable rather
+  // than untested: a QB pairs only with WR/TE and a WR/TE only with QB, so a candidate
+  // can never match himself on position, whichever roster he is handed. A review flagged
+  // the guard as an untested branch and suggested pinning it directly; no such test can
+  // pass against correct code, because the branch cannot be entered. Pinning the reason
+  // is the honest version — and if a same-position pairing is ever added, this test goes
+  // red and the guard becomes load-bearing on the same day.
+  for (const position of ['QB', 'WR', 'TE']) {
+    const self = pl('same', position, 'DET');
+    assert.equal(stackPartner(self, [self]), null, `${position} paired with itself`);
+    assert.equal(stackPartner(self, [{ ...self, id: 'other' }]), null,
+      `${position} paired with another ${position}`);
+  }
+});
+
 test('an empty roster pairs with nobody, and does not throw', () => {
   assert.equal(stackPartner(pl('goff', 'QB', 'DET'), []), null);
 });
