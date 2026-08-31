@@ -332,6 +332,9 @@ test('generated data/players.json matches the schema and covers all positions', 
       p.prior === null || p.prior.games <= 17,
       `${p.name} prior.games ${p.prior && p.prior.games} exceeds a 17-game season`,
     );
+    assert.ok(p.depthRank === null || typeof p.depthRank === 'number', `${p.name} depthRank`);
+    assert.ok(p.backupId === null || typeof p.backupId === 'string', `${p.name} backupId`);
+    assert.notEqual(p.backupId, p.id, `${p.name} lists himself as his own backup`);
   }
 
   const ranks = players.map((p) => p.overallRank).sort((a, b) => a - b);
@@ -413,6 +416,35 @@ test('generated data/players.json matches the schema and covers all positions', 
     (p) => p.experience !== null && p.experience <= 1 && p.prior === null,
   ).length;
   assert.ok(rookies > 0, 'no rookies in the pool — experience is not being read correctly');
+
+  // Depth charts are a separate fetch (one request per NFL team) from everything else
+  // in this file, and it fails the same silent way as the other three: a wrong endpoint,
+  // a reshaped response, or every team lookup timing out would leave depthRank/backupId
+  // null for the whole pool. Every per-player check above accepts that (both fields are
+  // nullable by design — a player genuinely off any depth chart is null too), and the
+  // handcuff filter would render as permanently empty with nothing to say why: "no
+  // backup exists" and "we don't know" are indistinguishable once the field is just null.
+  // Only QB/RB/WR/TE are ever charted (see DEPTH_POSITIONS in fetch-players.mjs) — K and
+  // DEF stream off waivers and have no meaningful handcuff.
+  const depthPositions = ['QB', 'RB', 'WR', 'TE'];
+  const offensiveSkill = players.filter((p) => depthPositions.includes(p.position));
+  const withDepthRank = offensiveSkill.filter((p) => p.depthRank !== null).length;
+  const depthFloor = Math.floor(offensiveSkill.length * 0.7);
+  assert.ok(
+    withDepthRank >= depthFloor,
+    `only ${withDepthRank} of ${offensiveSkill.length} QB/RB/WR/TE players have a depthRank `
+    + `(expected at least ${depthFloor}) — the depth-chart fetch probably failed; `
+    + 'run `git checkout data/players.json data/fetched-at.json` to restore the committed files',
+  );
+
+  // The inverse guard: K and DEF are never in a depth chart's offensive group, so a
+  // non-null value there would mean the position filter in depthMapFromCharts regressed
+  // and started matching a group it should not.
+  const kAndDef = players.filter((p) => !depthPositions.includes(p.position));
+  assert.ok(
+    kAndDef.every((p) => p.depthRank === null && p.backupId === null),
+    'a K or DEF player unexpectedly carries a depthRank/backupId',
+  );
 });
 
 const chart = (groups) => ({ items: groups });
