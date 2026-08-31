@@ -194,14 +194,30 @@ test('the earliest picks that ended up on a bench are named, earliest first', ()
   state = applyPick(state, 'rb3');   // pick 5, team 1
   state = applyPick(state, 'wr1');   // pick 6, team 2
   state = applyPick(state, 'wr2');   // pick 7, team 2
-  state = applyPick(state, 'te1');   // pick 8, team 1
-  // Team 2 holds qb1 (300) and qb2 (290) with one QB slot: qb2 is benched, bought
-  // at pick 3, and that is the earliest wasted pick in this league.
+  state = applyPick(state, 'fell');  // pick 8, team 1
+  // Team 2 holds qb1 (300) and qb2 (290) with one QB slot: qb2 is benched, bought at
+  // pick 3. Team 1 holds rb1 250, rb2 240, fell 235 and rb3 230 against RB1/RB2/FLEX,
+  // so rb3 is benched, bought at pick 5. TWO benched players at different picks is the
+  // point: with only one, the "earliest first" ordering is unobservable and a reversed
+  // sort passes the whole suite.
   const benched = benchedEarliest(state, POOL, 3);
-  assert.equal(benched[0].player.id, 'qb2');
-  assert.equal(benched[0].pickNumber, 3);
-  assert.equal(benched[0].round, 2);
-  assert.equal(benched[0].teamIndex, 2);
+  assert.deepEqual(benched.map((b) => [b.player.id, b.pickNumber, b.teamIndex]),
+    [['qb2', 3, 2], ['rb3', 5, 1]]);
+  assert.equal(benched[0].round, 2, 'and each carries the round that bought him');
+  assert.equal(benched[1].round, 3);
+});
+
+test('the benched list is capped, keeping the earliest', () => {
+  let state = createState({ numTeams: 2, rounds: 4, myTeamIndex: 1 });
+  state = applyPick(state, 'rb1');
+  state = applyPick(state, 'qb1');
+  state = applyPick(state, 'qb2');
+  state = applyPick(state, 'rb2');
+  state = applyPick(state, 'rb3');
+  state = applyPick(state, 'wr1');
+  state = applyPick(state, 'wr2');
+  state = applyPick(state, 'fell');
+  assert.deepEqual(benchedEarliest(state, POOL, 1).map((b) => b.player.id), ['qb2']);
 });
 
 test('a team that wasted nothing contributes nothing to that list', () => {
