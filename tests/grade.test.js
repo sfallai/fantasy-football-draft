@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { teamStrength, gradeFor, gradeTeams, GRADE_BANDS, NEUTRAL_GRADE } from '../src/core/grade.js';
+import { teamStrength, gradeFor, gradeTeams, GRADE_BANDS, NEUTRAL_GRADE, UNGRADED_POSITIONS } from '../src/core/grade.js';
 import { DEFAULT_SLOTS } from '../src/core/roster.js';
 
 const pl = (id, position, points) => ({
@@ -23,6 +23,33 @@ test('teamStrength counts a FLEX starter', () => {
 
 test('teamStrength is zero for an empty roster', () => {
   assert.equal(teamStrength([], DEFAULT_SLOTS), 0);
+});
+
+test('a kicker does not move a team\'s strength', () => {
+  // The regression that motivated the whole chunk. Brandon Aubrey projects 171.7 —
+  // more than a mid-round starting WR — so counting him let a round-8 kicker outrank
+  // a genuinely better roster for three rounds.
+  const skill = [pl('a', 'RB', 200), pl('b', 'WR', 150)];
+  const before = teamStrength(skill, DEFAULT_SLOTS);
+  assert.equal(teamStrength([...skill, pl('k', 'K', 171.7)], DEFAULT_SLOTS), before);
+});
+
+test('a defense does not move a team\'s strength either', () => {
+  const skill = [pl('a', 'RB', 200)];
+  const before = teamStrength(skill, DEFAULT_SLOTS);
+  assert.equal(teamStrength([...skill, pl('d', 'DEF', 130.6)], DEFAULT_SLOTS), before);
+});
+
+test('a team of nothing but kickers and defenses grades as if it had not drafted', () => {
+  // Not a penalty — the absence of one. Spending four picks where they buy no
+  // starting-lineup point scores exactly what spending no picks scores, which is
+  // the truth about those picks.
+  const roster = [pl('k1', 'K', 171.7), pl('k2', 'K', 161.9), pl('d1', 'DEF', 130.6)];
+  assert.equal(teamStrength(roster, DEFAULT_SLOTS), 0);
+});
+
+test('the excluded positions are named, not inferred from slot labels', () => {
+  assert.deepEqual(UNGRADED_POSITIONS, ['K', 'DEF']);
 });
 
 test('the band table is the spec\'s, letter for letter', () => {
