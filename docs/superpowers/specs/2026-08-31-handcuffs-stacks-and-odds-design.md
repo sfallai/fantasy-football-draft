@@ -228,6 +228,26 @@ ADP drives it toward a 0/0 that means "the model has nothing left to say".
 Φ is the standard normal CDF, implemented inline — no dependency, ever. An Abramowitz–Stegun
 7.1.26 approximation is accurate to ~1e-7, which is far beyond what the bands below can use.
 
+### The scale ADP is measured on
+
+Corrected after the fact, because the first version of this spec had it wrong.
+
+`adp`, `adpEarliest`, `adpLatest` and `adpStdev` are all **overall pick numbers**, and they
+are roughly **league-size independent**: the Nth best player goes around pick N whatever
+the league size, because draft order follows player value rather than roster count.
+Measured — requesting `teams=10` and `teams=12` returns byte-identical ADPs for all 221
+players, and both responses report `{teams: 12, rounds: 15}` in their own meta, so the
+parameter is ignored for this dataset.
+
+**So a consumer must not rescale ADP by team count.** An earlier note here suggested
+dividing by `numTeams / 10`; that would have been an error, and it is struck.
+
+What league size *does* change is which round a pick falls in, and where the board ends.
+The sample tops out at 174.2 against a 180-pick board, so deep players are censored: an
+`adpLatest` at the ceiling is the end of the board, not an observation. `adpDrafts` is
+carried so the consumer can also gate on sample size — 23 players rest on fewer than 15
+drafts.
+
 ### Bands, not percentages
 
 **This is a design constraint, not a presentation preference, and the measurement above is

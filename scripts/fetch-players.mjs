@@ -9,7 +9,17 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) fantasy-football-dra
 
 const ESPN_PLAYERS = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}/segments/0/leaguedefaults/1?view=kona_player_info`;
 const ESPN_TEAMS = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}?view=proTeamSchedules_wl`;
-const FFC_ADP = `https://fantasyfootballcalculator.com/api/v1/adp/standard?teams=10&year=${SEASON}&position=all`;
+// teams=12, not 10, because that is what comes back either way: requesting teams=10 and
+// teams=12 returned byte-identical ADPs for all 221 players, and both responses' own meta
+// reports `{teams: 12, rounds: 15}`. The parameter is ignored for this dataset, so asking
+// for 10 only made the URL lie about what it fetches.
+//
+// ADP here is an OVERALL PICK NUMBER, and it is roughly league-size independent: the Nth
+// best player goes around pick N whatever the league size, because draft order follows
+// player value rather than roster count. So a consumer must NOT rescale it by team count.
+// What league size does change is which round a pick falls in, and where the board ends —
+// this sample tops out at 174.2 against a 180-pick board, so deep players are censored.
+const FFC_ADP = `https://fantasyfootballcalculator.com/api/v1/adp/standard?teams=12&year=${SEASON}&position=all`;
 const ESPN_ATHLETE = (id) => `https://sports.core.api.espn.com/v3/sports/football/nfl/athletes/${id}`;
 const ESPN_DEPTH = (teamId) => `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/${SEASON}/teams/${teamId}/depthcharts`;
 // Polite to the endpoint and still finishes 400 lookups in well under a minute.
