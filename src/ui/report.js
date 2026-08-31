@@ -1,7 +1,7 @@
 import { el } from './dom.js';
 
 // Every line here states a computed fact. A section with nothing to say is omitted
-// rather than padded, and nothing is phrased as judgement: "34 picks after his ADP of
+// rather than padded, and nothing is phrased as judgement: "34 picks after an ADP of
 // 62" is a measurement, "a steal of the draft" is the app claiming an authority it does
 // not have. It would also be obviously templated by the third team.
 function section(title, lines) {
