@@ -7,7 +7,7 @@ export const SETUP_STEPS = [
   {
     anchor: '[data-tour="league"]',
     title: 'Your league',
-    body: 'How many teams, and how many rounds. The defaults match a standard ten-team, fifteen-round draft, so most people change nothing here.',
+    body: 'How many teams, and how many rounds. The defaults match a standard ten-team, fifteen-round draft, so most people change nothing here. Scoring and draft type are fixed: standard non-PPR, snake.',
   },
   {
     anchor: '[data-tour="position"]',
@@ -22,7 +22,7 @@ export const SETUP_STEPS = [
   {
     anchor: '[data-tour="teams"]',
     title: 'Everyone else',
-    body: 'Name the other teams if you like, and add any keepers with the round they cost. A keeper needs both a player and a round.',
+    body: 'Every team in the league, yours included — it is the row numbered with the slot you picked a moment ago. Name them if you like, and add any keepers with the round they cost; a keeper needs both.',
   },
   {
     anchor: '[data-tour="start"]',
@@ -41,7 +41,7 @@ export const DRAFT_STEPS = [
   {
     anchor: '.filters',
     title: 'Recording a pick',
-    body: 'Type any part of a name or a team into the box, then double-click the player in the list below. Do this for every pick, including other teams — the app follows the whole draft, not just yours.',
+    body: 'Type any part of a name or a team into the box, then double-click the player in the list below. Do this for every pick, including other teams — the app follows the whole draft, not just yours. In the bar above, Undo takes back a mistype and Skip / off-list covers a player this list does not have.',
   },
   {
     anchor: '.center-scroll',
@@ -51,7 +51,7 @@ export const DRAFT_STEPS = [
   {
     anchor: '.panel.left',
     title: 'Your roster',
-    body: 'Your lineup as it fills up, what you still need, and how many of each position you hold. Positions you have already covered drop out of the ranking.',
+    body: 'Your lineup as it fills, what you still need, and how many you hold at each position — covered ones drop out of the ranking. Below it: reset, end the draft, and Save backup / Import backup. A draft lives in this one browser, so that file is the only way to move or rescue it.',
   },
   {
     anchor: 'table.board',
