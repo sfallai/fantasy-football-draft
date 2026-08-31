@@ -87,7 +87,10 @@ export function renderReport(container, report) {
     section('Still on waivers', waiverLines(report.waivers)),
     section('Biggest steals', report.steals.map(stealLine)),
     section('Biggest reaches', report.reaches.map(reachLine)),
-    section('The league\'s blind spot', report.blindSpot.map(blindSpotLine)),
+    // Not "The league's blind spot": the section holds one row per position and can
+    // hold QB, RB, WR and TE at once, so a singular heading is wrong three times in
+    // four. This one reads the same over one row and over four.
+    section('Where the league was wrong', report.blindSpot.map(blindSpotLine)),
     section('Earliest picks that never start', report.benched.map(benchLine)),
     section('Team by team', report.teams.map(teamBlock)),
   ].filter(Boolean);

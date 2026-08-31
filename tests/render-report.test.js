@@ -110,7 +110,7 @@ test('a section with nothing to say is left out entirely', () => {
   const text = textOf(render(empty));
   assert.doesNotMatch(text, /Biggest steals/);
   assert.doesNotMatch(text, /Still on waivers/);
-  assert.doesNotMatch(text, /blind spot/i);
+  assert.doesNotMatch(text, /Where the league was wrong/);
 });
 
 test('a team with no clash and no notable pick still gets its heading', () => {
