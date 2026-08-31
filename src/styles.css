@@ -438,5 +438,9 @@ table.board td.cell.filled { cursor: pointer; }
 }
 
 /* Shown in place of an empty player table when the handcuff filter has nothing to
-   list — in round one it always has nothing, and silence there reads as a bug. */
+   list — in round one it always has nothing, and silence there reads as a bug.
+   Rendered INSIDE .tablewrap (see tableSection in center.js), so it sits where the
+   rows would have been and inherits that scrollport's `flex: 1 1 0; min-height: 120px`
+   rather than being the unsized last child of the panel's flex column, where a short
+   viewport shrank it to nothing and `.panel.center { overflow: hidden }` clipped it. */
 .empty-note { padding: 12px 8px; color: var(--muted); font-size: 13px; }

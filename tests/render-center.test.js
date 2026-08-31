@@ -483,6 +483,20 @@ test('a backup who is not in the list at all is not reported as drafted', () => 
   assert.match(note.textContent, /\b3\b/, 'and names the size of the list he is outside');
 });
 
+// The stub has no layout engine, so it can only pin WHERE in the tree the note goes —
+// which is the whole fix. Appended to the flex column instead, it rendered at the very
+// bottom of the panel with an empty table grown above it, and on a short viewport it
+// was the first thing to shrink and then got clipped by .panel.center's overflow.
+// Only a browser can confirm the visual result.
+test('the empty note renders inside the table scrollport, where the rows would be', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set());
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.ok(note, 'the note is rendered');
+  assert.equal(note.parentNode.className, 'tablewrap',
+    'not appended to the panel below the table it replaces');
+});
+
 test('the empty note is gone once the filter has something to show', () => {
   const container = renderWithHandcuffs(handcuffPool(), new Set(['pacheco']));
   button(container, 'Handcuffs').listeners.click[0]();

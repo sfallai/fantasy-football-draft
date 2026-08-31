@@ -390,21 +390,29 @@ export function renderCenter(container, ctx, handlers) {
     return el('div', { class: 'empty-note', text }, []);
   }
 
+  // The note goes INSIDE .tablewrap, in place of the rows it is explaining the absence
+  // of. Appended to the flex column instead, it landed at the very bottom of the panel
+  // with an empty table grown above it — `.panel.center .tablewrap` is `flex: 1 1 0`
+  // and takes everything the pinned chrome leaves — so the sentence sat far from what
+  // it explains. Worse, it had no `flex: 0 0 auto` and no `min-height` of its own, so
+  // on a short viewport with a full recommendations block it was the first thing to
+  // shrink and then `.panel.center { overflow: hidden }` clipped it. Inside the
+  // scrollport it inherits the table's sizing and scrolls with it instead.
+  //
   // Rebuilt rather than shown/hidden, because its text depends on the filter result.
-  let emptyNote = null;
-  function redrawEmptyNote() {
-    if (emptyNote && emptyNote.parentNode === container) container.removeChild(emptyNote);
-    emptyNote = handcuffEmptyNote();
-    if (emptyNote) container.appendChild(emptyNote);
+  function tableSection() {
+    const wrap = playerTable(tablePlayers, handlers.onPick, handcuffIds);
+    const note = handcuffEmptyNote();
+    if (note) wrap.appendChild(note);
+    return wrap;
   }
 
   function redrawTable() {
     const wrap = container.querySelector('.tablewrap');
-    if (wrap) wrap.replaceWith(playerTable(tablePlayers, handlers.onPick, handcuffIds));
+    if (wrap) wrap.replaceWith(tableSection());
     // The count is a count of what is on screen, so it moves with the table.
     heading.textContent = headingText();
     syncAvailableOnlyBtn();
-    redrawEmptyNote();
   }
 
   const filterInput = el('input', {
@@ -443,8 +451,7 @@ export function renderCenter(container, ctx, handlers) {
 
   container.appendChild(heading);
   container.appendChild(filters);
-  container.appendChild(playerTable(tablePlayers, handlers.onPick, handcuffIds));
-  redrawEmptyNote();
+  container.appendChild(tableSection());
 
   // Focus is restored after each render so the user can filter pick after pick
   // without reaching for the mouse. preventScroll: true because focus() otherwise
