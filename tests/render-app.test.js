@@ -75,6 +75,16 @@ function rowFor(center, name) {
 const button = (node, label) =>
   find(node, (n) => n.tagName === 'button' && n.textContent === label)[0];
 
+// The DOM stub has no layout engine, so flattening a whole subtree into one string lets
+// a fact rendered in section A satisfy an assertion aimed at section B. Same guard
+// render-report.test.js uses: pick the section out by its heading first.
+function sectionText(node, heading) {
+  const found = find(node, (n) => n.className === 'rep-section'
+    && (n.children[0] || {}).textContent === heading)[0];
+  assert.ok(found, `no section headed "${heading}"`);
+  return find(found, () => true).map((n) => n.textContent || '').join(' ');
+}
+
 // A saved draft skips the setup screen, which has its own tests.
 function start() {
   stored.clear();
@@ -386,6 +396,21 @@ test('End draft ranks every team, and Back to draft returns to the board', () =>
   assert.equal(rows.length, CONFIG.teams.length, 'one row per team');
   assert.ok(find(appRoot, (n) => n.className === 'freshness').length,
     'and it says how fresh the projections behind the ranking are');
+
+  // The report itself, not just the ranking. Deleting `report` from showSummary's ctx
+  // left 406/406 non-build tests green: summary.test.js renders renderSummary *given* a
+  // report, and nothing drove the app as far as building one.
+  const report = find(appRoot, (n) => n.className === 'report')[0];
+  assert.ok(report, 'the report renders below the ranking');
+
+  // And a real fact under a real heading, measured against the app's own replacement
+  // levels. Passing `{}` in place of `replacement` also left the suite green, and it
+  // would measure the blind spot against a bar of 0 and report every undrafted player:
+  // this same line becomes "4 startable RBs ... above the replacement level of 0.0".
+  // The 2-team fixture puts the RB baseline on Bijan Robinson at 271.0, so Gibbs is the
+  // one man above it.
+  assert.match(sectionText(report, 'Where the league was wrong'),
+    /1 startable RB went undrafted — anyone projecting above the replacement level of 271\.0\. The best still there is Jahmyr Gibbs, at 297\.1\./);
 
   find(appRoot, (n) => n.tagName === 'button' && n.textContent === 'Back to draft')[0]
     .listeners.click[0]();
