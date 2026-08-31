@@ -607,3 +607,73 @@ test('no window.print means no crash, and no button either', () => {
     'the app does not offer what the browser cannot do');
   globalThis.window.print = saved;
 });
+
+test('Export CSV downloads one row per pick', () => {
+  const downloads = [];
+  const realCreate = globalThis.URL ? globalThis.URL.createObjectURL : undefined;
+  globalThis.URL = {
+    createObjectURL: (blob) => { downloads.push(blob); return 'blob:csv'; },
+    revokeObjectURL() {},
+  };
+  globalThis.Blob = class { constructor(parts, opts) { this.parts = parts; this.type = opts && opts.type; } };
+
+  start();
+  button(panels().center, 'Skip / off-list').listeners.click[0]();
+  const csvButton = button(panels().right, 'Export CSV');
+  assert.ok(csvButton, 'the button lives with the board it exports');
+  csvButton.listeners.click[0]();
+
+  assert.equal(downloads.length, 1);
+  assert.match(downloads[0].type, /csv/, 'and it is offered as a spreadsheet, not a download of unknown type');
+  const text = downloads[0].parts.join('');
+  assert.match(text, /^﻿Pick,Round,Team,Player/, 'header first, behind a BOM so Excel reads it as UTF-8');
+  assert.equal(text.trim().split('\r\n').length, 2, 'a header and the one pick made');
+  if (realCreate) globalThis.URL.createObjectURL = realCreate;
+});
+
+test('Print on the draft screen prints, and names the file for the board', () => {
+  const titles = [];
+  globalThis.window.print = () => { titles.push(globalThis.document.title); };
+  globalThis.document.title = 'Draft Assistant — league night';
+  start();
+  button(panels().right, 'Print / Save as PDF').listeners.click[0]();
+  assert.deepEqual(titles, ['My Team — draft board — 2 teams, 3 rounds']);
+  assert.equal(globalThis.document.title, 'Draft Assistant — league night');
+  delete globalThis.window.print;
+});
+
+test('the downloaded link is in the document when it is clicked', () => {
+  // Firefox will not start a download from a programmatic click on a detached anchor;
+  // Chrome and Safari will. Dropping the appendChild therefore ships green and breaks
+  // silently for whoever in the league is on Firefox.
+  const clicked = [];
+  globalThis.URL = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
+  globalThis.Blob = class { constructor(parts, opts) { this.parts = parts; this.type = opts && opts.type; } };
+  const realAppend = document.body.appendChild.bind(document.body);
+  document.body.appendChild = (node) => {
+    const out = realAppend(node);
+    if (node.attributes && node.attributes.download) clicked.push(node);
+    return out;
+  };
+
+  start();
+  button(panels().right, 'Export CSV').listeners.click[0]();
+  document.body.appendChild = realAppend;
+
+  assert.equal(clicked.length, 1, 'the anchor was put in the document');
+  assert.equal(clicked[0].clickedWhileConnected, true, 'and was still in it when clicked');
+  assert.equal(clicked[0].parentNode, null, 'then taken back out');
+});
+
+test('printing the board asks for landscape, and stops asking afterwards', () => {
+  // Sixteen teams across a portrait page is ~33px a column. @page is document-global,
+  // so it cannot simply live in the stylesheet — the report card reads better portrait.
+  globalThis.window.print = () => {
+    const rules = document.head.children.map((n) => n.textContent).join(' ');
+    assert.match(rules, /@page\s*\{\s*size:\s*landscape/, 'in force while printing');
+  };
+  start();
+  button(panels().right, 'Print / Save as PDF').listeners.click[0]();
+  assert.equal(document.head.children.length, 0, 'and gone again after');
+  delete globalThis.window.print;
+});
