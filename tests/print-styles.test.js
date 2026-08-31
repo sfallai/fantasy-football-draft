@@ -126,3 +126,16 @@ test('your own column is still marked on the printed board', () => {
   assert.match(rule[0], /border-left:/, 'a border, which prints');
   assert.match(rule[0], /background:\s*none/, 'not the screen fill, which does not');
 });
+
+test('the board starts its own page, not wherever the roster ended', () => {
+  // The roster and the board are two different documents on paper. Left to flow, the
+  // board began at whatever height the roster happened to finish at, which orphaned
+  // the first rounds at the foot of page one and split the table at an arbitrary row.
+  // Deliberately break-BEFORE the board rather than break-inside: avoid on the roster:
+  // a block taller than a page that refuses to break gets pushed to a fresh page and
+  // then breaks anyway, wasting the sheet it was pushed off.
+  const rule = printBlock().match(/\.panel\.right\s*\{[^}]*\}/);
+  assert.ok(rule, 'the board panel is given a page of its own');
+  assert.match(rule[0], /break-before:\s*page/);
+  assert.match(rule[0], /page-break-before:\s*always/, 'and the legacy property, for older engines');
+});

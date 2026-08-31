@@ -415,6 +415,14 @@ table.board td.cell.filled { cursor: pointer; }
      own two, and Reset draft / End draft / Save backup / Import backup / Show me
      around in the roster panel beside it. */
   .board-exports, .panel.left button, .btn-tour { display: none; }
+  /* The roster and the board are two different documents on paper, and stacked they
+     flowed into each other — the board started at whatever height the roster finished
+     at, orphaning the first rounds at the foot of page one.
+     break-BEFORE the board, not break-inside: avoid on the roster: a block taller than
+     a page that refuses to break is pushed to a fresh page and then breaks anyway,
+     wasting the sheet it was pushed off. A roster grows with the slot config and can
+     reach that height; the board is given the page instead. */
+  .panel.right { break-before: page; page-break-before: always; }
 
   /* The report's rules and the ranking table's are on the same left edge, so they have
      to be the same weight; #ddd made the lower half of the page visibly fainter and is
