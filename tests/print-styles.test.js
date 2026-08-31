@@ -92,3 +92,25 @@ test('a team block is not split across a page', () => {
 test('the printed page is not held to the 620px reading column', () => {
   assert.match(printBlock(), /\.summary\s*\{[^}]*max-width:\s*none/);
 });
+
+test('the board prints whole names, not the screen\'s ellipsis', () => {
+  // On screen a truncated cell is a hover away from its full name and the row has to
+  // stay one line tall so fifteen rounds fit. On paper there is no hover and nothing
+  // to scroll, so ellipsis is permanent data loss in an export.
+  const rule = printBlock().match(/table\.board td\s*\{[^}]*\}/);
+  assert.ok(rule, 'board cells are given print treatment');
+  assert.match(rule[0], /white-space:\s*normal/, 'names wrap');
+  assert.match(rule[0], /overflow:\s*visible/, 'and are not clipped');
+});
+
+test('the four-hundred-row player table is not printed', () => {
+  // Ten pages of noise, and the one panel with nothing to say once the draft is over.
+  assert.match(printBlock(), /\.panel\.center\s*\{[^}]*display:\s*none/);
+});
+
+test('your own column is still marked on the printed board', () => {
+  const rule = printBlock().match(/table\.board td\.mine-col\s*\{[^}]*\}/);
+  assert.ok(rule);
+  assert.match(rule[0], /border-left:/, 'a border, which prints');
+  assert.match(rule[0], /background:\s*none/, 'not the screen fill, which does not');
+});

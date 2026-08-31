@@ -607,3 +607,37 @@ test('no window.print means no crash, and no button either', () => {
     'the app does not offer what the browser cannot do');
   globalThis.window.print = saved;
 });
+
+test('Export CSV downloads one row per pick', () => {
+  const downloads = [];
+  const realCreate = globalThis.URL ? globalThis.URL.createObjectURL : undefined;
+  globalThis.URL = {
+    createObjectURL: (blob) => { downloads.push(blob); return 'blob:csv'; },
+    revokeObjectURL() {},
+  };
+  globalThis.Blob = class { constructor(parts, opts) { this.parts = parts; this.type = opts && opts.type; } };
+
+  start();
+  button(panels().center, 'Skip / off-list').listeners.click[0]();
+  const csvButton = button(panels().right, 'Export CSV');
+  assert.ok(csvButton, 'the button lives with the board it exports');
+  csvButton.listeners.click[0]();
+
+  assert.equal(downloads.length, 1);
+  assert.match(downloads[0].type, /csv/, 'and it is offered as a spreadsheet, not a download of unknown type');
+  const text = downloads[0].parts.join('');
+  assert.match(text, /^﻿Pick,Round,Team,Player/, 'header first, behind a BOM so Excel reads it as UTF-8');
+  assert.equal(text.trim().split('\r\n').length, 2, 'a header and the one pick made');
+  if (realCreate) globalThis.URL.createObjectURL = realCreate;
+});
+
+test('Print on the draft screen prints, and names the file for the board', () => {
+  const titles = [];
+  globalThis.window.print = () => { titles.push(globalThis.document.title); };
+  globalThis.document.title = 'Draft Assistant — league night';
+  start();
+  button(panels().right, 'Print / Save as PDF').listeners.click[0]();
+  assert.deepEqual(titles, ['My Team — draft board — 2 teams, 3 rounds']);
+  assert.equal(globalThis.document.title, 'Draft Assistant — league night');
+  delete globalThis.window.print;
+});

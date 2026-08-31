@@ -377,6 +377,30 @@ table.board td.cell.filled { cursor: pointer; }
      text — black on black for anyone printing with background graphics on. */
   button.primary, .pos-btn.selected, .filters button.selected { background: none; color: #000; }
 
+  /* ---- The draft board ----
+     Ellipsis truncation is a screen affordance: the full name is a hover away, and the
+     cell has to stay one row tall so fifteen rounds fit a viewport. On paper there is
+     no hover and nothing to scroll, so `text-overflow: ellipsis` is permanent data
+     loss — the export would quietly print "Jaxon Smith-Njig…". Names wrap instead. */
+  table.board td {
+    white-space: normal; overflow: visible; height: auto;
+    font-size: 9px; line-height: 1.25; padding: 2px;
+  }
+  table.board { font-size: 9px; }
+  /* Your column is a dark fill on screen. Ink, and dropped anyway when the browser
+     prints with background graphics off — which is its default — so the column is
+     marked with rules that always print. */
+  table.board td.mine-col { background: none; border-left: 2px solid #000; border-right: 2px solid #000; }
+  table.board th.mine { font-weight: 700; text-decoration: underline; }
+  /* The pulsing outline on the pick that is on the clock says "act here now". On a
+     printed sheet there is no now, and the animation cannot run anyway. */
+  table.board td.current { outline: none; animation: none; }
+  /* The centre panel is a four-hundred-row player table. On paper it is ten pages of
+     noise nobody asked for, and it is the one panel with nothing to say after the
+     draft. The roster beside the board is fifteen lines and worth keeping. */
+  .panel.center { display: none; }
+  .board-exports { display: none; }
+
   /* The report's rules and the ranking table's are on the same left edge, so they have
      to be the same weight; #ddd made the lower half of the page visibly fainter and is
      the grey a printer drops first. */
@@ -385,6 +409,9 @@ table.board td.cell.filled { cursor: pointer; }
      ranking rows they line up under. */
   .rep-line, .rep-spine, .rep-note { padding-left: 8px; }
 }
+
+/* Under the board, so the controls that export it sit with it. */
+.board-exports { display: flex; gap: 8px; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -471,6 +498,83 @@ __exports.RUN_RISK_THRESHOLD = RUN_RISK_THRESHOLD;
 __exports.teamsPickingBetween = teamsPickingBetween;
 __exports.needCountsBetween = needCountsBetween;
 __exports.competitiveNotes = competitiveNotes;
+
+});
+__def("core/csv.js", function (__exports, __req) {
+const { pickToSlot } = __req('core/snake.js');
+const { isOffListId } = __req('core/state.js');
+
+// One row per pick, not the grid. The grid is what the board already shows; a
+// spreadsheet wants something it can sort and filter, and a pivot table rebuilds the
+// grid from this while nothing rebuilds this from the grid.
+const CSV_HEADER = ['Pick', 'Round', 'Team', 'Player', 'Position', 'NFL', 'Bye', 'ADP', 'Projected', 'Keeper'];
+
+// Empty, never zero, for anything the app does not know. A 0 in the ADP column sorts to
+// the top and reads as the first pick of the draft; an empty cell is what a spreadsheet
+// already means by "not known".
+const known = (value) => (value === null || value === undefined ? '' : value);
+
+function draftRows(state, allPlayers) {
+  const byId = new Map(allPlayers.map((pl) => [pl.id, pl]));
+  const { numTeams, teams } = state.config;
+
+  return Object.keys(state.picks)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((pick) => {
+      const entry = state.picks[pick];
+      const team = teams[entry.teamIndex - 1];
+      // An off-list pick is a cell the user filled without naming anyone. The row stays
+      // — the pick genuinely happened and the round and team are facts — but every
+      // column that would describe a player is left empty rather than guessed at.
+      const player = isOffListId(entry.playerId) ? null : byId.get(entry.playerId) || null;
+      return [
+        pick,
+        pickToSlot(pick, numTeams).round,
+        team ? team.name : `Team ${entry.teamIndex}`,
+        player ? player.name : '',
+        player ? player.position : '',
+        player ? known(player.team) : '',
+        player ? known(player.bye) : '',
+        player ? known(player.adp) : '',
+        player ? known(player.projectedPoints) : '',
+        entry.isKeeper ? 'yes' : '',
+      ];
+    });
+}
+
+// RFC 4180: quote only when the value contains a comma, a quote, or a line break, and
+// double any quote inside. Team names are typed by the user on the setup screen, so a
+// comma in one is not hypothetical — unquoted it silently becomes an extra column and
+// shifts every field after it.
+function escape(value) {
+  const text = String(value);
+  if (!/[",\r\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+// CRLF, which is what the spec says and what Excel expects.
+function toCsv(rows) {
+  return rows.map((row) => row.map(escape).join(',')).join('\r\n');
+}
+
+// The league is the audience, as with the printed report: without a name in it, twelve
+// people exporting one draft produce twelve identical files.
+function csvFilename(state) {
+  const { teams, myTeamIndex, numTeams } = state.config;
+  const mine = teams[myTeamIndex - 1];
+  // Strip what a filesystem refuses, then collapse the runs of separators that leaves.
+  const who = (mine && mine.name ? mine.name : '')
+    .replace(/[/\\:*?"<>|]/g, ' ')
+    .trim()
+    .replace(/\s+/g, '-');
+  return `${who ? `${who}-` : ''}draft-results-${numTeams}-teams.csv`;
+}
+
+__exports.CSV_HEADER = CSV_HEADER;
+__exports.draftRows = draftRows;
+__exports.toCsv = toCsv;
+__exports.csvFilename = csvFilename;
 
 });
 __def("core/grade.js", function (__exports, __req) {
@@ -1542,11 +1646,11 @@ function backupFilename(state) {
 // Deliberately no date. DATA_FETCHED_AT is when the projections were fetched, not when
 // anyone drafted, and nothing in state records a draft date; putting either in the name
 // would state a fact this app does not have.
-function printTitle(state) {
+function printTitle(state, what = 'report card') {
   const { numTeams, rounds, teams, myTeamIndex } = state.config;
   const mine = teams[myTeamIndex - 1];
   const who = mine && mine.name ? `${mine.name} — ` : '';
-  return `${who}draft report card — ${numTeams} teams, ${rounds} round${rounds === 1 ? '' : 's'}`;
+  return `${who}draft ${what} — ${numTeams} teams, ${rounds} round${rounds === 1 ? '' : 's'}`;
 }
 
 // Drafts saved before pick editing stored history as bare pick numbers. Mid-draft
@@ -1816,6 +1920,7 @@ const { positionalNeeds, benchDepthIfAdded } = __req('core/roster.js');
 const { replacementPoints, withVbd } = __req('core/vbd.js');
 const { maxPositiveVbd, maxOverallRank } = __req('core/recommend.js');
 const { competitiveNotes } = __req('core/competitive.js');
+const { draftRows, toCsv, csvFilename, CSV_HEADER } = __req('core/csv.js');
 const { gradeTeams } = __req('core/grade.js');
 const { buildReport } = __req('core/report.js');
 const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename, printTitle } = __req('core/state.js');
@@ -2000,17 +2105,42 @@ function handleReset() {
 
 // Blob and FileReader, not a library: the page ships as one self-contained file and
 // takes no dependency, ever.
-function handleBackup() {
-  const blob = new Blob([serialize(state)], { type: 'application/json' });
+// Shared by the backup and the CSV export. The revoke timing below took real debugging
+// once and must not be reimplemented per caller.
+function download(blob, filename) {
   const url = URL.createObjectURL(blob);
-  const link = el('a', { href: url, download: backupFilename(state) }, []);
+  const link = el('a', { href: url, download: filename }, []);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   // Deferred, not synchronous: several browsers have not finished reading the blob
   // by the time click() returns, and revoking on the same tick silently produces an
-  // empty or failed download. This is the one path in the chunk nobody can test here.
+  // empty or failed download.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function handleBackup() {
+  download(new Blob([serialize(state)], { type: 'application/json' }), backupFilename(state));
+}
+
+// One row per pick, which the board's own shape cannot express: the grid hides that
+// round 2 runs back the other way, and it has room for a name and nothing else.
+function handleExportCsv() {
+  const body = toCsv([CSV_HEADER, ...draftRows(state, allPlayers)]);
+  // A UTF-8 BOM. Excel on Windows otherwise reads the file as the system codepage and
+  // mangles every apostrophe and accent in it — Ja'Marr Chase is the common case here.
+  const blob = new Blob([`\uFEFF${body}`], { type: 'text/csv;charset=utf-8' });
+  download(blob, csvFilename(state));
+}
+
+function handlePrintBoard() {
+  const previous = document.title;
+  document.title = printTitle(state, 'board');
+  try {
+    window.print();
+  } finally {
+    document.title = previous;
+  }
 }
 
 // The browser's print dialog is the export: "Save as PDF" is built into every one of
@@ -2194,6 +2324,16 @@ function renderDraft() {
     editablePool: playersWithPickNumbers(state, allPlayers),
     onEditPick: handleEditPick,
   });
+
+  // Under the board, not in the left panel with the other buttons: these two export the
+  // board specifically, and a control belongs beside the thing it acts on.
+  const exports = el('div', { class: 'board-exports' }, [
+    el('button', { class: 'btn-csv', text: 'Export CSV', onClick: handleExportCsv }, []),
+    typeof window.print === 'function'
+      ? el('button', { class: 'btn-print', text: 'Print / Save as PDF', onClick: handlePrintBoard }, [])
+      : null,
+  ]);
+  right.appendChild(exports);
 
   // Inside the right-hand panel, not after `.layout`: `.layout` is `height: 100vh`
   // with no page scroll by design (the centre panel owns its own internal scroll so

@@ -10,6 +10,7 @@ import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
 import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
+import { draftRows, toCsv, csvFilename, CSV_HEADER } from '../core/csv.js';
 import { gradeTeams } from '../core/grade.js';
 import { buildReport } from '../core/report.js';
 import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename, printTitle } from '../core/state.js';
@@ -194,17 +195,42 @@ function handleReset() {
 
 // Blob and FileReader, not a library: the page ships as one self-contained file and
 // takes no dependency, ever.
-function handleBackup() {
-  const blob = new Blob([serialize(state)], { type: 'application/json' });
+// Shared by the backup and the CSV export. The revoke timing below took real debugging
+// once and must not be reimplemented per caller.
+function download(blob, filename) {
   const url = URL.createObjectURL(blob);
-  const link = el('a', { href: url, download: backupFilename(state) }, []);
+  const link = el('a', { href: url, download: filename }, []);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   // Deferred, not synchronous: several browsers have not finished reading the blob
   // by the time click() returns, and revoking on the same tick silently produces an
-  // empty or failed download. This is the one path in the chunk nobody can test here.
+  // empty or failed download.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function handleBackup() {
+  download(new Blob([serialize(state)], { type: 'application/json' }), backupFilename(state));
+}
+
+// One row per pick, which the board's own shape cannot express: the grid hides that
+// round 2 runs back the other way, and it has room for a name and nothing else.
+function handleExportCsv() {
+  const body = toCsv([CSV_HEADER, ...draftRows(state, allPlayers)]);
+  // A UTF-8 BOM. Excel on Windows otherwise reads the file as the system codepage and
+  // mangles every apostrophe and accent in it — Ja'Marr Chase is the common case here.
+  const blob = new Blob([`\uFEFF${body}`], { type: 'text/csv;charset=utf-8' });
+  download(blob, csvFilename(state));
+}
+
+function handlePrintBoard() {
+  const previous = document.title;
+  document.title = printTitle(state, 'board');
+  try {
+    window.print();
+  } finally {
+    document.title = previous;
+  }
 }
 
 // The browser's print dialog is the export: "Save as PDF" is built into every one of
@@ -388,6 +414,16 @@ function renderDraft() {
     editablePool: playersWithPickNumbers(state, allPlayers),
     onEditPick: handleEditPick,
   });
+
+  // Under the board, not in the left panel with the other buttons: these two export the
+  // board specifically, and a control belongs beside the thing it acts on.
+  const exports = el('div', { class: 'board-exports' }, [
+    el('button', { class: 'btn-csv', text: 'Export CSV', onClick: handleExportCsv }, []),
+    typeof window.print === 'function'
+      ? el('button', { class: 'btn-print', text: 'Print / Save as PDF', onClick: handlePrintBoard }, [])
+      : null,
+  ]);
+  right.appendChild(exports);
 
   // Inside the right-hand panel, not after `.layout`: `.layout` is `height: 100vh`
   // with no page scroll by design (the centre panel owns its own internal scroll so

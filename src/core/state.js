@@ -252,11 +252,11 @@ export function backupFilename(state) {
 // Deliberately no date. DATA_FETCHED_AT is when the projections were fetched, not when
 // anyone drafted, and nothing in state records a draft date; putting either in the name
 // would state a fact this app does not have.
-export function printTitle(state) {
+export function printTitle(state, what = 'report card') {
   const { numTeams, rounds, teams, myTeamIndex } = state.config;
   const mine = teams[myTeamIndex - 1];
   const who = mine && mine.name ? `${mine.name} — ` : '';
-  return `${who}draft report card — ${numTeams} teams, ${rounds} round${rounds === 1 ? '' : 's'}`;
+  return `${who}draft ${what} — ${numTeams} teams, ${rounds} round${rounds === 1 ? '' : 's'}`;
 }
 
 // Drafts saved before pick editing stored history as bare pick numbers. Mid-draft

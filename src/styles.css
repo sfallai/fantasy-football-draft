@@ -371,6 +371,30 @@ table.board td.cell.filled { cursor: pointer; }
      text — black on black for anyone printing with background graphics on. */
   button.primary, .pos-btn.selected, .filters button.selected { background: none; color: #000; }
 
+  /* ---- The draft board ----
+     Ellipsis truncation is a screen affordance: the full name is a hover away, and the
+     cell has to stay one row tall so fifteen rounds fit a viewport. On paper there is
+     no hover and nothing to scroll, so `text-overflow: ellipsis` is permanent data
+     loss — the export would quietly print "Jaxon Smith-Njig…". Names wrap instead. */
+  table.board td {
+    white-space: normal; overflow: visible; height: auto;
+    font-size: 9px; line-height: 1.25; padding: 2px;
+  }
+  table.board { font-size: 9px; }
+  /* Your column is a dark fill on screen. Ink, and dropped anyway when the browser
+     prints with background graphics off — which is its default — so the column is
+     marked with rules that always print. */
+  table.board td.mine-col { background: none; border-left: 2px solid #000; border-right: 2px solid #000; }
+  table.board th.mine { font-weight: 700; text-decoration: underline; }
+  /* The pulsing outline on the pick that is on the clock says "act here now". On a
+     printed sheet there is no now, and the animation cannot run anyway. */
+  table.board td.current { outline: none; animation: none; }
+  /* The centre panel is a four-hundred-row player table. On paper it is ten pages of
+     noise nobody asked for, and it is the one panel with nothing to say after the
+     draft. The roster beside the board is fifteen lines and worth keeping. */
+  .panel.center { display: none; }
+  .board-exports { display: none; }
+
   /* The report's rules and the ranking table's are on the same left edge, so they have
      to be the same weight; #ddd made the lower half of the page visibly fainter and is
      the grey a printer drops first. */
@@ -379,3 +403,6 @@ table.board td.cell.filled { cursor: pointer; }
      ranking rows they line up under. */
   .rep-line, .rep-spine, .rep-note { padding-left: 8px; }
 }
+
+/* Under the board, so the controls that export it sit with it. */
+.board-exports { display: flex; gap: 8px; margin-top: 10px; }

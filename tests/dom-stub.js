@@ -76,6 +76,12 @@ function makeElement(tag) {
     focus() {
       node.focused = true;
     },
+    // Real elements have one, and the download path uses it on a detached anchor:
+    // create the link, click it, remove it. Without this the whole Blob-and-anchor
+    // route was untestable, which is why it carried a comment saying so.
+    click() {
+      for (const handler of node.listeners.click || []) handler({ target: node });
+    },
   };
 
   node.dataset = new Proxy({}, {
