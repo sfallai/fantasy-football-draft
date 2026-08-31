@@ -230,3 +230,7 @@ table.board td.cell.filled { cursor: pointer; }
 .sum-row.mine { background: #22262f; border-radius: 6px; }
 .sum-grade { font-weight: 600; color: var(--accent); }
 .sum-pts { text-align: right; font-variant-numeric: tabular-nums; }
+/* The header cells are deliberately unclassed — sharing the data rows' classes made
+   class-based test queries match the header labels too. Alignment is positional, so the
+   last column needs its own rule to sit over the right-aligned numbers. */
+.sum-head span:last-child { text-align: right; }

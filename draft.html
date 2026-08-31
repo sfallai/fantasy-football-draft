@@ -208,6 +208,11 @@ table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
 @keyframes pulse { 0%, 100% { background: #2b2410; } 50% { background: #3a3016; } }
 
 .roster-pop { position: fixed; z-index: 40; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; font-size: 12px; }
+table.board th .team-grade { font-size: 10px; font-weight: 600; color: var(--accent); letter-spacing: 0.04em; }
+.pop-pick { display: grid; grid-template-columns: 28px 1fr 40px; gap: 6px; align-items: baseline; padding: 2px 0; font-size: 11px; }
+.pop-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pop-pick .meta { text-align: right; font-variant-numeric: tabular-nums; }
+.pop-grade { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); font-weight: 600; }
 
 .pop.editor input { width: 100%; margin-top: 6px; }
 .cand-list { margin-top: 6px; max-height: 200px; overflow: auto; }
@@ -223,6 +228,18 @@ table.board td.cell.filled { cursor: pointer; }
    edge lines up with the card's, not the browser window's — .freshness is a sibling
    of .setup, not a child, so it needs its own copy of the same width and centering. */
 .freshness-card { max-width: 900px; margin: 0 auto; }
+
+/* ---- Summary ---- */
+.summary { max-width: 620px; margin: 40px auto; padding: 0 16px; }
+.sum-head, .sum-row { display: grid; grid-template-columns: 32px 1fr 56px 84px; gap: 8px; align-items: baseline; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+.sum-head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.sum-row.mine { background: #22262f; border-radius: 6px; }
+.sum-grade { font-weight: 600; color: var(--accent); }
+.sum-pts { text-align: right; font-variant-numeric: tabular-nums; }
+/* The header cells are deliberately unclassed — sharing the data rows' classes made
+   class-based test queries match the header labels too. Alignment is positional, so the
+   last column needs its own rule to sit over the right-aligned numbers. */
+.sum-head span:last-child { text-align: right; }
 </style>
 </head>
 <body>
@@ -309,6 +326,63 @@ __exports.RUN_RISK_THRESHOLD = RUN_RISK_THRESHOLD;
 __exports.teamsPickingBetween = teamsPickingBetween;
 __exports.needCountsBetween = needCountsBetween;
 __exports.competitiveNotes = competitiveNotes;
+
+});
+__def("core/grade.js", function (__exports, __req) {
+const { assignSlots } = __req('core/roster.js');
+
+// Reusing assignSlots rather than reimplementing "who starts" is the point: the grade and
+// the roster panel are then incapable of disagreeing about a team's lineup.
+function teamStrength(roster, slots) {
+  return assignSlots(roster, slots)
+    .filter((slot) => !slot.label.startsWith('BN') && slot.player)
+    .reduce((sum, slot) => sum + slot.player.projectedPoints, 0);
+}
+
+// Standard deviations from the league mean, each band inclusive at its floor.
+const GRADE_BANDS = [
+  [1.5, 'A+'], [1.0, 'A'], [0.75, 'A-'], [0.5, 'B+'], [0.25, 'B'], [0, 'B-'],
+  [-0.25, 'C+'], [-0.5, 'C'], [-0.75, 'C-'], [-1.0, 'D+'], [-1.5, 'D'],
+];
+
+// Used when every team is identical — before the first pick, most obviously. There is no
+// information to rank anyone on, so everyone gets the same neutral letter rather than the
+// implementation dividing by a zero standard deviation and grading the league NaN.
+const NEUTRAL_GRADE = 'C+';
+
+function gradeFor(z) {
+  for (const [floor, grade] of GRADE_BANDS) if (z >= floor) return grade;
+  return 'F';
+}
+
+function gradeTeams(rostersByTeam, slots, teams) {
+  const rows = teams.map((team, i) => ({
+    teamIndex: i + 1,
+    name: team.name,
+    // One decimal: projections carry one, and a grade table full of raw floats reads as
+    // false precision about a number that is a projection in the first place.
+    strength: Math.round(teamStrength(rostersByTeam[i + 1] || [], slots) * 10) / 10,
+  }));
+
+  const count = rows.length || 1;
+  const mean = rows.reduce((sum, r) => sum + r.strength, 0) / count;
+  const sd = Math.sqrt(rows.reduce((sum, r) => sum + (r.strength - mean) ** 2, 0) / count);
+
+  return rows
+    .map((r) => ({
+      ...r,
+      z: sd === 0 ? 0 : (r.strength - mean) / sd,
+      grade: sd === 0 ? NEUTRAL_GRADE : gradeFor((r.strength - mean) / sd),
+    }))
+    .sort((a, b) => b.strength - a.strength || a.teamIndex - b.teamIndex)
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+}
+
+__exports.teamStrength = teamStrength;
+__exports.GRADE_BANDS = GRADE_BANDS;
+__exports.NEUTRAL_GRADE = NEUTRAL_GRADE;
+__exports.gradeFor = gradeFor;
+__exports.gradeTeams = gradeTeams;
 
 });
 __def("core/player.js", function (__exports, __req) {
@@ -1280,15 +1354,20 @@ const { renderSetup } = __req('ui/setup.js');
 const { renderMyTeam } = __req('ui/myteam.js');
 const { renderCenter, resetView } = __req('ui/center.js');
 const { renderBoard } = __req('ui/board.js');
+const { renderSummary } = __req('ui/summary.js');
 const { pickToSlot } = __req('core/snake.js');
 const { positionalNeeds, benchDepthIfAdded } = __req('core/roster.js');
 const { replacementPoints, withVbd } = __req('core/vbd.js');
 const { maxPositiveVbd, maxOverallRank } = __req('core/recommend.js');
 const { competitiveNotes } = __req('core/competitive.js');
+const { gradeTeams } = __req('core/grade.js');
 const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename } = __req('core/state.js');
 
 let state = null;
 let allPlayers = [];
+// The summary replaces the three panels rather than overlaying them: it is a place you go,
+// and a draft that is over has nothing behind it worth seeing through a scrim.
+let showingSummary = false;
 let replacement = null;
 // Fixed for the whole draft, exactly like `replacement` — see recommend().
 let vbdScale = 1;
@@ -1448,6 +1527,15 @@ function handleImport(file) {
 }
 
 function renderDraft() {
+  if (showingSummary) {
+    const rows = gradeTeams(rostersByTeam(state, allPlayers), state.config.slots, state.config.teams);
+    clear(root());
+    renderSummary(root(), { rows, myTeamIndex: state.config.myTeamIndex }, {
+      onBack: () => { showingSummary = false; renderDraft(); },
+    });
+    return;
+  }
+
   const container = root();
   const { config } = state;
   const currentPick = currentPickNumber(state);
@@ -1511,6 +1599,10 @@ function renderDraft() {
   left.appendChild(el('button', {
     text: 'Reset draft', style: { marginTop: '12px' }, onClick: handleReset,
   }, []));
+  left.appendChild(el('button', {
+    text: 'End draft', style: { marginTop: '8px' },
+    onClick: () => { showingSummary = true; renderDraft(); },
+  }, []));
   left.appendChild(el('button', { text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
   const importInput = el('input', {
     type: 'file', accept: '.json,application/json', style: { display: 'none' },
@@ -1544,9 +1636,14 @@ function renderDraft() {
     poolSize,
   }, { onPick: handlePick, onUndo: handleUndo, onOffList: handleOffListPick });
 
+  // Keyed by teamIndex for the board; the same rows, sorted, feed the summary.
+  const gradeRows = gradeTeams(rostersByTeam(state, allPlayers), config.slots, config.teams);
+  const grades = new Map(gradeRows.map((r) => [r.teamIndex, r]));
+
   renderBoard(right, {
     state,
     allPlayers,
+    grades,
     // Drafted players included, each tagged with the pick holding him: choosing one
     // exchanges the two picks, which is the only way to fix a transposed pair.
     editablePool: playersWithPickNumbers(state, allPlayers),
@@ -1638,7 +1735,7 @@ function boardCells(state, allPlayers) {
   return grid;
 }
 
-function showRosterPopover(event, state, allPlayers, teamIndex) {
+function showRosterPopover(event, state, allPlayers, teamIndex, row) {
   closePopover();
   const { slots, rounds } = state.config;
   const roster = rosterFor(state, teamIndex, allPlayers);
@@ -1653,6 +1750,18 @@ function showRosterPopover(event, state, allPlayers, teamIndex) {
       el('span', { text: pos, style: { color: POSITION_COLORS[pos] } }, []),
       el('span', { class: `tier tier-${needs[pos]}`, text: needs[pos] }, []),
     ])),
+    el('div', { style: { marginTop: '8px', color: '#8b93a5' }, text: 'Picks' }, []),
+    // In pick order, which is what rosterFor returns — the slot layout above already
+    // answers "who starts", so this answers the different question of what they took.
+    ...roster.map((pl) => el('div', { class: 'pop-pick' }, [
+      el('span', { style: { color: POSITION_COLORS[pl.position] }, text: pl.position }, []),
+      el('span', { class: 'pop-pick-name', text: pl.name }, []),
+      el('span', { class: 'meta', text: String(pl.projectedPoints) }, []),
+    ])),
+    row ? el('div', { class: 'pop-grade' }, [
+      el('span', { text: `Grade ${row.grade}` }, []),
+      el('span', { class: 'meta', text: `${row.strength} projected starter pts` }, []),
+    ]) : null,
   ]);
 
   showPopover(pop, event);
@@ -1668,12 +1777,17 @@ function renderBoard(container, ctx) {
 
   const headerCells = [el('th', { class: 'rnd', text: 'R' }, [])];
   for (let teamIndex = 1; teamIndex <= numTeams; teamIndex += 1) {
+    const row = ctx.grades ? ctx.grades.get(teamIndex) : null;
+    // Children, not `text:` — el() applies text first and textContent clears children,
+    // so passing both would drop the grade without any error.
     headerCells.push(el('th', {
       class: teamIndex === myTeamIndex ? 'mine' : '',
-      text: teams[teamIndex - 1].name,
-      title: 'Click for this team\'s roster and needs',
-      onClick: (e) => showRosterPopover(e, state, allPlayers, teamIndex),
-    }, []));
+      title: `Click for ${teams[teamIndex - 1].name}'s roster, needs and grade`,
+      onClick: (e) => showRosterPopover(e, state, allPlayers, teamIndex, row),
+    }, [
+      el('div', { text: teams[teamIndex - 1].name }, []),
+      row ? el('div', { class: 'team-grade', text: row.grade }, []) : null,
+    ]));
   }
 
   const rows = boardCells(state, allPlayers).map((row, i) => {
@@ -2791,6 +2905,45 @@ function slotRow(slot) {
 
 __exports.playerMeta = playerMeta;
 __exports.slotRow = slotRow;
+
+});
+__def("ui/summary.js", function (__exports, __req) {
+const { el, clear } = __req('ui/dom.js');
+
+function renderSummary(container, ctx, handlers) {
+  clear(container);
+  const { rows, myTeamIndex } = ctx;
+
+  const rowNodes = rows.map((r) => el('div', {
+    class: r.teamIndex === myTeamIndex ? 'sum-row mine' : 'sum-row',
+  }, [
+    el('span', { class: 'sum-rank', text: String(r.rank) }, []),
+    el('span', { class: 'sum-name', text: r.name }, []),
+    el('span', { class: 'sum-grade', text: r.grade }, []),
+    el('span', { class: 'sum-pts', text: String(r.strength) }, []),
+  ]));
+
+  container.appendChild(el('div', { class: 'summary' }, [
+    el('h1', { text: 'Draft complete' }, []),
+    // The schedule is not in the data, so this is an ordering of preseason projections
+    // and nothing more. Saying so is the difference between information and a fake result.
+    el('p', { class: 'meta', text: 'Teams ranked by the projected points of the best lineup they can start. This is a preseason projection, not a predicted finish.' }, []),
+    // No sum-rank/sum-name/sum-grade/sum-pts classes here: those select a team's data
+    // cell, and reusing them on the header would let '#'/'Team'/'Grade'/'Proj' answer
+    // those queries too. The header still lines up under the grid via column order —
+    // `.sum-head` and `.sum-row` share the same grid-template-columns.
+    el('div', { class: 'sum-head' }, [
+      el('span', { text: '#' }, []),
+      el('span', { text: 'Team' }, []),
+      el('span', { text: 'Grade' }, []),
+      el('span', { text: 'Proj' }, []),
+    ]),
+    ...rowNodes,
+    el('button', { text: 'Back to draft', style: { marginTop: '16px' }, onClick: handlers.onBack }, []),
+  ]));
+}
+
+__exports.renderSummary = renderSummary;
 
 });
 __req("ui/app.js");
