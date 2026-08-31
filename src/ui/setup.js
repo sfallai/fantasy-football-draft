@@ -132,7 +132,7 @@ function playerPicker(players, initialId, onChange) {
   return wrap;
 }
 
-export function renderSetup(root, initialConfig, onStart, onImport) {
+export function renderSetup(root, initialConfig, onStart, onImport, tour = {}) {
   const players = window.PLAYERS || [];
   const config = { ...DEFAULT_CONFIG, ...initialConfig };
 
@@ -258,37 +258,59 @@ export function renderSetup(root, initialConfig, onStart, onImport) {
     el('h1', { text: 'Draft Assistant — Setup' }, []),
     errorBox,
 
-    el('h2', { text: 'League Settings' }, []),
-    el('div', { class: 'field-row' }, [
-      numberField('Teams', 'numTeams', 4, 16, onNumTeamsChange),
-      numberField('Rounds', 'rounds', 1, 30, onRoundsChange),
-      el('div', { class: 'field' }, [
-        el('label', { text: 'Scoring' }, []),
-        el('select', { disabled: 'disabled' }, [el('option', { text: 'Standard (non-PPR)' }, [])]),
-      ]),
-      el('div', { class: 'field' }, [
-        el('label', { text: 'Draft type' }, []),
-        el('select', { disabled: 'disabled' }, [el('option', { text: 'Snake' }, [])]),
+    // Shown once. Most first-time users would never find a button nobody told them
+    // about; anyone who has done this before loses one line of text.
+    tour.offerTour ? el('div', { class: 'tour-offer' }, [
+      el('span', { text: 'First time here?' }, []),
+      el('button', { class: 'btn-tour', text: 'Show me around', onClick: tour.onStartTour }, []),
+      // Dismissible, per the spec: once dismissed the line never returns. Without it
+      // someone who does not want the tour reads this on every visit forever, because
+      // the seen flag is only ever set by the tour itself. The glyph carries no
+      // meaning to a screen reader, hence the label.
+      tour.onDismiss ? el('button', {
+        class: 'btn-dismiss', text: '×', title: 'Dismiss', 'aria-label': 'Dismiss', onClick: tour.onDismiss,
+      }, []) : null,
+    ]) : null,
+
+    el('div', { class: 'setup-section', dataset: { tour: 'league' } }, [
+      el('h2', { text: 'League Settings' }, []),
+      el('div', { class: 'field-row' }, [
+        numberField('Teams', 'numTeams', 4, 16, onNumTeamsChange),
+        numberField('Rounds', 'rounds', 1, 30, onRoundsChange),
+        el('div', { class: 'field' }, [
+          el('label', { text: 'Scoring' }, []),
+          el('select', { disabled: 'disabled' }, [el('option', { text: 'Standard (non-PPR)' }, [])]),
+        ]),
+        el('div', { class: 'field' }, [
+          el('label', { text: 'Draft type' }, []),
+          el('select', { disabled: 'disabled' }, [el('option', { text: 'Snake' }, [])]),
+        ]),
       ]),
     ]),
 
-    el('h2', { text: 'Your Draft Position' }, []),
-    positionRow,
+    el('div', { class: 'setup-section', dataset: { tour: 'position' } }, [
+      el('h2', { text: 'Your Draft Position' }, []),
+      positionRow,
+    ]),
 
-    el('h2', { text: 'Roster Slots' }, []),
-    slotFields,
+    el('div', { class: 'setup-section', dataset: { tour: 'slots' } }, [
+      el('h2', { text: 'Roster Slots' }, []),
+      slotFields,
+    ]),
 
-    el('h2', { text: 'Teams & Keepers' }, []),
-    // Fixed-height scroller: changing the team count adds or removes rows inside
-    // this box rather than growing the page, so nothing below it — the Start Draft
-    // button in particular — shifts under the pointer mid-click.
-    el('div', { class: 'teams-scroll' }, [
-      el('table', { class: 'teams' }, [
-        el('thead', {}, [el('tr', {}, [
-          el('th', { text: '#' }, []), el('th', { text: 'Team name' }, []),
-          el('th', { text: 'Keeper (optional)' }, []), el('th', { text: 'Round' }, []),
-        ])]),
-        tbody,
+    el('div', { class: 'setup-section', dataset: { tour: 'teams' } }, [
+      el('h2', { text: 'Teams & Keepers' }, []),
+      // Fixed-height scroller: changing the team count adds or removes rows inside
+      // this box rather than growing the page, so nothing below it — the Start Draft
+      // button in particular — shifts under the pointer mid-click.
+      el('div', { class: 'teams-scroll' }, [
+        el('table', { class: 'teams' }, [
+          el('thead', {}, [el('tr', {}, [
+            el('th', { text: '#' }, []), el('th', { text: 'Team name' }, []),
+            el('th', { text: 'Keeper (optional)' }, []), el('th', { text: 'Round' }, []),
+          ])]),
+          tbody,
+        ]),
       ]),
     ]),
 
@@ -301,6 +323,7 @@ export function renderSetup(root, initialConfig, onStart, onImport) {
     el('button', {
       class: 'primary',
       text: 'Start Draft',
+      dataset: { tour: 'start' },
       onClick: () => {
         const built = buildConfig(form);
         const errors = validateConfig(built);

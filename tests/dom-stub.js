@@ -1,11 +1,22 @@
 // A dependency-free stand-in for the DOM surface that src/ui/ touches:
 // document.createElement, document.createTextNode, document.body,
-// document.getElementById, document add/removeEventListener, and on nodes
-// className, textContent, style, setAttribute, dataset, addEventListener,
-// appendChild (which also sets parentNode on the appended child, as a real DOM
-// does), firstChild/removeChild (so dom.js's clear() actually clears), replaceWith,
-// contains, a class-or-tag-only querySelector, and focus.
+// document.getElementById, document.querySelector, document add/removeEventListener,
+// and on nodes className, textContent, style, setAttribute, dataset,
+// addEventListener, appendChild (which also sets parentNode on the appended child,
+// as a real DOM does), firstChild/removeChild (so dom.js's clear() actually clears),
+// replaceWith, contains, querySelector, and focus.
+//
+// Nothing here measures or lays anything out: there is no layout engine, and
+// getBoundingClientRect exists only where an individual test stubs one onto a node.
+// Any test that cares about geometry has to state the rectangle itself.
 // Not a test file itself — the tests/**/*.test.js glob does not pick this up.
+
+// Real elements reflect `el.dataset.foo = x` into the `data-foo` attribute (and vice
+// versa) — they are two views of the same underlying storage. A selector-matcher
+// keyed on data-tour (or a test walking .attributes) has to see it either way.
+function toDataAttr(prop) {
+  return `data-${String(prop).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+}
 
 function makeElement(tag) {
   const node = {
@@ -13,7 +24,6 @@ function makeElement(tag) {
     nodeType: 1,
     className: '',
     style: {},
-    dataset: {},
     attributes: {},
     childNodes: [],
     children: [],
@@ -59,7 +69,7 @@ function makeElement(tag) {
       }
       return false;
     },
-    // Only the two selector shapes src/ui/ actually uses: '.class' and 'tag'.
+    // See matchesSelector below for the shapes understood.
     querySelector(selector) {
       return queryFrom(node, selector);
     },
@@ -67,6 +77,19 @@ function makeElement(tag) {
       node.focused = true;
     },
   };
+
+  node.dataset = new Proxy({}, {
+    set(target, prop, value) {
+      target[prop] = value;
+      node.attributes[toDataAttr(prop)] = value;
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      delete node.attributes[toDataAttr(prop)];
+      return true;
+    },
+  });
 
   let text = '';
   Object.defineProperty(node, 'textContent', {
@@ -81,11 +104,26 @@ function makeElement(tag) {
   return node;
 }
 
+// The selector shapes src/ui/ actually uses, and only those: a bare tag (`tbody`),
+// one or more classes (`.pop`, `.panel.left`), a tag followed by classes
+// (`table.board`), and a single attribute test (`[data-tour="league"]`). No
+// combinators, no descendant selectors — nothing in the app asks for one, and the
+// tour's anchors are the only reason this grew past `.class` and `tag`.
+const ATTR_SELECTOR = /^\[([^\]=]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]$/;
+
 function matchesSelector(node, selector) {
-  if (selector.startsWith('.')) {
-    return String(node.className || '').split(/\s+/).includes(selector.slice(1));
+  const attr = selector.match(ATTR_SELECTOR);
+  if (attr) {
+    const actual = node.attributes ? node.attributes[attr[1]] : undefined;
+    if (actual === undefined) return false;
+    const wanted = attr[2] ?? attr[3] ?? attr[4];
+    return wanted === undefined || String(actual) === wanted;
   }
-  return node.tagName === selector;
+  const parts = selector.split('.');
+  const tag = parts.shift();
+  if (tag && node.tagName !== tag) return false;
+  const classes = String(node.className || '').split(/\s+/);
+  return parts.every((name) => classes.includes(name));
 }
 
 function queryFrom(node, selector) {
@@ -111,6 +149,13 @@ function findById(node, id) {
   return null;
 }
 
+// addEventListener takes either a boolean or an options object as its third
+// argument, and the two must key the registry identically — a call site that added
+// with `true` and removed with `{capture: true}` would otherwise leak invisibly.
+function captureOf(options) {
+  return options === true || Boolean(options && options.capture);
+}
+
 // Installs a minimal `document` (and a `window` carrying viewport dimensions) on
 // globalThis and returns the document. Tests are free to extend either.
 export function installDomStub() {
@@ -123,7 +168,7 @@ export function installDomStub() {
     // part of that key. Modelling that is the whole point of popover.js's
     // containment-based dismissal, so the stub has to model it too.
     addEventListener(type, handler, options) {
-      const capture = Boolean(options && options.capture);
+      const capture = captureOf(options);
       const already = listeners.some(
         (l) => l.type === type && l.handler === handler && l.capture === capture,
       );
@@ -131,7 +176,7 @@ export function installDomStub() {
       listeners.push({ type, handler, capture });
     },
     removeEventListener(type, handler, options) {
-      const capture = Boolean(options && options.capture);
+      const capture = captureOf(options);
       const at = listeners.findIndex(
         (l) => l.type === type && l.handler === handler && l.capture === capture,
       );
@@ -139,6 +184,12 @@ export function installDomStub() {
     },
     // Test-only view of the registrations above.
     listeners,
+    // Without this every `doc.querySelector(...)` in src/ui/ resolves to null under
+    // test — which is how a tour ring drawn around an empty container shipped green.
+    // Searches from body, the same tree a real document.querySelector walks.
+    querySelector(selector) {
+      return queryFrom(document.body, selector);
+    },
     getElementById(id) {
       return findById(document.body, id);
     },

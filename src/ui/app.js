@@ -1,4 +1,5 @@
 import { el, clear, formatFetchedAt } from './dom.js';
+import { startTour, closeTour, SETUP_STEPS, DRAFT_STEPS, hasSeenTour, markTourSeen } from './tour.js';
 import { renderSetup } from './setup.js';
 import { renderMyTeam } from './myteam.js';
 import { renderCenter, resetView } from './center.js';
@@ -70,6 +71,11 @@ function appendFreshness(container, { wrap = null } = {}) {
 // this rather than calling a screen function directly, so `screen` and what the user is
 // looking at cannot drift apart.
 function render() {
+  // A tour describes the screen it was started on. Click-through is deliberate, so
+  // the very steps that ring Start Draft and End draft invite the click that changes
+  // screens — which would otherwise leave a stale ring at the old button's
+  // coordinates and a card counting steps of a screen that is no longer there.
+  closeTour();
   if (screen === 'setup') showSetup();
   else if (screen === 'summary') showSummary();
   else renderDraft();
@@ -90,7 +96,17 @@ function showSetup() {
   // Import lives here as well as on the draft screen. Every catastrophe a backup
   // exists for — wiped storage, another browser, another laptop — lands the user on
   // this screen, where the draft-screen buttons do not exist yet.
-  renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport);
+  renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport, {
+    offerTour: !hasSeenTour(),
+    // The tour sets the seen flag on close, but `offerTour` was read before it ran —
+    // so the line would sit there until the next visit. Re-render once the tour is
+    // done, whichever way it ended. Only if setup is still what is on screen: closing
+    // the tour by clicking Start Draft through the dim arrives here with `screen`
+    // already 'draft', and re-rendering setup would undo the draft the user started.
+    onStartTour: () => startTour(SETUP_STEPS, document, () => { if (screen === 'setup') render(); }),
+    // Dismissing is a decision, same as skipping: the offer never returns.
+    onDismiss: () => { markTourSeen(); render(); },
+  });
   appendFreshness(container, { wrap: 'freshness-card' });
 }
 
@@ -154,7 +170,10 @@ function handleReset() {
   // The centre panel's sort/filter/search is module state and would otherwise
   // survive into the next draft.
   resetView();
-  showSetup();
+  // Through render(), not showSetup() directly: it is render() that closes an open
+  // tour, and step 4 rings the panel this very button sits in.
+  screen = 'setup';
+  render();
 }
 
 // Blob and FileReader, not a library: the page ships as one self-contained file and
@@ -242,9 +261,9 @@ function renderDraft() {
     : [];
 
   clear(container);
-  const left = el('div', { class: 'panel' }, []);
+  const left = el('div', { class: 'panel left' }, []);
   const center = el('div', { class: 'panel center' }, []);
-  const right = el('div', { class: 'panel' }, []);
+  const right = el('div', { class: 'panel right' }, []);
 
   // localStorage can be unavailable or throw (Safari on file://, blocked site data,
   // quota). Saving then silently no-ops, and the user only finds out when a refresh
@@ -290,6 +309,10 @@ function renderDraft() {
   }, []);
   left.appendChild(el('button', { class: 'btn-import', text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
   left.appendChild(importInput);
+  left.appendChild(el('button', {
+    class: 'btn-tour', text: 'Show me around', style: { marginTop: '8px' },
+    onClick: () => startTour(DRAFT_STEPS),
+  }, []));
 
   renderCenter(center, {
     pool,

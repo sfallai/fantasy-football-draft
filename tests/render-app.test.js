@@ -52,6 +52,7 @@ document.body.appendChild(appRoot);
 // the test decides when init() runs.
 const { init } = await import('../src/ui/app.js');
 const { resetView } = await import('../src/ui/center.js');
+const { SETUP_STEPS, DRAFT_STEPS } = await import('../src/ui/tour.js');
 
 function find(node, predicate, out = []) {
   if (predicate(node)) out.push(node);
@@ -420,4 +421,92 @@ test('an earlier pick can be marked off-list from the board editor', () => {
   assert.ok(find(panels().center, (n) => n.textContent === 'Rival is on the clock').length,
     'and the clock has not moved back');
   assert.ok(rowFor(panels().center, 'Jahmyr Gibbs'), 'Gibbs is back in the pool');
+});
+
+test('the draft screen panels are individually addressable', () => {
+  // The tour anchors steps to selectors. Three panels sharing one class gives it
+  // nothing to point at.
+  stored.clear(); resetView();
+  stored.set(STORAGE_KEY, serialize(createState(CONFIG)));
+  init();
+  assert.equal(find(appRoot, (n) => String(n.className) === 'panel left').length, 1);
+  assert.equal(find(appRoot, (n) => String(n.className) === 'panel center').length, 1);
+  assert.equal(find(appRoot, (n) => String(n.className) === 'panel right').length, 1);
+});
+
+// --- Guided tour wiring. The tour is driven from app.js, so this is the only file
+// that can see it start, close and re-render the screen underneath it. ---
+
+const tourLayers = () => find(document.body, (n) => String(n.className) === 'tour-layer');
+
+function freshSetup() {
+  stored.clear();
+  resetView();
+  init();
+}
+
+test('changing screen closes a tour that described the screen you left', () => {
+  // Draft step 6 rings End draft, and .tour-layer is pointer-events: none so the
+  // click lands. Without closeTour() in render() the summary screen would come up
+  // under a stale ring at the old button's coordinates, over a card reading 6 of 6.
+  start();
+  button(panels().left, 'Show me around').listeners.click[0]();
+  assert.equal(tourLayers().length, 1, 'the draft tour is up');
+  button(panels().left, 'End draft').listeners.click[0]();
+  assert.equal(tourLayers().length, 0, 'and gone with the screen it described');
+});
+
+test('Reset draft closes the tour that pointed at it', () => {
+  // Step 4 rings .panel.left and its copy now names reset explicitly, so this is the
+  // button a first-timer is most likely to press mid-tour. handleReset() used to call
+  // showSetup() directly, which skipped the closeTour() that lives in render().
+  start();
+  button(panels().left, 'Show me around').listeners.click[0]();
+  // The card lives on document.body, not in the panel it points at.
+  for (let i = 0; i < 3; i += 1) button(document.body, 'Next').listeners.click[0]();
+  assert.match(find(document.body, (n) => n.className === 'tour-count')[0].textContent, /4 of 6/,
+    'on the step that rings the panel the reset button sits in');
+  button(panels().left, 'Reset draft').listeners.click[0]();
+  assert.equal(tourLayers().length, 0, 'no stale 4 of 6 card over the setup screen');
+});
+
+test('finishing the setup tour clears the offer without recursing', () => {
+  // close() runs onClose, which re-renders, which calls closeTour() again. If the
+  // live handle were not cleared before the callback this blows the stack.
+  freshSetup();
+  assert.equal(find(appRoot, (n) => n.className === 'tour-offer').length, 1,
+    'a first-time visitor is offered the tour');
+  button(appRoot, 'Show me around').listeners.click[0]();
+  find(document.body, (n) => String(n.className) === 'tour-skip')[0].listeners.click[0]();
+  assert.equal(tourLayers().length, 0);
+  assert.equal(find(appRoot, (n) => n.className === 'tour-offer').length, 0,
+    'the line goes as soon as the tour ends, not on the next visit');
+});
+
+test('the offer line can be dismissed, and never comes back', () => {
+  freshSetup();
+  const dismiss = find(appRoot, (n) => String(n.className) === 'btn-dismiss')[0];
+  assert.ok(dismiss, 'the offer carries a dismiss control');
+  assert.equal(dismiss.attributes['aria-label'], 'Dismiss', 'the glyph says nothing on its own');
+  dismiss.listeners.click[0]();
+  assert.equal(find(appRoot, (n) => n.className === 'tour-offer').length, 0, 'gone immediately');
+  assert.equal(tourLayers().length, 0, 'and dismissing never starts the tour');
+  init();
+  assert.equal(find(appRoot, (n) => n.className === 'tour-offer').length, 0, 'and on the next visit');
+});
+
+test('every tour anchor resolves against the screen it describes', () => {
+  // Anchor resolution is otherwise invisible: rename .btn-end-draft, table.board,
+  // .center-scroll or a data-tour value and the tour rings nothing at all while the
+  // suite stays green. Iterated over the exported arrays, not a hard-coded list, so
+  // a step added later is covered the day it lands.
+  freshSetup();
+  for (const step of SETUP_STEPS) {
+    assert.ok(document.querySelector(step.anchor), `setup step "${step.title}" anchors to ${step.anchor}`);
+  }
+
+  start();
+  for (const step of DRAFT_STEPS) {
+    assert.ok(document.querySelector(step.anchor), `draft step "${step.title}" anchors to ${step.anchor}`);
+  }
 });
