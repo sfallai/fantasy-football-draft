@@ -4,19 +4,12 @@ import { installDomStub } from './dom-stub.js';
 import { boardCells, renderBoard } from '../src/ui/board.js';
 import { DEFAULT_CONFIG, createState, applyPick, applyOffListPick, availablePlayers } from '../src/core/state.js';
 
+// No hand-rolled globals on top of this. installDomStub() already supplies a
+// document.body that removes children and a window with viewport dimensions — and the
+// stubbed-out document add/removeEventListener this file used to install destroyed the
+// stub's deliberately modelled listener dedupe, so any popover-dismissal test written
+// here would have passed without dismissing anything.
 installDomStub();
-if (!document.body) {
-  const body = document.createElement('body');
-  body.removeChild = (c) => {
-    body.childNodes = body.childNodes.filter((x) => x !== c);
-    body.children = body.children.filter((x) => x !== c);
-    return c;
-  };
-  document.body = body;
-}
-document.addEventListener = () => {};
-document.removeEventListener = () => {};
-globalThis.window = { innerWidth: 1400, innerHeight: 900 };
 
 function boardFixture() {
   const players = [
@@ -198,8 +191,8 @@ test('each team header carries its grade', () => {
 });
 
 test('a header still shows the team name alongside the grade', () => {
-  // el() sets `text` before children and textContent wipes child nodes, so a header
-  // built with both would silently lose the grade. Pin that it does not.
+  // The name and the grade are two separately styled lines, so the header is built
+  // entirely from children. Pin that adding the grade did not cost the name.
   const { state, players } = boardFixture();
   const container = document.createElement('div');
   renderBoard(container, {
@@ -232,4 +225,35 @@ test('the popover lists the team\'s picks as well as its slots and grade', () =>
   const pop = document.body.children.find((n) => (n.className || '').includes('roster-pop'));
   assert.ok(find(pop, (n) => n.className === 'pop-pick').length > 0, 'picks are listed');
   assert.ok(find(pop, (n) => n.className === 'pop-grade').length === 1, 'and the grade');
+  assert.equal(find(pop, (n) => n.className === 'pop-offlist').length, 0,
+    'and no off-list note when every pick resolved');
+});
+
+test('the popover says so when a team\'s picks could not all be counted', () => {
+  // rosterFor drops an off-list pick, so the picks list is shorter than the team's pick
+  // count and the grade treats that starting slot as empty. Silently, that reads as a
+  // bug; the line is what makes it read as the deliberate zero it is.
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  state = applyPick(state, 'b');
+  state = applyOffListPick(state); // pick 3 — round 2, team 2 in a two-team snake
+  const players = [
+    { id: 'a', name: 'Alpha Back', position: 'RB', team: 'DET', projectedPoints: 210, overallRank: 1, bye: 6 },
+    { id: 'b', name: 'Beta Wide', position: 'WR', team: 'CIN', projectedPoints: 190, overallRank: 2, bye: 9 },
+  ];
+  const container = document.createElement('div');
+  renderBoard(container, { state, allPlayers: players, editablePool: [], onEditPick() {} });
+
+  const headers = find(container, (n) => n.tagName === 'th' && n.children.length);
+  headers[1].listeners.click[0]({ clientX: 10, clientY: 10 });
+  const pop = document.body.children.find((n) => (n.className || '').includes('roster-pop'));
+  assert.equal(find(pop, (n) => n.className === 'pop-pick').length, 1, 'one countable pick');
+  const note = find(pop, (n) => n.className === 'pop-offlist')[0];
+  assert.ok(note, 'and the uncounted one is accounted for');
+  assert.equal(note.textContent, '1 off-list pick not counted');
+
+  // The other team lost nothing, so it says nothing.
+  headers[0].listeners.click[0]({ clientX: 10, clientY: 10 });
+  const mine = document.body.children.find((n) => (n.className || '').includes('roster-pop'));
+  assert.equal(find(mine, (n) => n.className === 'pop-offlist').length, 0);
 });

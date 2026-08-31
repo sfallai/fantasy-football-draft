@@ -39,6 +39,12 @@ function showRosterPopover(event, state, allPlayers, teamIndex, row) {
   const roster = rosterFor(state, teamIndex, allPlayers);
   const round = Math.min(rounds, Math.floor(roster.length) + 1);
   const needs = positionalNeeds(roster, slots, round, rounds);
+  // rosterFor drops every pick it cannot resolve to a player — off-list picks, and any
+  // id no longer in the pool. Without a word here the team simply shows fewer picks
+  // than it has made, and is graded as though the slot were empty, which reads as a bug
+  // rather than as the deliberate "a player with no projection scores zero".
+  const uncounted = Object.keys(state.picks)
+    .filter((pick) => state.picks[pick].teamIndex === teamIndex).length - roster.length;
 
   const pop = el('div', { class: 'roster-pop' }, [
     el('div', { style: { fontWeight: '600', marginBottom: '6px' }, text: state.config.teams[teamIndex - 1].name }, []),
@@ -56,6 +62,10 @@ function showRosterPopover(event, state, allPlayers, teamIndex, row) {
       el('span', { class: 'pop-pick-name', text: pl.name }, []),
       el('span', { class: 'meta', text: String(pl.projectedPoints) }, []),
     ])),
+    uncounted > 0 ? el('div', {
+      class: 'pop-offlist',
+      text: `${uncounted} off-list pick${uncounted === 1 ? '' : 's'} not counted`,
+    }, []) : null,
     row ? el('div', { class: 'pop-grade' }, [
       el('span', { text: `Grade ${row.grade}` }, []),
       el('span', { class: 'meta', text: `${row.strength} projected starter pts` }, []),
@@ -76,8 +86,10 @@ export function renderBoard(container, ctx) {
   const headerCells = [el('th', { class: 'rnd', text: 'R' }, [])];
   for (let teamIndex = 1; teamIndex <= numTeams; teamIndex += 1) {
     const row = ctx.grades ? ctx.grades.get(teamIndex) : null;
-    // Children, not `text:` — el() applies text first and textContent clears children,
-    // so passing both would drop the grade without any error.
+    // Two child elements rather than one `text:` plus a child: el() applies `text`
+    // before appending children, so both would in fact work — but the name and the
+    // grade are two separately styled lines (.team-grade is smaller and accented), and
+    // only a header built entirely from children can style each of them.
     headerCells.push(el('th', {
       class: teamIndex === myTeamIndex ? 'mine' : '',
       title: `Click for ${teams[teamIndex - 1].name}'s roster, needs and grade`,

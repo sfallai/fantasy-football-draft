@@ -201,7 +201,13 @@ table.board td.keeper::after { content: "K"; float: right; font-size: 9px; color
 table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
 @keyframes pulse { 0%, 100% { background: #2b2410; } 50% { background: #3a3016; } }
 
-.roster-pop { position: fixed; z-index: 40; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; font-size: 12px; }
+/* max-height + overflow, or the tail is unreachable: a full 15-round roster with its
+   slots, needs, picks list and grade runs to ~960px, taller than a 13" laptop viewport.
+   showPopover clamps top to max(0, innerHeight - height), so an over-tall popover pins
+   to top: 0 and everything past the fold — the picks and the grade — simply cannot be
+   seen, because nothing scrolls. Capped, that clamp is correct and the rest scrolls. */
+.roster-pop { position: fixed; z-index: 40; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; max-height: 80vh; overflow-y: auto; font-size: 12px; }
+.pop-offlist { margin-top: 6px; color: var(--muted); font-size: 11px; font-style: italic; }
 table.board th .team-grade { font-size: 10px; font-weight: 600; color: var(--accent); letter-spacing: 0.04em; }
 .pop-pick { display: grid; grid-template-columns: 28px 1fr 40px; gap: 6px; align-items: baseline; padding: 2px 0; font-size: 11px; }
 .pop-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
