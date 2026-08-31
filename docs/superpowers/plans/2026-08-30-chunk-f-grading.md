@@ -87,8 +87,13 @@ test('gradeTeams ranks by strength, best first', () => {
   const rows = gradeTeams(rosters, DEFAULT_SLOTS, teamsNamed('Weak', 'Strong', 'Middle'));
   assert.deepEqual(rows.map((r) => r.name), ['Strong', 'Middle', 'Weak']);
   assert.deepEqual(rows.map((r) => r.rank), [1, 2, 3]);
-  assert.equal(rows[0].grade, 'A+');
-  assert.equal(rows[2].grade, 'F');
+  // Strengths 300/200/100 give a standard deviation of 81.65, so the spread is
+  // z = +1.22 / 0 / -1.22 — an A and a D, not the A+ and F that three teams this far
+  // apart look like they ought to earn. The grade is relative to THIS league, and three
+  // teams cannot spread themselves more than about 1.2 standard deviations apart.
+  assert.equal(rows[0].grade, 'A');
+  assert.equal(rows[1].grade, 'B-', 'the team exactly at the mean');
+  assert.equal(rows[2].grade, 'D');
 });
 
 test('every team grades neutrally before anyone has picked', () => {
