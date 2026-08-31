@@ -10,7 +10,10 @@ export function renderSummary(container, ctx, handlers) {
     el('span', { class: 'sum-rank', text: String(r.rank) }, []),
     el('span', { class: 'sum-name', text: r.name }, []),
     el('span', { class: 'sum-grade', text: r.grade }, []),
-    el('span', { class: 'sum-pts', text: String(r.strength) }, []),
+    // toFixed(1), not String(): strengths are rounded to one decimal, but String(1300.0)
+    // is "1300", which sits a digit out of line beside "1450.5" and defeats the
+    // tabular-nums this column is set in.
+    el('span', { class: 'sum-pts', text: r.strength.toFixed(1) }, []),
   ]));
 
   container.appendChild(el('div', { class: 'summary' }, [

@@ -27,7 +27,9 @@ test('each row shows its rank, grade and projected points', () => {
   const cells = (cls) => walk(container).filter((n) => n.className === cls).map((n) => n.textContent);
   assert.deepEqual(cells('sum-rank'), ['1', '2', '3']);
   assert.deepEqual(cells('sum-grade'), ['A', 'B-', 'D']);
-  assert.deepEqual(cells('sum-pts'), ['1450.5', '1300', '1100.2']);
+  // One decimal on every row, including the whole number: the column is tabular-nums
+  // and right-aligned, so a bare "1300" beside "1450.5" sits a digit out of line.
+  assert.deepEqual(cells('sum-pts'), ['1450.5', '1300.0', '1100.2']);
 });
 
 test('the user\'s own team is marked', () => {
