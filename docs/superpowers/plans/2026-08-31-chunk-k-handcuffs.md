@@ -513,6 +513,11 @@ export function handcuffIdsFor(roster, slots) {
 Run: `node --test tests/handcuff.test.js`
 Expected: PASS, 7 tests.
 
+Then `npm test`: green **except** `tests/build.test.js`. The bundler inlines every file
+under `src/`, reachable or not, so creating `handcuff.js` makes `draft.html` stale the
+moment it exists — before anything imports it. Task 5 owns the rebuild. Do not run
+`npm run build` to make this go away.
+
 - [ ] **Step 5: Commit**
 
 ```bash
