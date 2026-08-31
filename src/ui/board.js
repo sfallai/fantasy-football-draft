@@ -33,7 +33,7 @@ export function boardCells(state, allPlayers) {
   return grid;
 }
 
-function showRosterPopover(event, state, allPlayers, teamIndex) {
+function showRosterPopover(event, state, allPlayers, teamIndex, row) {
   closePopover();
   const { slots, rounds } = state.config;
   const roster = rosterFor(state, teamIndex, allPlayers);
@@ -48,6 +48,18 @@ function showRosterPopover(event, state, allPlayers, teamIndex) {
       el('span', { text: pos, style: { color: POSITION_COLORS[pos] } }, []),
       el('span', { class: `tier tier-${needs[pos]}`, text: needs[pos] }, []),
     ])),
+    el('div', { style: { marginTop: '8px', color: '#8b93a5' }, text: 'Picks' }, []),
+    // In pick order, which is what rosterFor returns — the slot layout above already
+    // answers "who starts", so this answers the different question of what they took.
+    ...roster.map((pl) => el('div', { class: 'pop-pick' }, [
+      el('span', { style: { color: POSITION_COLORS[pl.position] }, text: pl.position }, []),
+      el('span', { class: 'pop-pick-name', text: pl.name }, []),
+      el('span', { class: 'meta', text: String(pl.projectedPoints) }, []),
+    ])),
+    row ? el('div', { class: 'pop-grade' }, [
+      el('span', { text: `Grade ${row.grade}` }, []),
+      el('span', { class: 'meta', text: `${row.strength} projected starter pts` }, []),
+    ]) : null,
   ]);
 
   showPopover(pop, event);
@@ -63,12 +75,17 @@ export function renderBoard(container, ctx) {
 
   const headerCells = [el('th', { class: 'rnd', text: 'R' }, [])];
   for (let teamIndex = 1; teamIndex <= numTeams; teamIndex += 1) {
+    const row = ctx.grades ? ctx.grades.get(teamIndex) : null;
+    // Children, not `text:` — el() applies text first and textContent clears children,
+    // so passing both would drop the grade without any error.
     headerCells.push(el('th', {
       class: teamIndex === myTeamIndex ? 'mine' : '',
-      text: teams[teamIndex - 1].name,
-      title: 'Click for this team\'s roster and needs',
-      onClick: (e) => showRosterPopover(e, state, allPlayers, teamIndex),
-    }, []));
+      title: `Click for ${teams[teamIndex - 1].name}'s roster, needs and grade`,
+      onClick: (e) => showRosterPopover(e, state, allPlayers, teamIndex, row),
+    }, [
+      el('div', { text: teams[teamIndex - 1].name }, []),
+      row ? el('div', { class: 'team-grade', text: row.grade }, []) : null,
+    ]));
   }
 
   const rows = boardCells(state, allPlayers).map((row, i) => {

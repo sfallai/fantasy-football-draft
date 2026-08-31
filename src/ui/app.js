@@ -8,6 +8,7 @@ import { positionalNeeds, benchDepthIfAdded } from '../core/roster.js';
 import { replacementPoints, withVbd } from '../core/vbd.js';
 import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
+import { gradeTeams } from '../core/grade.js';
 import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename } from '../core/state.js';
 
 let state = null;
@@ -267,9 +268,14 @@ function renderDraft() {
     poolSize,
   }, { onPick: handlePick, onUndo: handleUndo, onOffList: handleOffListPick });
 
+  // Keyed by teamIndex for the board; the same rows, sorted, feed the summary.
+  const gradeRows = gradeTeams(rostersByTeam(state, allPlayers), config.slots, config.teams);
+  const grades = new Map(gradeRows.map((r) => [r.teamIndex, r]));
+
   renderBoard(right, {
     state,
     allPlayers,
+    grades,
     // Drafted players included, each tagged with the pick holding him: choosing one
     // exchanges the two picks, which is the only way to fix a transposed pair.
     editablePool: playersWithPickNumbers(state, allPlayers),

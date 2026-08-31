@@ -5,6 +5,28 @@ import { boardCells, renderBoard } from '../src/ui/board.js';
 import { DEFAULT_CONFIG, createState, applyPick, applyOffListPick, availablePlayers } from '../src/core/state.js';
 
 installDomStub();
+if (!document.body) {
+  const body = document.createElement('body');
+  body.removeChild = (c) => {
+    body.childNodes = body.childNodes.filter((x) => x !== c);
+    body.children = body.children.filter((x) => x !== c);
+    return c;
+  };
+  document.body = body;
+}
+document.addEventListener = () => {};
+document.removeEventListener = () => {};
+globalThis.window = { innerWidth: 1400, innerHeight: 900 };
+
+function boardFixture() {
+  const players = [
+    { id: 'a', name: 'Alpha Back', position: 'RB', team: 'DET', projectedPoints: 210, overallRank: 1, bye: 6 },
+    { id: 'b', name: 'Beta Wide', position: 'WR', team: 'CIN', projectedPoints: 190, overallRank: 2, bye: 9 },
+  ];
+  let state = createState({ numTeams: 2, rounds: 2 });
+  state = applyPick(state, 'a');
+  return { state, players };
+}
 
 const PLAYERS = Array.from({ length: 60 }, (_, i) => ({
   id: `p${i + 1}`, name: `First Last${i + 1}`, team: 'XX',
@@ -162,4 +184,52 @@ test('only a filled cell carries the class the pointer cursor is scoped to', () 
   }
   assert.equal(cells.filter((c) => c.className.includes('filled')).length, 2,
     'the drafted pick and the off-list pick');
+});
+
+test('each team header carries its grade', () => {
+  const { state, players } = boardFixture();
+  const container = document.createElement('div');
+  const grades = new Map([[1, { grade: 'A+' }], [2, { grade: 'D' }]]);
+  renderBoard(container, {
+    state, allPlayers: players, grades, editablePool: [], onEditPick() {},
+  });
+  const shown = find(container, (n) => n.className === 'team-grade').map((n) => n.textContent);
+  assert.deepEqual(shown, ['A+', 'D']);
+});
+
+test('a header still shows the team name alongside the grade', () => {
+  // el() sets `text` before children and textContent wipes child nodes, so a header
+  // built with both would silently lose the grade. Pin that it does not.
+  const { state, players } = boardFixture();
+  const container = document.createElement('div');
+  renderBoard(container, {
+    state, allPlayers: players, grades: new Map([[1, { grade: 'B' }]]),
+    editablePool: [], onEditPick() {},
+  });
+  const header = find(container, (n) => n.tagName === 'th' && n.children.length)[0];
+  const texts = header.children.map((c) => c.textContent);
+  assert.ok(texts.some((t) => t.includes('Team')), 'the name survives');
+  assert.ok(texts.includes('B'), 'and so does the grade');
+});
+
+test('a board with no grades supplied still renders', () => {
+  // renderBoard is called before grades exist in at least one path; it must not throw.
+  const { state, players } = boardFixture();
+  const container = document.createElement('div');
+  renderBoard(container, { state, allPlayers: players, editablePool: [], onEditPick() {} });
+  assert.equal(find(container, (n) => n.className === 'team-grade').length, 0);
+});
+
+test('the popover lists the team\'s picks as well as its slots and grade', () => {
+  const { state, players } = boardFixture();
+  const container = document.createElement('div');
+  renderBoard(container, {
+    state, allPlayers: players, grades: new Map([[1, { grade: 'B', strength: 210 }]]),
+    editablePool: [], onEditPick() {},
+  });
+  find(container, (n) => n.tagName === 'th' && n.children.length)[0]
+    .listeners.click[0]({ clientX: 10, clientY: 10 });
+  const pop = document.body.children.find((n) => (n.className || '').includes('roster-pop'));
+  assert.ok(find(pop, (n) => n.className === 'pop-pick').length > 0, 'picks are listed');
+  assert.ok(find(pop, (n) => n.className === 'pop-grade').length === 1, 'and the grade');
 });
