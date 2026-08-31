@@ -450,13 +450,18 @@ test('the offensive group is found by its positions, never by its name', () => {
 });
 
 test('athletes are ordered by rank, not by the order the feed lists them', () => {
+  // The feed order must NOT put the asserted pair next to each other, or the test
+  // passes whether or not the sort happens. Here gibbs is last in the feed and first
+  // by rank: unsorted, he pairs with nobody; sorted, he pairs with pacheco.
   const charts = [chart([
     { name: '3WR 1TE', positions: {
       qb: { athletes: [athlete('goff', 1)] },
-      rb: { athletes: [athlete('third', 3), athlete('gibbs', 1), athlete('pacheco', 2)] },
+      rb: { athletes: [athlete('pacheco', 2), athlete('third', 3), athlete('gibbs', 1)] },
     } },
   ])];
-  assert.equal(depthMapFromCharts(charts).get('gibbs').backupId, 'pacheco');
+  const map = depthMapFromCharts(charts);
+  assert.equal(map.get('gibbs').backupId, 'pacheco');
+  assert.equal(map.get('third').backupId, null, 'and the last man by rank backs up nobody');
 });
 
 test('only qb, rb, wr and te are mapped', () => {
