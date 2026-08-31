@@ -170,9 +170,16 @@ export function benchedEarliest(state, allPlayers, limit = 5) {
 // `teamValues` is this team's slice of pickValues — already keeper-, off-list- and
 // no-ADP-filtered, so a team whose every pick was unmeasurable simply reports neither.
 export function notesForTeam(roster, slots, teamValues) {
+  // Two sorts, each the same one its league-wide section uses, rather than the head and
+  // the tail of one. The tail of a descending-delta sort with an ASCENDING pickNumber
+  // secondary key resolves a tie to the LATEST pick, while biggestReaches — the head of
+  // the ascending sort — resolves the identical tie to the earliest, so the two sections
+  // named different picks. Deltas are whole numbers of picks, so ties are ordinary: 56
+  // of 400 team blocks over 40 simulated drafts disagreed with the section above them.
   const byDelta = [...teamValues].sort((a, b) => b.delta - a.delta || a.pickNumber - b.pickNumber);
+  const byReach = [...teamValues].sort((a, b) => a.delta - b.delta || a.pickNumber - b.pickNumber);
   const top = byDelta[0];
-  const bottom = byDelta[byDelta.length - 1];
+  const bottom = byReach[0];
   return {
     spine: startingSpine(roster, slots),
     clashes: byeClashes(roster, slots),

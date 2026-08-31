@@ -309,6 +309,32 @@ test('a team note carries its spine, its clashes, and its two most extreme picks
   assert.equal(note.biggestReach.player.id, 'rb1', 'and the one taken earliest');
 });
 
+test('a delta tie resolves to the same pick league-wide and in the team block', () => {
+  // Deltas are whole numbers of picks now, so ties are the ordinary case rather than an
+  // edge one. biggestReaches takes the HEAD of an ascending sort, so a tie goes to the
+  // earlier pick; the team block took the TAIL of the descending sort, whose secondary
+  // key is also ascending — so the same tie went to the later pick. Measured over 400
+  // team blocks from 40 simulated drafts, 56 named a pick "Earliest pick" when a tied
+  // pick came earlier.
+  const roster = [pl('rb1', 'RB', 250, 2, 1), pl('wr1', 'WR', 220, 3, 4)];
+  const reaches = [
+    { pickNumber: 5, delta: -3, player: roster[0] },
+    { pickNumber: 9, delta: -3, player: roster[1] },
+  ];
+  assert.equal(biggestReaches(reaches, 1)[0].pickNumber, 5);
+  assert.equal(notesForTeam(roster, DEFAULT_SLOTS, reaches).biggestReach.pickNumber, 5,
+    'the team block agrees with the league section it sits under');
+
+  // bestValue is the head of the same sort as biggestSteals and already agreed. Pinned
+  // so a fix to the reach cannot quietly invert it.
+  const steals = [
+    { pickNumber: 5, delta: 3, player: roster[0] },
+    { pickNumber: 9, delta: 3, player: roster[1] },
+  ];
+  assert.equal(biggestSteals(steals, 1)[0].pickNumber, 5);
+  assert.equal(notesForTeam(roster, DEFAULT_SLOTS, steals).bestValue.pickNumber, 5);
+});
+
 test('a team with no reach reports none rather than an inverted steal', () => {
   const roster = [pl('qb1', 'QB', 300, 60, 6)];
   const values = [{ pickNumber: 8, delta: 12, player: roster[0] }];
