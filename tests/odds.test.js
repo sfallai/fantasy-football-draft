@@ -76,6 +76,27 @@ test('a missing spread produces no answer, not a confident one', () => {
   assert.equal(availabilityOdds(pl({ adpStdev: -3 }), 120, 141), null);
 });
 
+test('a spread that is not a real number is refused, not coerced', () => {
+  // The guard must be a type/finite check, not a falsy check. A falsy check passes for
+  // Infinity and for the string '11', and both then produce a CONFIDENT answer: with a
+  // falsy guard, adpStdev: Infinity returns probability 1, "Almost certainly still
+  // there", about a player whose spread is not a number at all.
+  assert.equal(availabilityOdds(pl({ adpStdev: Infinity }), 120, 141), null);
+  assert.equal(availabilityOdds(pl({ adpStdev: '11' }), 120, 141), null);
+  assert.equal(availabilityOdds(pl({ adpStdev: NaN }), 120, 141), null);
+  assert.equal(availabilityOdds(pl({ adp: '128' }), 120, 141), null);
+  assert.equal(availabilityOdds(pl({ adp: Infinity }), 120, 141), null);
+});
+
+test('the continuity correction is applied to both terms, not one', () => {
+  // Dropping the -0.5 from either term alone shifts the answer by about a point of
+  // probability — too small for the band assertions elsewhere to notice, and exactly the
+  // kind of silent drift a later edit could introduce.
+  const odds = availabilityOdds(pl({ adp: 128, adpStdev: 11, adpLatest: 200 }), 120, 141);
+  assert.ok(Math.abs(odds.probability - 0.1639) < 0.001,
+    `expected ~0.1639 with the correction on both terms, got ${odds.probability}`);
+});
+
 test('no next pick means no question to answer', () => {
   assert.equal(availabilityOdds(pl(), 120, null), null);
   assert.equal(availabilityOdds(pl(), 120, undefined), null);
