@@ -416,8 +416,16 @@ test('End draft ranks every team, and Back to draft returns to the board', () =>
   assert.match(sectionText(report, 'Where the league was wrong'),
     /1 startable RB went undrafted — anyone projecting above the replacement level of 271\.0\. The best still there is Jahmyr Gibbs, at 297\.1\./);
 
-  find(appRoot, (n) => n.tagName === 'button' && n.textContent === 'Back to draft')[0]
-    .listeners.click[0]();
+  // Two of them: the header's, and the one at the foot of a report that runs several
+  // screens. Nothing pinned summary.js actually forwarding onBack to renderReport —
+  // dropping that third argument left every non-build test green, which is the same
+  // gap the ctx.report assertion above exists to close, one argument to the right.
+  const backs = find(appRoot, (n) => n.tagName === 'button' && n.textContent === 'Back to draft');
+  assert.equal(backs.length, 2, 'a way back from the header and from the foot of the report');
+  assert.ok(find(report, (n) => n.tagName === 'button' && n.textContent === 'Back to draft').length,
+    'and the second one is inside the report, not floating after it');
+
+  backs[1].listeners.click[0]();
   assert.ok(find(panels().right, (n) => n.textContent === 'Draft Board').length,
     'and the draft is still there to go back to');
 });
