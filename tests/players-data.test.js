@@ -306,6 +306,13 @@ test('generated data/players.json matches the schema and covers all positions', 
     assert.equal(typeof p.positionRank, 'number');
     assert.equal(typeof p.projectedPoints, 'number');
     assert.ok(p.adp === null || typeof p.adp === 'number');
+    for (const field of ['adpStdev', 'adpEarliest', 'adpLatest', 'adpDrafts']) {
+      assert.ok(p[field] === null || typeof p[field] === 'number', `${p.name} ${field}`);
+    }
+    assert.ok(
+      p.adpEarliest === null || p.adpLatest === null || p.adpEarliest <= p.adpLatest,
+      `${p.name} adpEarliest ${p.adpEarliest} is later than adpLatest ${p.adpLatest}`,
+    );
     assert.ok(p.bye === null || typeof p.bye === 'number');
     assert.ok(p.age === null || typeof p.age === 'number', `${p.name} age`);
     assert.ok(
@@ -378,6 +385,15 @@ test('generated data/players.json matches the schema and covers all positions', 
     `only ${withAdp} of ${players.length} players have an ADP (expected at least `
     + `${adpFloor}) — Fantasy Football Calculator's response shape probably changed; `
     + 'run `git checkout data/players.json data/fetched-at.json` to restore the committed files',
+  );
+
+  // A join that silently stopped matching would leave every spread null while every
+  // other check above still passed — and the availability odds would then simply never
+  // appear, with nothing to say why.
+  const withSpread = players.filter((p) => p.adpStdev !== null).length;
+  assert.ok(
+    withSpread >= withAdp * 0.9,
+    `only ${withSpread} of ${withAdp} players with an ADP also have a spread — the FFC join has broken`,
   );
 
   // A rookie has no prior season by definition — that's what makes this predicate
