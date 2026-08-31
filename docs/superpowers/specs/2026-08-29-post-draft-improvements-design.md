@@ -336,21 +336,60 @@ button.
 
 ### H — Guided tour
 
-*From the distribution conversation, 2026-08-30. Agreed in shape, not yet designed.*
+*Shape agreed during the distribution conversation, 2026-08-30; designed 2026-08-31.*
 
-A **"First time? Show me around"** control that dims the page, rings one section at a
-time and explains it, with **Next** to advance. Skippable, and remembered once seen.
-No dependencies — an overlay and a highlight ring.
+A guided tour for people who have never drafted with this before — the twelve
+non-technical users the hosting work exists to serve.
 
-Agreed scope: **both the setup screen and the draft screen.** Setup is where a
-newcomer is stuck alone before the draft; the draft screen has far more surface —
-recommendations, sleepers, the board, click-to-edit — and needs its own step list.
+**Two tours, not one.** The setup steps all live on the setup screen and the draft
+steps all live on the draft screen, so these are two independent tours, each launched
+from the screen it describes. Neither ever changes `screen`. This is deliberate: a
+single tour navigating between screens would drive a re-render mid-step, and
+`renderDraft` returning early on the summary screen makes that a real hazard rather
+than a theoretical one.
 
-Deliberately undesigned so far: what the draft-screen steps are, and whether the tour
-should offer itself unprompted on a first visit or wait to be asked. Both want a
-proper design pass before implementation.
+**Setup steps (5):** league settings · your draft position · roster slots · teams and
+keepers · start draft.
 
-Build order agreed: distribution, then H, then F.
+**Draft steps (6):** who is on the clock · filter and double-click to record a pick ·
+your suggestions when it is your turn · your roster and needs · the board, where
+clicking a pick corrects it and a team name opens their roster · end draft.
+
+The second draft step is the core loop and the one thing a newcomer must leave knowing.
+
+**The overlay.** One positioned element provides both the ring and the dim: a
+transparent box outlined around the target carrying
+`box-shadow: 0 0 0 9999px rgba(0,0,0,.6)`, which darkens everything outside it.
+Alongside it sits a card with the step text and Back / Next / Skip. Escape closes the
+tour. Clicking the dim does **not** — it is too easy to lose your place halfway through.
+
+Each step names a CSS selector, measured with `getBoundingClientRect`. No dependency.
+
+**A missing anchor shows the card without a ring, and does not skip the step.** Draft
+step 3 is the case that will actually occur: the recommendations only exist when it is
+your turn, so anyone touring on another team's pick has no such element. Skipping it
+would quietly teach them the app has five steps rather than six. Instead the card shows
+centred, ringless, with text written to work either way — "when it is your turn, three
+suggestions appear here". They learn the thing exists, which is what a tour is for.
+
+**Offering it.** On a first visit the setup screen carries a dismissible line — *First
+time? Show me around* — beside the button. Once dismissed or completed it never returns,
+though the button stays. Most first-time users would never find a button they were not
+told about; an experienced drafter is not blocked by one line of text.
+
+A `seen` flag in `localStorage`. Where storage is unavailable — private windows, blocked
+site data, both already handled elsewhere in this app — the offer simply reappears each
+visit. A repeated line of text is a better failure than a tour nobody can find.
+
+**Testing.** The step lists, the advance/back/skip transitions and the seen-flag logic
+are pure and get real tests. **The positioning does not.** There is no layout engine in
+`tests/dom-stub.js`, which is precisely how the collapsed-recommendations bug reached a
+user. Whether the ring lands on the right element is a browser check, and the plan will
+say so rather than implying coverage.
+
+**Files.** `src/ui/tour.js` holds the feature. `src/ui/app.js` gains two call sites and
+touches no draft state. The left panel gains a `btn-tour` button; setup gains the offer
+line; `src/styles.css` gains the overlay rules.
 
 ### I — Draft report card
 
