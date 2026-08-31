@@ -63,7 +63,7 @@ test('every section renders its fact, in its own section', () => {
   assert.match(sectionText(c, 'Biggest steals'), /Steal Guy/);
   assert.match(sectionText(c, 'Biggest reaches'), /Reach Guy/);
   assert.match(sectionText(c, 'Where the league was wrong'), /Jordan Love/);
-  assert.match(sectionText(c, 'Earliest picks that never start'), /Bench Guy/);
+  assert.match(sectionText(c, 'Earliest picks that do not make a starting lineup'), /Bench Guy/);
   assert.match(sectionText(c, 'Team by team'), /Spine QB/);
 });
 
@@ -95,7 +95,7 @@ test('the blind spot states the count, the bar, and the best man left', () => {
 });
 
 test('a benched pick names the round that bought him and the team that did', () => {
-  assert.match(sectionText(render(FULL), 'Earliest picks that never start'),
+  assert.match(sectionText(render(FULL), 'Earliest picks that do not make a starting lineup'),
     /Round 3 · Rival — Bench Guy does not make their starting lineup\./);
 });
 
@@ -164,6 +164,46 @@ test('nothing on the report predicts a finish', () => {
   const text = textOf(render(FULL));
   assert.doesNotMatch(text, /\b\d+-\d+\b/, 'no win-loss record anywhere');
   assert.doesNotMatch(text, /\bwill\b/i, 'no prediction');
+});
+
+test('the blind spot explains its bar once, not on every row', () => {
+  // "the replacement level of 288.3" is jargon on a screen written for people who have
+  // never drafted. Repeating the definition on each of four rows would be worse than
+  // leaving it out — hence a section-level note, and hence the count.
+  const c = render({
+    ...FULL,
+    blindSpot: [
+      { position: 'RB', count: 6, bar: 167, best: pl('x', 'Left Back', 'RB', 190) },
+      { position: 'WR', count: 4, bar: 141.7, best: pl('y', 'Left Wide', 'WR', 160) },
+    ],
+  });
+  const spot = sectionText(c, 'Where the league was wrong');
+  assert.match(spot, /Replacement level is what the best player at that position nobody has to start projects/);
+  assert.equal(spot.split('Replacement level is').length - 1, 1, 'said once, over two rows');
+  // And it is a gloss on this section only.
+  assert.equal(textOf(c).split('Replacement level is').length - 1, 1);
+});
+
+test('the report offers its own way back, and works without one', () => {
+  // The header button is five screens up by the time the last team block ends, and the
+  // freshness stamp renders below the whole report — so the page used to end on a date.
+  let went = false;
+  const c = document.createElement('div');
+  renderReport(c, FULL, () => { went = true; });
+  const back = walk(c).filter((n) => n.tagName === 'button' && n.textContent === 'Back to draft');
+  assert.equal(back.length, 1);
+  assert.equal(walk(c).indexOf(back[0]), walk(c).length - 1, 'at the very end of the report');
+  back[0].listeners.click[0]();
+  assert.equal(went, true, 'and it is the same handler the header uses');
+
+  assert.equal(walk(render(FULL)).some((n) => n.tagName === 'button'), false,
+    'a caller that supplies no handler gets no button');
+});
+
+test('no heading claims a benched player never starts', () => {
+  // A bench WR3 starts on a bye week. The line under the heading already says the
+  // accurate thing — that he does not make their starting lineup.
+  assert.doesNotMatch(textOf(render(FULL)), /never/i);
 });
 
 test('the printed ADP is the one the gap was measured against, not a second rounding', () => {

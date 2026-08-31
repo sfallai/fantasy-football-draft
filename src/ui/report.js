@@ -4,10 +4,13 @@ import { el } from './dom.js';
 // rather than padded, and nothing is phrased as judgement: "34 picks after an ADP of
 // 62" is a measurement, "a steal of the draft" is the app claiming an authority it does
 // not have. It would also be obviously templated by the third team.
-function section(title, lines) {
+// `note` is a once-per-section gloss, not a per-line one — see the blind spot below,
+// where the alternative was repeating the same definition on every row.
+function section(title, lines, note = null) {
   if (lines.length === 0) return null;
   return el('div', { class: 'rep-section' }, [
     el('h2', { text: title }, []),
+    note ? el('p', { class: 'rep-note', text: note }, []) : null,
     ...lines,
   ]);
 }
@@ -23,8 +26,8 @@ const line = (text) => el('div', { class: 'rep-line', text }, []);
 // "before", and the count is a magnitude.
 const picks = (n) => (n === 1 ? '1 pick' : `${n} picks`);
 
-// "an ADP", never "his ADP": Eagles D/ST does not have a his, and the possessive adds
-// nothing to a player either.
+// "an ADP", never "his ADP": the possessive adds nothing, and it was wrong outright on
+// the D/ST lines this report used to be full of.
 //
 // `shownAdp`, not `Math.round(v.adp)`: the core measured the gap against the rounded
 // ADP, so printing a second, independent rounding beside it is two derivations of the
@@ -87,7 +90,13 @@ function teamBlock(team) {
   ]);
 }
 
-export function renderReport(container, report) {
+// One sentence, once, at the top of the section rather than on each of its four
+// possible rows. "the replacement level of 288.3" is jargon on a screen written for
+// people who have never drafted; the VBD column elsewhere at least has a tooltip.
+const REPLACEMENT_NOTE = 'Replacement level is what the best player at that position '
+  + 'nobody has to start projects — the bar a drafted player has to clear.';
+
+export function renderReport(container, report, onBack = null) {
   const sections = [
     section('Still on waivers', waiverLines(report.waivers)),
     section('Biggest steals', report.steals.map(stealLine)),
@@ -95,10 +104,20 @@ export function renderReport(container, report) {
     // Not "The league's blind spot": the section holds one row per position and can
     // hold QB, RB, WR and TE at once, so a singular heading is wrong three times in
     // four. This one reads the same over one row and over four.
-    section('Where the league was wrong', report.blindSpot.map(blindSpotLine)),
-    section('Earliest picks that never start', report.benched.map(benchLine)),
+    section('Where the league was wrong', report.blindSpot.map(blindSpotLine), REPLACEMENT_NOTE),
+    // Not "that never start". A bench WR3 starts on a bye week, so "never" states a
+    // season-long certainty the data cannot support — and the line underneath already
+    // says the accurate thing, that he does not make their starting lineup.
+    section('Earliest picks that do not make a starting lineup', report.benched.map(benchLine)),
     section('Team by team', report.teams.map(teamBlock)),
   ].filter(Boolean);
+
+  // A second Back to draft, at the bottom. The header one is five screens up by the
+  // time the last team block ends, and appendFreshness puts the data stamp below the
+  // whole report — so without this the last thing on the page is a date.
+  if (onBack) {
+    sections.push(el('button', { class: 'rep-back', text: 'Back to draft', onClick: onBack }, []));
+  }
 
   container.appendChild(el('div', { class: 'report' }, sections));
 }

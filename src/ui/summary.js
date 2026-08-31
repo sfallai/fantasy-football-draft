@@ -52,7 +52,7 @@ export function renderSummary(container, ctx, handlers) {
 
   // Optional: chunk F's summary renders without one, and so does any caller that has
   // not built a report.
-  if (ctx.report) renderReport(summary, ctx.report);
+  if (ctx.report) renderReport(summary, ctx.report, handlers.onBack);
 
   container.appendChild(summary);
 }

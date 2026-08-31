@@ -262,6 +262,10 @@ table.board td.cell.filled { cursor: pointer; }
   margin: 0 0 10px; font-size: 12px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--muted);
 }
+/* Sits between the heading and the rows, so it is set like the heading rather than
+   like a fact: this is the one line in the report that defines a word instead of
+   stating a measurement. */
+.rep-note { margin: -4px 0 8px; font-size: 12px; color: var(--muted); }
 .rep-line { padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .rep-line:last-child { border-bottom: none; }
 .rep-pos {
@@ -270,11 +274,16 @@ table.board td.cell.filled { cursor: pointer; }
 }
 .rep-team { margin-bottom: 18px; }
 .rep-team h3 { margin: 0 0 4px; font-size: 14px; }
-.rep-spine { padding: 5px 0; font-size: 13px; color: #c3c9d6; }
+/* var(--text), not a hardcoded #c3c9d6: the spine names players, exactly as the
+   .rep-line rows around it do, and every neighbouring rule here is on a token. */
+.rep-spine { padding: 5px 0; font-size: 13px; color: var(--text); }
 .rep-label {
   display: inline-block; width: 52px; color: var(--muted);
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
 }
+/* The report is five screens long and Back to draft otherwise lives only in the
+   header, above all of it. */
+.rep-back { margin-top: 4px; }
 
 /* ---- Guided tour ---- */
 .tour-layer { position: fixed; inset: 0; z-index: var(--z-tour); pointer-events: none; }
