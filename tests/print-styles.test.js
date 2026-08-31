@@ -9,8 +9,14 @@ import { readFileSync } from 'node:fs';
 const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 
 function printBlock() {
-  const at = css.indexOf('@media print');
-  assert.notEqual(at, -1, 'there is a print stylesheet at all');
+  // Anchored to the start of a line, not a bare indexOf: any COMMENT mentioning the
+  // at-rule by name would otherwise be found first, and the brace-count below would
+  // then walk from inside a comment and match the wrong closing brace. That is not
+  // hypothetical — a comment written above a new rule did exactly this and failed
+  // twelve assertions at once, in a way that pointed at the rule rather than the test.
+  const found = css.match(/^@media print/m);
+  assert.ok(found, 'there is a print stylesheet at all');
+  const at = found.index;
   // Brace-count to the matching close, so a later @media block cannot be read as part
   // of this one.
   let depth = 0;
