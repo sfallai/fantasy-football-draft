@@ -79,6 +79,42 @@ test('delta is picks past ADP: positive fell, negative went early', () => {
     [[1, 'rb1', -1], [2, 'wr2', -38], [3, 'fell', 2]]);
 });
 
+// 193 of the 219 ADPs in the shipped pool are fractional, so this is the ordinary case,
+// not an edge one. The renderer displays Math.round(adp) and delta side by side, so the
+// two have to be measured against each other rather than rounded independently.
+const FRACTIONAL = [
+  pl('onadp', 'RB', 250, 1.4, 1),
+  pl('reached', 'QB', 300, 6.4, 2),
+  pl('plain', 'WR', 200, 3, 3),
+  pl('fellback', 'TE', 150, 1.6, 4),
+  pl('halfway', 'WR', 220, 2.5, 5),
+];
+
+test('delta is a whole number of picks against the ADP as it is displayed', () => {
+  let state = fresh();
+  state = applyPick(state, 'onadp');     // pick 1, adp 1.4 -> ADP of 1, gap 0
+  state = applyPick(state, 'reached');   // pick 2, adp 6.4 -> ADP of 6, gap -4
+  state = applyPick(state, 'plain');     // pick 3, adp 3   -> ADP of 3, gap 0
+  state = applyPick(state, 'fellback');  // pick 4, adp 1.6 -> ADP of 2, gap +2
+  state = applyPick(state, 'halfway');   // pick 5, adp 2.5 -> ADP of 3, gap +2
+  const values = pickValues(state, FRACTIONAL);
+  assert.deepEqual(values.map((v) => [v.player.id, v.delta]),
+    [['onadp', 0], ['reached', -4], ['plain', 0], ['fellback', 2], ['halfway', 2]]);
+  // The two numbers the report prints have to reconcile to the pick that was made.
+  // Rounding them independently puts "12 picks after an ADP of 9" on pick 20.
+  for (const v of values) assert.equal(Math.round(v.adp) + v.delta, v.pickNumber);
+});
+
+test('a pick less than half a pick from his ADP is neither a steal nor a reach', () => {
+  // He went at his ADP as anyone would state it. "0 picks before his ADP of 1" is the
+  // non-fact the zero rule already forbids, arriving through a fractional ADP instead.
+  let state = fresh();
+  state = applyPick(state, 'onadp');     // pick 1 against an ADP of 1.4
+  const values = pickValues(state, FRACTIONAL);
+  assert.deepEqual(biggestSteals(values), []);
+  assert.deepEqual(biggestReaches(values), []);
+});
+
 test('each measured pick carries its round and the team that made it', () => {
   let state = fresh();
   state = applyPick(state, 'rb1');

@@ -35,8 +35,20 @@ export function stillOnWaivers(state, allPlayers, perPosition = WAIVERS_PER_POSI
 //   off-list     - no player exists behind the id at all.
 //   no ADP       - nothing to measure. Covers 3 of the top 160 on the shipped pool.
 //
-// delta is picks past ADP: POSITIVE means he fell (a steal), NEGATIVE means he went
-// early (a reach). Only the renderer, in a later task, negates it for display.
+// delta is a WHOLE number of picks measured against the ADP as the report displays it —
+// `pickNumber - Math.round(adp)`, not the raw difference. POSITIVE means he fell (a
+// steal), NEGATIVE means he went early (a reach); only the renderer negates it, and it
+// does no arithmetic on it beyond that.
+//
+// Rounded here rather than in the renderer for two reasons. The report prints the
+// rounded ADP beside the gap, and rounding the two independently makes them disagree:
+// pick 20 against an ADP of 8.5 rendered "12 picks after his ADP of 9", and 9 + 12 is
+// 21. And a raw delta in (-0.5, 0) is negative, so it passed the reach filter and then
+// displayed as zero — "0 picks before his ADP of 1", exactly the non-fact the zero rule
+// below forbids, reached through a fractional ADP. 193 of the 219 ADPs in the shipped
+// pool are fractional, so neither was rare. Whole picks against the displayed ADP fixes
+// both at once: the filters exclude the sub-half-pick cases for free, and the two
+// printed numbers always reconstruct the pick.
 export function pickValues(state, allPlayers) {
   const byId = new Map(allPlayers.map((pl) => [pl.id, pl]));
   const { numTeams, teams } = state.config;
@@ -57,7 +69,7 @@ export function pickValues(state, allPlayers) {
       teamName: team ? team.name : `Team ${entry.teamIndex}`,
       player,
       adp: player.adp,
-      delta: Math.round((pickNumber - player.adp) * 10) / 10,
+      delta: pickNumber - Math.round(player.adp),
     });
   }
 
