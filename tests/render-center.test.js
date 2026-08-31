@@ -358,3 +358,245 @@ test('re-rendering the panel closes an open popover', () => {
   draw();
   assert.equal(document.body.children.filter((n) => n.className.includes('pop')).length, 0);
 });
+
+// --- Handcuffs -------------------------------------------------------------------
+// `view.handcuffsOnly` is module-private with no setter, so every test below drives
+// the real button, exactly the way the `Available only` tests above do.
+
+// Extends the `player()` fixture rather than replacing it: Gibbs is the starter you
+// own, Pacheco is his backup, Jameson is a backup at another position — which is what
+// makes the AND with the position buttons observable.
+// The owned player is deliberate: without one, tablePlayers.length and pool.length are
+// equal, and the case-4 assertion on "this list of N players" cannot tell which of the
+// two the sentence is counting.
+const handcuffPool = () => [
+  player(),
+  player({ id: 'pacheco', name: 'Isiah Pacheco', team: 'KC', position: 'RB', overallRank: 40 }),
+  player({ id: 'jamo', name: 'Jameson Williams', team: 'DET', position: 'WR', overallRank: 41 }),
+  player({ id: 'gone', name: 'Already Drafted', team: 'NYJ', position: 'RB', overallRank: 42, ownerName: 'Team 3' }),
+];
+
+function renderWithHandcuffs(tablePlayers, handcuffIds) {
+  resetView();
+  const container = document.createElement('div');
+  renderCenter(container, { ...ctx(tablePlayers), handcuffIds },
+    { onPick() {}, onUndo() {}, onOffList() {} });
+  return container;
+}
+
+// A `.pname` cell holds a span per fragment (an optional rookie badge, then the name),
+// and the stub's textContent is empty on any node with children — so the name lives on
+// the last span, not on the cell.
+const shownNames = (container) => find(container, (n) => n.className === 'pname')
+  .map((cell) => cell.children[cell.children.length - 1].textContent);
+
+test('the handcuff button filters the table to your starters\' backups', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['pacheco']));
+  assert.deepEqual(shownNames(container).sort(),
+    ['Isiah Pacheco', 'Jahmyr Gibbs', 'Jameson Williams'], 'off by default');
+
+  button(container, 'Handcuffs').listeners.click[0]();
+  assert.deepEqual(shownNames(container), ['Isiah Pacheco']);
+  assert.equal(button(container, 'Handcuffs').className, 'selected', 'and the button says it is on');
+
+  button(container, 'Handcuffs').listeners.click[0]();
+  assert.equal(shownNames(container).length, 3, 'toggling it back off restores the board');
+});
+
+test('the handcuff filter is ANDed with the position buttons', () => {
+  // "My handcuffs, among RBs" is the question, and a position chip cannot express it.
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['pacheco', 'jamo']));
+  button(container, 'RB').listeners.click[0]();
+  button(container, 'Handcuffs').listeners.click[0]();
+  assert.deepEqual(shownNames(container), ['Isiah Pacheco'],
+    'a WR handcuff must not survive an RB filter');
+});
+
+test('the heading count follows the handcuff filter, like the table does', () => {
+  // Three call sites read visiblePlayers, one of them the count. A missed one shows a
+  // number that disagrees with the rows underneath it.
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['pacheco']));
+  button(container, 'Handcuffs').listeners.click[0]();
+  const heading = find(container, (n) => n.tagName === 'h2' && n.textContent.startsWith('Players'))[0];
+  assert.equal(heading.textContent, 'Players (1 shown · 3 available)');
+});
+
+test('the handcuff button says why the list is empty rather than showing nothing', () => {
+  // Round one: you own no starters, so the button correctly finds nothing. An empty
+  // table would read as a broken button.
+  const container = renderWithHandcuffs(handcuffPool(), new Set());
+  button(container, 'Handcuffs').listeners.click[0]();
+  assert.equal(bodyRows(container).length, 0);
+  const note = find(container, (n) => n.className === 'empty-note');
+  assert.equal(note.length, 1, 'the empty table is explained');
+  assert.match(note[0].textContent, /starting lineup/i, 'and names the reason: no starters yet');
+});
+
+test('the empty note tells "none yet" apart from "their backups are gone"', () => {
+  // The two cases resolve differently: one fixes itself as you draft, the other means
+  // the board genuinely has nothing left to show.
+  const pool = handcuffPool();
+  pool[1] = { ...pool[1], ownerName: 'Team 3' };
+  const container = renderWithHandcuffs(pool, new Set(['pacheco']));
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.ok(note, 'the empty table is explained here too');
+  assert.match(note.textContent, /still on the board/i);
+});
+
+// The variant has to be decided against the unfiltered available pool, not against the
+// fully-filtered rows. Deciding it on the rows made every other active filter — a
+// position chip, a search box — claim your handcuffs had been drafted, which is false
+// and sends you to look for a replacement you do not need.
+test('a position filter hiding your handcuff does not claim he is gone', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['pacheco']));
+  button(container, 'QB').listeners.click[0]();
+  button(container, 'Handcuffs').listeners.click[0]();
+  assert.equal(bodyRows(container).length, 0);
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.ok(note, 'the empty table is still explained');
+  assert.doesNotMatch(note.textContent, /still on the board/i,
+    'Pacheco is on the board — the QB button is what is hiding him');
+  assert.match(note.textContent, /hiding/i);
+  assert.match(note.textContent, /\b1\b/, 'and says how many are being hidden');
+});
+
+test('a search box hiding your handcuff does not claim he is gone either', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['pacheco']));
+  const input = find(container, (n) => n.tagName === 'input')[0];
+  button(container, 'Handcuffs').listeners.click[0]();
+  input.listeners.input[0]({ target: { value: 'zzzz' } });
+  assert.equal(bodyRows(container).length, 0);
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.ok(note, 'the empty table is still explained');
+  assert.doesNotMatch(note.textContent, /still on the board/i);
+  assert.match(note.textContent, /hiding/i);
+});
+
+// 121 of the 309 shipped backupIds point outside the 400-player pool — Josh Allen's,
+// for one. "Nobody took him" and "he was never in this app" are different absences and
+// resolve differently, so the copy must not conflate them.
+test('the empty note says running backs, because that is what the filter covers', () => {
+  // A lineup of five with no RB is an ordinary round-six state. Saying "the players in
+  // your starting lineup" tells that user they have no starters, which is false — and
+  // is the same species of untrue on-screen sentence the RB restriction removed.
+  const container = renderWithHandcuffs(handcuffPool(), new Set());
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.match(note.textContent, /running back/i);
+});
+
+test('one backup outside the list reads as one, not as several', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['deep-reserve']));
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.match(note.textContent, /That backup is/, 'singular for a single-RB lineup');
+  assert.doesNotMatch(note.textContent, /Those backups/);
+});
+
+test('two backups outside the list read as several', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['deep-reserve', 'deeper-reserve']));
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.match(note.textContent, /Those backups are/);
+});
+
+test('a backup who is not in the list at all is not reported as drafted', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['deep-reserve']));
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.ok(note);
+  assert.doesNotMatch(note.textContent, /still on the board/i,
+    'he was never on the board — nobody drafted him');
+  assert.match(note.textContent, /not draftable here/i);
+  // The list, not the available pool — handcuffPool() has an owned player precisely so
+  // those two numbers differ and `${pool.length}` cannot satisfy this.
+  assert.match(note.textContent, /\b4\b/, 'and names the size of the list he is outside');
+});
+
+// The stub has no layout engine, so it can only pin WHERE in the tree the note goes —
+// which is the whole fix. Appended to the flex column instead, it rendered at the very
+// bottom of the panel with an empty table grown above it, and on a short viewport it
+// was the first thing to shrink and then got clipped by .panel.center's overflow.
+// Only a browser can confirm the visual result.
+test('the empty note renders inside the table scrollport, where the rows would be', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set());
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.ok(note, 'the note is rendered');
+  assert.equal(note.parentNode.className, 'tablewrap',
+    'not appended to the panel below the table it replaces');
+});
+
+test('the empty note is gone once the filter has something to show', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['pacheco']));
+  button(container, 'Handcuffs').listeners.click[0]();
+  assert.equal(find(container, (n) => n.className === 'empty-note').length, 0);
+});
+
+// A recommendation carries a line when the player's own backup is still on the board:
+// a fact about what happens next, not a reason to draft him, which is why it lives on
+// the card rather than in reasonsFor's two slots. `pool` in ctx is already the
+// available players, so its membership is the whole test.
+const BACKED_UP_STARTER = player({ backupId: 'pacheco' });
+const THE_BACKUP = player({
+  id: 'pacheco', name: 'Isiah Pacheco', team: 'KC', position: 'RB', overallRank: 40,
+});
+
+// recommend() takes the top three, so a pool this small puts every fixture on a card —
+// the assertions below are then about the note, not about which player came back.
+function renderRecs(pool) {
+  resetView();
+  const container = document.createElement('div');
+  renderCenter(container, { ...ctx(pool), pool, isMyPick: true, needs: { RB: 'high' } },
+    { onPick() {}, onUndo() {}, onOffList() {} });
+  return container;
+}
+
+const recCards = (container) => find(container, (n) => n.className === 'rec');
+
+test('a recommendation says when the player\'s own backup is still available', () => {
+  // The useful direction: it tells you the insurance exists before you spend the pick.
+  const container = renderRecs([BACKED_UP_STARTER, THE_BACKUP]);
+  const cards = recCards(container);
+  assert.equal(cards.length, 2, 'both fixtures are recommended');
+
+  const noted = cards.filter((card) => find(card, (n) => n.className === 'backup-note').length);
+  assert.equal(noted.length, 1, 'only the player who has a backup gets the line');
+  // The card's .pname span holds the name directly, unlike the table cell's.
+  assert.equal(find(noted[0], (n) => n.className === 'pname')[0].textContent, 'Jahmyr Gibbs');
+  assert.match(find(noted[0], (n) => n.className === 'backup-note')[0].textContent, /Isiah Pacheco/);
+});
+
+test('no line when the backup has already gone', () => {
+  const container = renderRecs([BACKED_UP_STARTER]);
+  assert.equal(recCards(container).length, 1, 'he is still recommended');
+  assert.equal(find(container, (n) => n.className === 'backup-note').length, 0,
+    'omit rather than say "no backup available"');
+});
+
+test('a wide receiver gets no handcuff line, however available his WR2 is', () => {
+  // The WR2 is a starter in his own right, not the man who inherits the workload —
+  // this is exactly the false line the shipped pool put under Ja'Marr Chase.
+  const container = renderRecs([
+    player({ id: 'chase', name: 'Ja\'Marr Chase', team: 'CIN', position: 'WR', backupId: 'higgins' }),
+    player({ id: 'higgins', name: 'Tee Higgins', team: 'CIN', position: 'WR', overallRank: 45 }),
+  ]);
+  assert.equal(recCards(container).length, 2, 'both are still recommended');
+  assert.equal(find(container, (n) => n.className === 'backup-note').length, 0);
+});
+
+test('a quarterback gets no handcuff line either', () => {
+  const container = renderRecs([
+    player({ id: 'allen', name: 'Josh Allen', team: 'BUF', position: 'QB', backupId: 'trubisky' }),
+    player({ id: 'trubisky', name: 'Mitch Trubisky', team: 'BUF', position: 'QB', overallRank: 200 }),
+  ]);
+  assert.equal(find(container, (n) => n.className === 'backup-note').length, 0);
+});
+
+test('a backup outside the pool is not an error, it is simply no line', () => {
+  // backupId routinely points past the top 400, and both consumers handle it by omission.
+  const container = renderRecs([player({ backupId: 'somebody-unranked' })]);
+  assert.equal(recCards(container).length, 1);
+  assert.equal(find(container, (n) => n.className === 'backup-note').length, 0);
+});

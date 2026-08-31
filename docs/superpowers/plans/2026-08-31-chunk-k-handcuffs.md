@@ -23,7 +23,7 @@
 
 - **Depth chart** — `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/{SEASON}/teams/{teamId}/depthcharts`. Returns `items`, an array of groups. Each group has a `name` and a `positions` object keyed by lowercase slot (`qb`, `rb`, `wr`, `te`, plus offensive line and, in other groups, defence and special teams). Each position holds `athletes`, each with a `rank` and an `athlete.$ref` URL ending in the athlete id.
 - **The offensive group** — the one whose `positions` contain **both `qb` and `rb`**. Measured across four teams, the defensive group's name varies with scheme (`Base 3-4 D` / `Base 4-3 D`) while the offensive group happened to be `3WR 1TE` each time. **Never match on the name.**
-- **Handcuff** — the player at `rank + 1` at the same position on the same NFL team. Verified against Detroit: RB `1:Jahmyr Gibbs 2:Isiah Pacheco`, WR `1:Amon-Ra St. Brown 2:Jameson Williams`.
+- **Handcuff** — **at RB only**, the player at `rank + 1` on the same NFL team. Verified against Detroit: RB `1:Jahmyr Gibbs 2:Isiah Pacheco`. Corrected after the chunk K review: `rank + 1` is a depth fact at every position, but only at RB does it mean "inherits the workload" — WR `1:Amon-Ra St. Brown 2:Jameson Williams` is two starters, not a handcuff pair. See the spec's "What a handcuff is".
 - **Startable starter** — a player occupying a non-`BN` slot in `assignSlots(roster, slots)`. A bench body's backup is not a handcuff in any useful sense.
 
 ## File Structure
@@ -34,7 +34,7 @@
 | `data/players.json`, `data/fetched-at.json` (regenerated) | Task 2 only, via `npm run fetch`. |
 | `src/core/handcuff.js` (new) | `handcuffIdsFor(roster, slots)` — the ids backing up this roster's starters. Pure. |
 | `src/ui/center.js` (modify) | A `Handcuffs` toggle in `.filters`, ANDed into `visiblePlayers`, plus the empty-state sentence and a line on the recommendation card. |
-| `src/ui/app.js` (modify) | Pass the handcuff id set and the available-id set into `renderCenter`. |
+| `src/ui/app.js` (modify) | Pass the handcuff id set into `renderCenter`. Only that: `ctx.pool` is already the available players and `ctx.tablePlayers` is already every player, so no id set is needed for either. |
 | `src/styles.css` (modify) | One rule for the empty-state sentence. |
 | `draft.html` (regenerated) | Final task only. |
 
@@ -97,13 +97,17 @@ test('the offensive group is found by its positions, never by its name', () => {
 });
 
 test('athletes are ordered by rank, not by the order the feed lists them', () => {
+  // The feed order must NOT put the asserted pair next to each other, or the test
+  // passes whether or not the sort happens.
   const charts = [chart([
     { name: '3WR 1TE', positions: {
       qb: { athletes: [athlete('goff', 1)] },
-      rb: { athletes: [athlete('third', 3), athlete('gibbs', 1), athlete('pacheco', 2)] },
+      rb: { athletes: [athlete('pacheco', 2), athlete('third', 3), athlete('gibbs', 1)] },
     } },
   ])];
-  assert.equal(depthMapFromCharts(charts).get('gibbs').backupId, 'pacheco');
+  const map = depthMapFromCharts(charts);
+  assert.equal(map.get('gibbs').backupId, 'pacheco');
+  assert.equal(map.get('third').backupId, null, 'and the last man by rank backs up nobody');
 });
 
 test('only qb, rb, wr and te are mapped', () => {
@@ -513,6 +517,11 @@ export function handcuffIdsFor(roster, slots) {
 Run: `node --test tests/handcuff.test.js`
 Expected: PASS, 7 tests.
 
+Then `npm test`: green **except** `tests/build.test.js`. The bundler inlines every file
+under `src/`, reachable or not, so creating `handcuff.js` makes `draft.html` stale the
+moment it exists — before anything imports it. Task 5 owns the rebuild. Do not run
+`npm run build` to make this go away.
+
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -673,6 +682,14 @@ sentence instead of an empty table:
 Append its result (when not null) directly after the table, and rebuild it in
 `redrawTable` alongside the heading count so it tracks the filter.
 
+> **Corrected by the fix wave, twice.** (a) Two cases is wrong — the variant must be
+> decided against the unfiltered available `pool`, not the filtered rows, or every other
+> active filter claims your handcuffs have been drafted; and "still on the board" must not
+> be said about a backup who is outside the top 400 and was never listed. Four cases now.
+> (b) The note goes *inside* `.tablewrap`, not after it: appended to the panel's flex
+> column it renders below a full-height empty table and gets clipped on a short viewport.
+> See `tableSection` in `src/ui/center.js`.
+
 - [ ] **Step 5: Wire it in app.js**
 
 Add the import as its own single line:
@@ -686,7 +703,9 @@ In `renderDraft`, beside the existing `myRoster` computation, derive the set and
 
 - [ ] **Step 6: Style the note**
 
-Append to `src/styles.css`:
+Append to `src/styles.css` — but **check where the `@media print` block closes first**.
+That block is near the end of the file, and a naive append lands inside it, giving a rule
+that only exists on paper.
 
 ```css
 /* Shown in place of an empty table when the handcuff filter has nothing to list. */
@@ -775,6 +794,11 @@ function backupNote(player, pool) {
 
 Call it from `recommendationCard` next to the existing `byeWarning(...)` call, appending
 its result when not null. Pass `pool` through to the card if it is not already a parameter.
+
+> **Corrected by the fix wave:** the guard is
+> `if (!player.backupId || !HANDCUFF_POSITIONS.includes(player.position)) return null;`.
+> Ungated, this line was false on the four most-viewed cards in the app — a handcuff is a
+> running-back fact. See the spec's "What a handcuff is".
 
 Append to `src/styles.css`:
 

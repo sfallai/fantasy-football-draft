@@ -11,6 +11,7 @@ const ESPN_PLAYERS = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/se
 const ESPN_TEAMS = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}?view=proTeamSchedules_wl`;
 const FFC_ADP = `https://fantasyfootballcalculator.com/api/v1/adp/standard?teams=10&year=${SEASON}&position=all`;
 const ESPN_ATHLETE = (id) => `https://sports.core.api.espn.com/v3/sports/football/nfl/athletes/${id}`;
+const ESPN_DEPTH = (teamId) => `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/${SEASON}/teams/${teamId}/depthcharts`;
 // Polite to the endpoint and still finishes 400 lookups in well under a minute.
 const ATHLETE_CONCURRENCY = 8;
 // A regular season is 17 games. Games derived below can exceed that for a player who
@@ -114,7 +115,56 @@ export async function mapWithConcurrency(items, limit, fn) {
   return out;
 }
 
-export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Map()) {
+// K and DEF live in the Special Teams group and have no meaningful handcuff — they are
+// streamed off waivers, and the grade already ignores them.
+const DEPTH_POSITIONS = ['qb', 'rb', 'wr', 'te'];
+
+// The offensive group is identified by the positions it contains, never by its name:
+// measured across four teams, the defensive group is "Base 3-4 D" on some and
+// "Base 4-3 D" on others, and a formation name like "3WR 1TE" is not a contract.
+function offensiveGroup(chartJson) {
+  return (chartJson.items || []).find(
+    (group) => group.positions && group.positions.qb && group.positions.rb,
+  ) || null;
+}
+
+function athleteIdFromRef(entry) {
+  const ref = entry && entry.athlete && entry.athlete.$ref;
+  // Not `\d+`: production refs end in a numeric id, but that anchor was found to reject
+  // every one of the fixtures above, which use readable non-numeric ids for legibility.
+  // Any run of non-slash, non-query characters covers both without weakening the match —
+  // the segment still has to sit directly after "athletes/".
+  const match = typeof ref === 'string' ? ref.match(/athletes\/([^/?]+)/) : null;
+  return match ? match[1] : null;
+}
+
+// Each chart is self-contained: the pairs come from consecutive ranks within one
+// position group, so nothing here needs to know which team a chart came from. That
+// keeps a mismatch between fantasy proTeamId and core-API team id from silently
+// corrupting the map — a chart for the wrong team would simply attribute to nobody.
+export function depthMapFromCharts(chartsByTeam) {
+  const map = new Map();
+  for (const chartJson of chartsByTeam) {
+    if (!chartJson) continue;
+    const group = offensiveGroup(chartJson);
+    if (!group) continue;
+    for (const position of DEPTH_POSITIONS) {
+      const slot = group.positions[position];
+      if (!slot || !Array.isArray(slot.athletes)) continue;
+      const ordered = [...slot.athletes]
+        .sort((a, b) => a.rank - b.rank)
+        .map((entry) => ({ id: athleteIdFromRef(entry), rank: entry.rank }))
+        .filter((entry) => entry.id);
+      ordered.forEach((entry, i) => {
+        const next = ordered[i + 1];
+        map.set(entry.id, { depthRank: entry.rank, backupId: next ? next.id : null });
+      });
+    }
+  }
+  return map;
+}
+
+export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Map(), depthById = new Map()) {
   const teamsById = new Map();
   for (const t of teamsJson.settings.proTeams) {
     teamsById.set(t.id, { abbrev: t.abbrev, bye: t.byeWeek ?? null });
@@ -143,6 +193,7 @@ export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Ma
 
     const { age, experience } = athleteFields(isDef ? null : athletesById.get(String(p.id)));
     const ffc = (isDef ? adpByDefTeam.get(abbrev) : adpByName.get(normalizeName(p.fullName))) ?? null;
+    const depth = depthById.get(String(p.id)) || null;
 
     merged.push({
       id: isDef ? `DEF-${abbrev}` : String(p.id),
@@ -165,6 +216,10 @@ export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Ma
       age,
       experience,
       prior: priorSeasonLine(p, PRIOR_SEASON),
+      depthRank: depth ? depth.depthRank : null,
+      // May point at a player outside the 400-player pool. That is not an error — it
+      // means the handcuff is not draftable here, and the UI omits rather than invents.
+      backupId: depth ? depth.backupId : null,
     });
   }
 
@@ -190,6 +245,8 @@ export function mergePlayers(espnJson, teamsJson, ffcJson, athletesById = new Ma
       age: p.age,
       experience: p.experience,
       prior: p.prior,
+      depthRank: p.depthRank,
+      backupId: p.backupId,
     };
   });
 }
@@ -234,6 +291,21 @@ async function main() {
   console.log('Fetching FFC ADP...');
   const ffc = await getJson(FFC_ADP);
 
+  console.log('Fetching depth charts...');
+  const teamIds = teams.settings.proTeams.map((t) => t.id).filter(Boolean);
+  const charts = await mapWithConcurrency(teamIds, ATHLETE_CONCURRENCY, async (teamId) => {
+    // One team's chart failing must not fail the run — but it must be visible, because
+    // silently shipping 31 of 32 is the failure this reports on.
+    try {
+      return await getJson(ESPN_DEPTH(teamId));
+    } catch {
+      return null;
+    }
+  });
+  const depthById = depthMapFromCharts(charts);
+  const resolved = charts.filter(Boolean).length;
+  console.log(`Depth charts: ${resolved} of ${teamIds.length} teams, ${depthById.size} players ranked`);
+
   // Defenses have no athlete record — their id is derived from the team abbreviation.
   const athleteIds = espn.players
     .map((entry) => entry.player)
@@ -269,7 +341,7 @@ async function main() {
   console.log(`  ${foundAthletes}/${athleteIds.length} athlete lookups succeeded overall `
     + `(${recoveredByRetry} recovered by retry)`);
 
-  const players = mergePlayers(espn, teams, ffc, athletesById);
+  const players = mergePlayers(espn, teams, ffc, athletesById, depthById);
   const withAdp = players.filter((p) => p.adp !== null).length;
   const withAge = players.filter((p) => p.age !== null).length;
   const withPrior = players.filter((p) => p.prior !== null).length;

@@ -3,6 +3,7 @@ import { recommend, sleepers } from '../core/recommend.js';
 import { byeConflict } from '../core/roster.js';
 import { isRookie, priorSummary, matchesQuery } from '../core/player.js';
 import { showPopover, closePopover } from './popover.js';
+import { HANDCUFF_POSITIONS } from '../core/handcuff.js';
 
 export const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 export const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -44,7 +45,11 @@ export function formatVbd(vbd) {
 // `availableOnly` defaults on: the spec requires every player to have a row, but by
 // the middle rounds most of the region you scroll is greyed noise, and renderDraft
 // rebuilds the panel every pick so scroll position resets to the top each time.
-const DEFAULT_VIEW = { sortKey: 'overallRank', positions: [], query: '', availableOnly: true };
+// `handcuffsOnly` defaults off: in round one you own no starters, so it would empty
+// the board on a screen the user has not asked anything of yet.
+const DEFAULT_VIEW = {
+  sortKey: 'overallRank', positions: [], query: '', availableOnly: true, handcuffsOnly: false,
+};
 const view = { ...DEFAULT_VIEW };
 
 // Module state outlives a draft, so a reset has to put it back explicitly.
@@ -57,7 +62,7 @@ export function isTaken(player) {
 }
 
 // The rows the table will actually show, in order — also what the heading counts.
-export function visiblePlayers(tablePlayers) {
+export function visiblePlayers(tablePlayers, handcuffIds = new Set()) {
   // Backlog requirement: "Filter by name, always show result but no selectable if
   // already drafted (if on team show team)". Available only is a browsing aid for
   // the unfiltered list; the moment a query narrows the pool, its matches — drafted
@@ -65,7 +70,10 @@ export function visiblePlayers(tablePlayers) {
   const hasQuery = view.query.trim().length > 0;
   return filterByPositions(sortPlayers(tablePlayers, view.sortKey), view.positions)
     .filter((pl) => matchesQuery(pl, view.query))
-    .filter((pl) => hasQuery || !view.availableOnly || !isTaken(pl));
+    .filter((pl) => hasQuery || !view.availableOnly || !isTaken(pl))
+    // ANDed with the position buttons rather than folded into them: "my handcuffs,
+    // among RBs" is the question, and a position chip cannot express it.
+    .filter((pl) => !view.handcuffsOnly || handcuffIds.has(pl.id));
 }
 
 function byeWarning(player, myRoster, slots) {
@@ -73,7 +81,26 @@ function byeWarning(player, myRoster, slots) {
   return clash ? el('div', { class: 'bye-warn', text: `⚠ Bye ${player.bye} — same week as your ${player.position} ${clash}` }, []) : null;
 }
 
-function recommendationCard(rec, myRoster, slots) {
+// A fact about what happens next, not a reason to draft him — which is why it is a line
+// on the card rather than an entry in reasonsFor, whose two slots are for reasons. The
+// pool passed in is already the available players, so membership is the whole check, and
+// a backupId pointing outside it (common — depth charts run past the top 400) is not an
+// error: the absence of the line is the message, never "no handcuff available".
+//
+// Running backs only, matching HANDCUFF_POSITIONS — see the reasoning there. Without
+// this gate the four most-viewed cards in the shipped pool each carried a false line:
+// "Handcuff available: Tee Higgins" under Ja'Marr Chase, and three more like it.
+// `pool` needs no guard: recommendationCard is only reached inside `if (isMyPick &&
+// pool.length)`.
+function backupNote(player, pool) {
+  if (!player.backupId || !HANDCUFF_POSITIONS.includes(player.position)) return null;
+  const backup = pool.find((pl) => pl.id === player.backupId);
+  return backup
+    ? el('div', { class: 'backup-note', text: `Handcuff available: ${backup.name}` }, [])
+    : null;
+}
+
+function recommendationCard(rec, myRoster, slots, pool) {
   const pl = rec.player;
   return el('div', {
     class: 'rec',
@@ -92,6 +119,9 @@ function recommendationCard(rec, myRoster, slots) {
     }, []),
     ...rec.reasons.map((reason) => el('div', { class: 'why', text: reason }, [])),
     byeWarning(pl, myRoster, slots),
+    // The whole pool, not the position-filtered `targeted` list: whether his backup is
+    // still there does not depend on which positions you happen to be looking at.
+    backupNote(pl, pool),
   ]);
 }
 
@@ -116,8 +146,8 @@ function sleeperCard(gamble, myRoster, slots) {
   ]);
 }
 
-function playerTable(tablePlayers, onPick) {
-  const rows = visiblePlayers(tablePlayers)
+function playerTable(tablePlayers, onPick, handcuffIds) {
+  const rows = visiblePlayers(tablePlayers, handcuffIds)
     .map((pl) => {
       const taken = isTaken(pl);
       const name = el('td', {
@@ -226,7 +256,7 @@ export function renderCenter(container, ctx, handlers) {
 
   const {
     pool, tablePlayers, needs, surplus, currentPick, nextPick, round, numTeams, isMyPick, pickingTeamName, notes,
-    vbdScale, poolSize, myRoster, slots,
+    vbdScale, poolSize, myRoster, slots, handcuffIds = new Set(),
   } = ctx;
 
   container.appendChild(el('div', { class: 'pick-info' }, [
@@ -281,7 +311,7 @@ export function renderCenter(container, ctx, handlers) {
     scroll.appendChild(el('h2', {
       text: view.positions.length ? `Recommended — ${view.positions.join(', ')}` : 'Recommended',
     }, []));
-    for (const rec of recs) scroll.appendChild(recommendationCard(rec, myRoster, slots));
+    for (const rec of recs) scroll.appendChild(recommendationCard(rec, myRoster, slots, pool));
 
     const gambles = sleepers(targeted, {
       currentPick,
@@ -297,7 +327,7 @@ export function renderCenter(container, ctx, handlers) {
   setScrollHint(scroll);
 
   const headingText = () =>
-    `Players (${visiblePlayers(tablePlayers).length} shown · ${pool.length} available)`;
+    `Players (${visiblePlayers(tablePlayers, handcuffIds).length} shown · ${pool.length} available)`;
   const heading = el('h2', { text: headingText() }, []);
 
   // Deliberately its own button rather than another position chip: chunk D turns
@@ -319,9 +349,74 @@ export function renderCenter(container, ctx, handlers) {
   }
   syncAvailableOnlyBtn();
 
+  // Its own button for the same reason Available only is: it is not a position, and
+  // the position row is a multi-select whose ALL/clear semantics this would collide
+  // with. ANDed with that row, so "my handcuffs, among RBs" is expressible.
+  const handcuffBtn = el('button', {
+    class: view.handcuffsOnly ? 'selected' : '',
+    text: 'Handcuffs',
+    title: 'Show only the backups to the running backs in your starting lineup',
+    onClick: () => { view.handcuffsOnly = !view.handcuffsOnly; rerender(); },
+  }, []);
+
+  // An empty table reads as a bug, so it gets a sentence. Which reason it is matters —
+  // they resolve four different ways — and the reason is decided against the UNFILTERED
+  // pool, never against the rows. Deciding it on the rows was the original bug: any
+  // other active filter (a position chip, a search box) emptied the table and the note
+  // then claimed your handcuffs had been drafted, which sends you hunting a replacement
+  // you do not need.
+  //
+  // `pool` is the available players and `tablePlayers` is every player in the list, and
+  // the difference between them is the difference between "somebody took him" and "he
+  // was never in this app": 121 of the 309 shipped backupIds point outside the top 400.
+  function handcuffEmptyNote() {
+    if (!view.handcuffsOnly || visiblePlayers(tablePlayers, handcuffIds).length > 0) return null;
+    const availableHandcuffs = pool.filter((pl) => handcuffIds.has(pl.id)).length;
+    const listedHandcuffs = tablePlayers.filter((pl) => handcuffIds.has(pl.id)).length;
+    let text;
+    if (handcuffIds.size === 0) {
+      // "running backs", not "players": a lineup of five with no RB is a real round-six
+      // state, and the old wording told that user they had no starters.
+      text = 'No handcuffs yet — this shows the backups to the running backs in your starting lineup, once you have one.';
+    } else if (availableHandcuffs > 0) {
+      text = availableHandcuffs === 1
+        ? '1 of your starters\' backups is still available — your other filters are hiding him.'
+        : `${availableHandcuffs} of your starters' backups are still available — your other filters are hiding them.`;
+    } else if (listedHandcuffs > 0) {
+      text = 'None of your starters\' backups are still on the board.';
+    } else {
+      // Never drafted — never here. Saying "gone" about a player who was never listed
+      // is the one thing this sentence must not do.
+      // Singular when there is one, like the case above it. In this branch every id in
+      // the set is outside the list, so the set's own size is the count — a single-RB
+      // lineup whose one backup is not in the top 400 is the common way to get here.
+      text = handcuffIds.size === 1
+        ? `That backup is outside this list of ${tablePlayers.length} players, so he is not draftable here.`
+        : `Those backups are outside this list of ${tablePlayers.length} players, so they are not draftable here.`;
+    }
+    return el('div', { class: 'empty-note', text }, []);
+  }
+
+  // The note goes INSIDE .tablewrap, in place of the rows it is explaining the absence
+  // of. Appended to the flex column instead, it landed at the very bottom of the panel
+  // with an empty table grown above it — `.panel.center .tablewrap` is `flex: 1 1 0`
+  // and takes everything the pinned chrome leaves — so the sentence sat far from what
+  // it explains. Worse, it had no `flex: 0 0 auto` and no `min-height` of its own, so
+  // on a short viewport with a full recommendations block it was the first thing to
+  // shrink and then `.panel.center { overflow: hidden }` clipped it. Inside the
+  // scrollport it inherits the table's sizing and scrolls with it instead.
+  //
+  // Rebuilt rather than shown/hidden, because its text depends on the filter result.
+  function tableSection() {
+    const wrap = playerTable(tablePlayers, handlers.onPick, handcuffIds);
+    const note = handcuffEmptyNote();
+    if (note) wrap.appendChild(note);
+    return wrap;
+  }
+
   function redrawTable() {
     const wrap = container.querySelector('.tablewrap');
-    if (wrap) wrap.replaceWith(playerTable(tablePlayers, handlers.onPick));
+    if (wrap) wrap.replaceWith(tableSection());
     // The count is a count of what is on screen, so it moves with the table.
     heading.textContent = headingText();
     syncAvailableOnlyBtn();
@@ -357,12 +452,13 @@ export function renderCenter(container, ctx, handlers) {
     filterInput,
     el('button', { text: '✕', title: 'Clear the filter', onClick: () => { view.query = ''; rerender(); } }, []),
     availableOnlyBtn,
+    handcuffBtn,
     el('button', { text: '?', title: 'What do these mean?', onClick: (e) => showPopover(glossaryPopover(), e) }, []),
   ]);
 
   container.appendChild(heading);
   container.appendChild(filters);
-  container.appendChild(playerTable(tablePlayers, handlers.onPick));
+  container.appendChild(tableSection());
 
   // Focus is restored after each render so the user can filter pick after pick
   // without reaching for the mouse. preventScroll: true because focus() otherwise
