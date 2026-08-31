@@ -207,7 +207,13 @@ table.board td.keeper::after { content: "K"; float: right; font-size: 9px; color
 table.board .rnd { color: var(--muted); text-align: center; width: 28px; }
 @keyframes pulse { 0%, 100% { background: #2b2410; } 50% { background: #3a3016; } }
 
-.roster-pop { position: fixed; z-index: 40; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; font-size: 12px; }
+/* max-height + overflow, or the tail is unreachable: a full 15-round roster with its
+   slots, needs, picks list and grade runs to ~960px, taller than a 13" laptop viewport.
+   showPopover clamps top to max(0, innerHeight - height), so an over-tall popover pins
+   to top: 0 and everything past the fold — the picks and the grade — simply cannot be
+   seen, because nothing scrolls. Capped, that clamp is correct and the rest scrolls. */
+.roster-pop { position: fixed; z-index: 40; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; max-width: 260px; max-height: 80vh; overflow-y: auto; font-size: 12px; }
+.pop-offlist { margin-top: 6px; color: var(--muted); font-size: 11px; font-style: italic; }
 table.board th .team-grade { font-size: 10px; font-weight: 600; color: var(--accent); letter-spacing: 0.04em; }
 .pop-pick { display: grid; grid-template-columns: 28px 1fr 40px; gap: 6px; align-items: baseline; padding: 2px 0; font-size: 11px; }
 .pop-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -228,6 +234,8 @@ table.board td.cell.filled { cursor: pointer; }
    edge lines up with the card's, not the browser window's — .freshness is a sibling
    of .setup, not a child, so it needs its own copy of the same width and centering. */
 .freshness-card { max-width: 900px; margin: 0 auto; }
+/* Same trick for the summary screen, whose card is 620px wide rather than 900px. */
+.freshness-summary { max-width: 620px; margin: 0 auto; }
 
 /* ---- Summary ---- */
 .summary { max-width: 620px; margin: 40px auto; padding: 0 16px; }
@@ -367,12 +375,17 @@ function gradeTeams(rostersByTeam, slots, teams) {
   const count = rows.length || 1;
   const mean = rows.reduce((sum, r) => sum + r.strength, 0) / count;
   const sd = Math.sqrt(rows.reduce((sum, r) => sum + (r.strength - mean) ** 2, 0) / count);
+  // A tolerance, not `sd === 0`. Equal strengths that are not exactly representable in
+  // binary (203.7, say) leave `mean` off by ~1e-13, every deviation becomes the same
+  // tiny non-zero number, and z = d/|d| collapses to exactly ±1 for the whole league —
+  // an identical league graded D+ across the board. Below this, there is no information.
+  const flat = Math.abs(sd) < 1e-9;
 
   return rows
     .map((r) => ({
       ...r,
-      z: sd === 0 ? 0 : (r.strength - mean) / sd,
-      grade: sd === 0 ? NEUTRAL_GRADE : gradeFor((r.strength - mean) / sd),
+      z: flat ? 0 : (r.strength - mean) / sd,
+      grade: flat ? NEUTRAL_GRADE : gradeFor((r.strength - mean) / sd),
     }))
     .sort((a, b) => b.strength - a.strength || a.teamIndex - b.teamIndex)
     .map((r, i) => ({ ...r, rank: i + 1 }));
@@ -1365,9 +1378,12 @@ const { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListP
 
 let state = null;
 let allPlayers = [];
+// Which screen is showing, as one value rather than a flag plus `state === null`.
 // The summary replaces the three panels rather than overlaying them: it is a place you go,
-// and a draft that is over has nothing behind it worth seeing through a scrim.
-let showingSummary = false;
+// and a draft that is over has nothing behind it worth seeing through a scrim — so a
+// re-render has to be told which screen to draw, not guess from two variables that can
+// disagree. Anything that drives the app from outside (a guided tour, a test) can ask.
+let screen = 'setup';
 let replacement = null;
 // Fixed for the whole draft, exactly like `replacement` — see recommend().
 let vbdScale = 1;
@@ -1398,35 +1414,60 @@ function root() {
   return document.getElementById('app');
 }
 
-// Shown on both screens: someone deciding whether to trust these rankings needs the
-// answer before they start a draft, not only during one.
+// Shown on all three screens: someone deciding whether to trust these rankings needs
+// the answer before they start a draft, during one, and when reading the grades they
+// produced.
 //
-// `card` matches this to the 900px centred `.setup` card it sits beside — without it
-// the line is `container`'s sibling and right-aligns to the browser window instead of
-// the card, which reads as a mistake next to a panel that has visibly stopped short
-// of the edge.
-function appendFreshness(container, { card = false } = {}) {
+// `wrap` names a class that matches this to the centred card it sits beside — .setup is
+// 900px, .summary 620px. Without it the line is `container`'s sibling and right-aligns
+// to the browser window instead of the card, which reads as a mistake next to a panel
+// that has visibly stopped short of the edge. The draft screen needs no wrapper: there
+// the line goes inside the right-hand panel, which is already the right width.
+function appendFreshness(container, { wrap = null } = {}) {
   const stamp = formatFetchedAt(window.DATA_FETCHED_AT);
   if (!stamp) return;
   const line = el('div', { class: 'freshness', text: `Player data as of ${stamp}` }, []);
-  container.appendChild(card ? el('div', { class: 'freshness-card' }, [line]) : line);
+  container.appendChild(wrap ? el('div', { class: wrap }, [line]) : line);
+}
+
+// The one place that decides what is on screen. Every handler below re-renders through
+// this rather than calling a screen function directly, so `screen` and what the user is
+// looking at cannot drift apart.
+function render() {
+  if (screen === 'setup') showSetup();
+  else if (screen === 'summary') showSummary();
+  else renderDraft();
 }
 
 function startDraft(config) {
   state = createState(config);
+  screen = 'draft';
   recomputeBaselines();
   persist();
-  renderDraft();
+  render();
 }
 
 function showSetup() {
+  screen = 'setup';
   const container = root();
   clear(container);
   // Import lives here as well as on the draft screen. Every catastrophe a backup
   // exists for — wiped storage, another browser, another laptop — lands the user on
   // this screen, where the draft-screen buttons do not exist yet.
   renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport);
-  appendFreshness(container, { card: true });
+  appendFreshness(container, { wrap: 'freshness-card' });
+}
+
+function showSummary() {
+  const rows = gradeTeams(rostersByTeam(state, allPlayers), state.config.slots, state.config.teams);
+  const container = root();
+  clear(container);
+  renderSummary(container, { rows, myTeamIndex: state.config.myTeamIndex }, {
+    onBack: () => { screen = 'draft'; render(); },
+  });
+  // The other two screens both say how fresh the projections are, and this screen is
+  // nothing but a ranking derived from them — it needs the caveat more than either.
+  appendFreshness(container, { wrap: 'freshness-summary' });
 }
 
 function handlePick(playerId) {
@@ -1437,7 +1478,7 @@ function handlePick(playerId) {
     return;
   }
   persist();
-  renderDraft();
+  render();
 }
 
 // Someone drafted a player who is not in the loaded pool. Burn the slot so every
@@ -1450,7 +1491,7 @@ function handleOffListPick() {
     return;
   }
   persist();
-  renderDraft();
+  render();
 }
 
 function handleEditPick(pickNumber, playerId) {
@@ -1461,13 +1502,13 @@ function handleEditPick(pickNumber, playerId) {
     return;
   }
   persist();
-  renderDraft();
+  render();
 }
 
 function handleUndo() {
   state = undoPick(state);
   persist();
-  renderDraft();
+  render();
 }
 
 function handleReset() {
@@ -1503,10 +1544,12 @@ function applyRestoredState(restored) {
   // The centre panel's sort, filter and position targeting are module state that
   // outlives a draft. Without this an imported draft inherits the last one's targeting.
   resetView();
+  // An import lands on the draft, never on whatever screen preceded it.
+  screen = 'draft';
   // Render BEFORE persisting. A state that cannot render must not reach localStorage:
   // it would then throw on every subsequent load, before any UI exists — including
   // the Reset button — and only devtools could recover the page.
-  renderDraft();
+  render();
   persist();
 }
 
@@ -1527,15 +1570,6 @@ function handleImport(file) {
 }
 
 function renderDraft() {
-  if (showingSummary) {
-    const rows = gradeTeams(rostersByTeam(state, allPlayers), state.config.slots, state.config.teams);
-    clear(root());
-    renderSummary(root(), { rows, myTeamIndex: state.config.myTeamIndex }, {
-      onBack: () => { showingSummary = false; renderDraft(); },
-    });
-    return;
-  }
-
   const container = root();
   const { config } = state;
   const currentPick = currentPickNumber(state);
@@ -1596,14 +1630,17 @@ function renderDraft() {
     totalRounds: config.rounds,
     teamName: config.teams[config.myTeamIndex - 1].name,
   });
+  // Each of these carries a class as well as its label. They are otherwise
+  // distinguishable only by their text, which anything anchoring to one of them — a
+  // guided tour, a test — would then have to match on a string.
   left.appendChild(el('button', {
-    text: 'Reset draft', style: { marginTop: '12px' }, onClick: handleReset,
+    class: 'btn-reset', text: 'Reset draft', style: { marginTop: '12px' }, onClick: handleReset,
   }, []));
   left.appendChild(el('button', {
-    text: 'End draft', style: { marginTop: '8px' },
-    onClick: () => { showingSummary = true; renderDraft(); },
+    class: 'btn-end-draft', text: 'End draft', style: { marginTop: '8px' },
+    onClick: () => { screen = 'summary'; render(); },
   }, []));
-  left.appendChild(el('button', { text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
+  left.appendChild(el('button', { class: 'btn-backup', text: 'Save backup', style: { marginTop: '8px' }, onClick: handleBackup }, []));
   const importInput = el('input', {
     type: 'file', accept: '.json,application/json', style: { display: 'none' },
     onChange: (e) => {
@@ -1615,7 +1652,7 @@ function renderDraft() {
       if (file) handleImport(file);
     },
   }, []);
-  left.appendChild(el('button', { text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
+  left.appendChild(el('button', { class: 'btn-import', text: 'Import backup', style: { marginTop: '8px' }, onClick: () => importInput.click() }, []));
   left.appendChild(importInput);
 
   renderCenter(center, {
@@ -1679,8 +1716,11 @@ function init() {
   // reachable. Falling back to setup costs the draft but never the app.
   try {
     state = saved;
+    // A load always opens the draft: `screen` is module state that outlives a draft, and
+    // a previous run left on the summary must not decide what a fresh load shows.
+    screen = 'draft';
     recomputeBaselines();
-    renderDraft();
+    render();
   } catch (err) {
     clearState();
     state = null;
@@ -1741,6 +1781,12 @@ function showRosterPopover(event, state, allPlayers, teamIndex, row) {
   const roster = rosterFor(state, teamIndex, allPlayers);
   const round = Math.min(rounds, Math.floor(roster.length) + 1);
   const needs = positionalNeeds(roster, slots, round, rounds);
+  // rosterFor drops every pick it cannot resolve to a player — off-list picks, and any
+  // id no longer in the pool. Without a word here the team simply shows fewer picks
+  // than it has made, and is graded as though the slot were empty, which reads as a bug
+  // rather than as the deliberate "a player with no projection scores zero".
+  const uncounted = Object.keys(state.picks)
+    .filter((pick) => state.picks[pick].teamIndex === teamIndex).length - roster.length;
 
   const pop = el('div', { class: 'roster-pop' }, [
     el('div', { style: { fontWeight: '600', marginBottom: '6px' }, text: state.config.teams[teamIndex - 1].name }, []),
@@ -1758,6 +1804,10 @@ function showRosterPopover(event, state, allPlayers, teamIndex, row) {
       el('span', { class: 'pop-pick-name', text: pl.name }, []),
       el('span', { class: 'meta', text: String(pl.projectedPoints) }, []),
     ])),
+    uncounted > 0 ? el('div', {
+      class: 'pop-offlist',
+      text: `${uncounted} off-list pick${uncounted === 1 ? '' : 's'} not counted`,
+    }, []) : null,
     row ? el('div', { class: 'pop-grade' }, [
       el('span', { text: `Grade ${row.grade}` }, []),
       el('span', { class: 'meta', text: `${row.strength} projected starter pts` }, []),
@@ -1778,8 +1828,10 @@ function renderBoard(container, ctx) {
   const headerCells = [el('th', { class: 'rnd', text: 'R' }, [])];
   for (let teamIndex = 1; teamIndex <= numTeams; teamIndex += 1) {
     const row = ctx.grades ? ctx.grades.get(teamIndex) : null;
-    // Children, not `text:` — el() applies text first and textContent clears children,
-    // so passing both would drop the grade without any error.
+    // Two child elements rather than one `text:` plus a child: el() applies `text`
+    // before appending children, so both would in fact work — but the name and the
+    // grade are two separately styled lines (.team-grade is smaller and accented), and
+    // only a header built entirely from children can style each of them.
     headerCells.push(el('th', {
       class: teamIndex === myTeamIndex ? 'mine' : '',
       title: `Click for ${teams[teamIndex - 1].name}'s roster, needs and grade`,
@@ -2920,7 +2972,10 @@ function renderSummary(container, ctx, handlers) {
     el('span', { class: 'sum-rank', text: String(r.rank) }, []),
     el('span', { class: 'sum-name', text: r.name }, []),
     el('span', { class: 'sum-grade', text: r.grade }, []),
-    el('span', { class: 'sum-pts', text: String(r.strength) }, []),
+    // toFixed(1), not String(): strengths are rounded to one decimal, but String(1300.0)
+    // is "1300", which sits a digit out of line beside "1450.5" and defeats the
+    // tabular-nums this column is set in.
+    el('span', { class: 'sum-pts', text: r.strength.toFixed(1) }, []),
   ]));
 
   container.appendChild(el('div', { class: 'summary' }, [
