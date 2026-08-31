@@ -1,5 +1,5 @@
 import { el, clear, formatFetchedAt } from './dom.js';
-import { startTour, SETUP_STEPS, DRAFT_STEPS, hasSeenTour } from './tour.js';
+import { startTour, closeTour, SETUP_STEPS, DRAFT_STEPS, hasSeenTour, markTourSeen } from './tour.js';
 import { renderSetup } from './setup.js';
 import { renderMyTeam } from './myteam.js';
 import { renderCenter, resetView } from './center.js';
@@ -71,6 +71,11 @@ function appendFreshness(container, { wrap = null } = {}) {
 // this rather than calling a screen function directly, so `screen` and what the user is
 // looking at cannot drift apart.
 function render() {
+  // A tour describes the screen it was started on. Click-through is deliberate, so
+  // the very steps that ring Start Draft and End draft invite the click that changes
+  // screens — which would otherwise leave a stale ring at the old button's
+  // coordinates and a card counting steps of a screen that is no longer there.
+  closeTour();
   if (screen === 'setup') showSetup();
   else if (screen === 'summary') showSummary();
   else renderDraft();
@@ -93,7 +98,14 @@ function showSetup() {
   // this screen, where the draft-screen buttons do not exist yet.
   renderSetup(container, (state && state.config) || DEFAULT_CONFIG, startDraft, handleImport, {
     offerTour: !hasSeenTour(),
-    onStartTour: () => startTour(SETUP_STEPS),
+    // The tour sets the seen flag on close, but `offerTour` was read before it ran —
+    // so the line would sit there until the next visit. Re-render once the tour is
+    // done, whichever way it ended. Only if setup is still what is on screen: closing
+    // the tour by clicking Start Draft through the dim arrives here with `screen`
+    // already 'draft', and re-rendering setup would undo the draft the user started.
+    onStartTour: () => startTour(SETUP_STEPS, document, () => { if (screen === 'setup') render(); }),
+    // Dismissing is a decision, same as skipping: the offer never returns.
+    onDismiss: () => { markTourSeen(); render(); },
   });
   appendFreshness(container, { wrap: 'freshness-card' });
 }

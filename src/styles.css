@@ -265,3 +265,7 @@ table.board td.cell.filled { cursor: pointer; }
 .tour-controls { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
 .tour-controls .tour-skip { margin-right: auto; color: var(--muted); }
 .tour-offer { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; color: var(--muted); font-size: 13px; }
+/* Quiet on purpose: declining the tour is not a call to action, and a second button
+   with the same weight as "Show me around" would read as a second offer. */
+.tour-offer .btn-dismiss { border-color: transparent; background: transparent; color: var(--muted); padding: 2px 8px; font-size: 15px; line-height: 1; }
+.tour-offer .btn-dismiss:hover { border-color: var(--border); color: var(--text); }

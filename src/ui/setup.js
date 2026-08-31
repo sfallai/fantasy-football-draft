@@ -263,6 +263,13 @@ export function renderSetup(root, initialConfig, onStart, onImport, tour = {}) {
     tour.offerTour ? el('div', { class: 'tour-offer' }, [
       el('span', { text: 'First time here?' }, []),
       el('button', { class: 'btn-tour', text: 'Show me around', onClick: tour.onStartTour }, []),
+      // Dismissible, per the spec: once dismissed the line never returns. Without it
+      // someone who does not want the tour reads this on every visit forever, because
+      // the seen flag is only ever set by the tour itself. The glyph carries no
+      // meaning to a screen reader, hence the label.
+      tour.onDismiss ? el('button', {
+        class: 'btn-dismiss', text: '×', title: 'Dismiss', 'aria-label': 'Dismiss', onClick: tour.onDismiss,
+      }, []) : null,
     ]) : null,
 
     el('div', { class: 'setup-section', dataset: { tour: 'league' } }, [

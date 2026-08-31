@@ -125,7 +125,18 @@ function off(target, type, handler, options) {
 // keydown listener on top of it.
 let openClose = null;
 
-export function startTour(steps, doc = document) {
+// Nothing else knows whether a tour is up. `render()` calls this before drawing a
+// new screen, because a tour describing the screen you just left — a ring at the old
+// Start Draft's coordinates, a card reading "5 of 5" — is worse than no tour at all.
+// A no-op when none is open, so callers never have to ask first.
+export function closeTour() {
+  if (openClose) openClose();
+}
+
+// `onClose` runs after the tour is fully torn down, however it ended: Done, Skip,
+// Escape, or superseded by another tour. Optional — the draft screen has nothing to
+// do afterwards, and omitting it must stay valid.
+export function startTour(steps, doc = document, onClose = null) {
   if (openClose) openClose();
 
   const tour = createTour(steps);
@@ -133,13 +144,24 @@ export function startTour(steps, doc = document) {
   doc.body.appendChild(layer);
   const win = typeof window !== 'undefined' ? window : null;
 
+  let closed = false;
+
   function close() {
+    // Skip, Done, Escape and a screen change can all arrive for the same tour, and
+    // `onClose` re-renders — running twice would re-render twice.
+    if (closed) return;
+    closed = true;
     markTourSeen();
+    // Every trace of the tour goes BEFORE the callback. `onClose` re-renders the
+    // screen and may itself reach closeTour(); clearing `openClose` first is what
+    // stops that recursing, and unmounting first is what stops a throw inside the
+    // callback from leaving an orphaned overlay pinned over the page.
     if (layer.parentNode) layer.parentNode.removeChild(layer);
-    doc.removeEventListener('keydown', onKey);
+    off(doc, 'keydown', onKey);
     off(win, 'resize', onReposition);
     off(doc, 'scroll', onReposition, true);
     if (openClose === close) openClose = null;
+    if (typeof onClose === 'function') onClose();
   }
 
   function onKey(e) {
@@ -152,7 +174,7 @@ export function startTour(steps, doc = document) {
   // blocking that click-through, which is worth more than a perfectly stable ring.
   function onReposition() { draw(); }
 
-  doc.addEventListener('keydown', onKey);
+  on(doc, 'keydown', onKey);
   on(win, 'resize', onReposition);
   on(doc, 'scroll', onReposition, true);
 
