@@ -485,6 +485,25 @@ test('no line when the backup has already gone', () => {
     'omit rather than say "no backup available"');
 });
 
+test('a wide receiver gets no handcuff line, however available his WR2 is', () => {
+  // The WR2 is a starter in his own right, not the man who inherits the workload —
+  // this is exactly the false line the shipped pool put under Ja'Marr Chase.
+  const container = renderRecs([
+    player({ id: 'chase', name: 'Ja\'Marr Chase', team: 'CIN', position: 'WR', backupId: 'higgins' }),
+    player({ id: 'higgins', name: 'Tee Higgins', team: 'CIN', position: 'WR', overallRank: 45 }),
+  ]);
+  assert.equal(recCards(container).length, 2, 'both are still recommended');
+  assert.equal(find(container, (n) => n.className === 'backup-note').length, 0);
+});
+
+test('a quarterback gets no handcuff line either', () => {
+  const container = renderRecs([
+    player({ id: 'allen', name: 'Josh Allen', team: 'BUF', position: 'QB', backupId: 'trubisky' }),
+    player({ id: 'trubisky', name: 'Mitch Trubisky', team: 'BUF', position: 'QB', overallRank: 200 }),
+  ]);
+  assert.equal(find(container, (n) => n.className === 'backup-note').length, 0);
+});
+
 test('a backup outside the pool is not an error, it is simply no line', () => {
   // backupId routinely points past the top 400, and both consumers handle it by omission.
   const container = renderRecs([player({ backupId: 'somebody-unranked' })]);

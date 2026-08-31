@@ -50,10 +50,14 @@ WR  1:Amon-Ra St. Brown  2:Jameson Williams  3:Isaac TeSlaa
 QB  1:Jared Goff
 ```
 
-So a handcuff is a fact — "the rank-2 player at this position on this NFL team" — not the
-inference this design would otherwise have had to make. The naive inference ("same team,
-same position, lower projection") would call Montgomery the handcuff to Gibbs when they are
-co-starters, which is wrong in exactly the backfields people care about.
+So the depth ordering is a fact — "the rank-2 player at this position on this NFL team" —
+not the inference this design would otherwise have had to make. The naive inference ("same
+team, same position, lower projection") would call Montgomery the handcuff to Gibbs when
+they are co-starters, which is wrong in exactly the backfields people care about.
+
+**Corrected after the chunk K review: the rank-2 player is a handcuff only at RB.** The
+original wording above generalised a running-back idea to every position, and shipping it
+put a false line on the four most-viewed cards in the app. See "What a handcuff is" below.
 
 **The depth-chart response shape is stable, but its group names are not.** Sampled four
 teams:
@@ -131,12 +135,41 @@ the handcuff is not draftable from this app, and the UI omits rather than invent
 fetch must not fail the whole run for one team, and must report how many teams resolved —
 silently shipping 31 of 32 is the failure mode to avoid.
 
+### What a handcuff is
+
+**A handcuff is a running back, and only a running back.** A handcuff is the backup who
+*inherits the workload* when the starter goes down: one back takes the carries, so his
+value is contingent on the starter's health in a way nobody else's is. Wide-receiver
+targets are redistributed among several players and the WR2 on a depth chart is a starter
+in his own right; tight ends behave the same way.
+
+Measured on the shipped 400-player pool, in-pool pairs whose *backup* is himself top-100
+overall:
+
+```
+RB  64 pairs |  4      WR  87 pairs | 17      TE  23 pairs | 0      QB  14 pairs | 0
+```
+
+Seventeen WR pairs name a top-100 starter as somebody's "handcuff", and the four
+most-viewed cards in the app each carried one: Chase → Tee Higgins (#45), Nacua → Davante
+Adams (#31), St. Brown → Jameson Williams (#48), Lamb → George Pickens (#28).
+
+**QB is excluded deliberately** even though a backup quarterback does inherit the job: in a
+one-QB league nobody drafts one, so the line would be noise on every QB card for no
+decision it could change.
+
+This is enforced in one place, `HANDCUFF_POSITIONS` in `src/core/handcuff.js`, which both
+the filter and the recommendation line read. Suppressing the line when the *backup* happens
+to be startable is not an acceptable substitute: it is a threshold in disguise, it would
+still show Chase → Higgins in a league where Higgins is not startable, and it leaves the
+filter claiming a WR2 is a handcuff.
+
 ### Handcuff of *mine*
 
 A player `H` is a handcuff of yours when some player `S` on your roster has
-`S.backupId === H.id`. Restricted to your own roster deliberately: that is the question
-being asked mid-draft ("I own Gibbs — is Pacheco still there?"), and the whole-board variant
-is a much longer list serving a rarer strategy.
+`S.backupId === H.id` **and `S` is a running back**. Restricted to your own roster
+deliberately: that is the question being asked mid-draft ("I own Gibbs — is Pacheco still
+there?"), and the whole-board variant is a much longer list serving a rarer strategy.
 
 **Only startable starters count.** If `S` is himself a bench body, his backup is not a
 handcuff in any useful sense. `S` must be occupying a non-bench slot in `assignSlots`, which
@@ -153,9 +186,10 @@ empty table. An empty table reads as a bug.
 
 ### The recommendation flag
 
-A recommendation card for player `P` gains a line when `P.backupId` resolves to an available
-player: **"His backup, <name>, is still on the board."** A fact, and the useful direction —
-it tells you the insurance exists before you spend the pick.
+A recommendation card for a **running back** `P` gains a line when `P.backupId` resolves to
+an available player: **"Handcuff available: <name>."** A fact, and the useful direction — it
+tells you the insurance exists before you spend the pick. Gated on `HANDCUFF_POSITIONS`, the
+same list the filter reads, so the two can never disagree about what a handcuff is.
 
 ---
 

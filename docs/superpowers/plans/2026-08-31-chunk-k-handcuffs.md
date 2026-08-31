@@ -23,7 +23,7 @@
 
 - **Depth chart** — `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/{SEASON}/teams/{teamId}/depthcharts`. Returns `items`, an array of groups. Each group has a `name` and a `positions` object keyed by lowercase slot (`qb`, `rb`, `wr`, `te`, plus offensive line and, in other groups, defence and special teams). Each position holds `athletes`, each with a `rank` and an `athlete.$ref` URL ending in the athlete id.
 - **The offensive group** — the one whose `positions` contain **both `qb` and `rb`**. Measured across four teams, the defensive group's name varies with scheme (`Base 3-4 D` / `Base 4-3 D`) while the offensive group happened to be `3WR 1TE` each time. **Never match on the name.**
-- **Handcuff** — the player at `rank + 1` at the same position on the same NFL team. Verified against Detroit: RB `1:Jahmyr Gibbs 2:Isiah Pacheco`, WR `1:Amon-Ra St. Brown 2:Jameson Williams`.
+- **Handcuff** — **at RB only**, the player at `rank + 1` on the same NFL team. Verified against Detroit: RB `1:Jahmyr Gibbs 2:Isiah Pacheco`. Corrected after the chunk K review: `rank + 1` is a depth fact at every position, but only at RB does it mean "inherits the workload" — WR `1:Amon-Ra St. Brown 2:Jameson Williams` is two starters, not a handcuff pair. See the spec's "What a handcuff is".
 - **Startable starter** — a player occupying a non-`BN` slot in `assignSlots(roster, slots)`. A bench body's backup is not a handcuff in any useful sense.
 
 ## File Structure

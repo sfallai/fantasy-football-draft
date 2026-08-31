@@ -3,6 +3,7 @@ import { recommend, sleepers } from '../core/recommend.js';
 import { byeConflict } from '../core/roster.js';
 import { isRookie, priorSummary, matchesQuery } from '../core/player.js';
 import { showPopover, closePopover } from './popover.js';
+import { HANDCUFF_POSITIONS } from '../core/handcuff.js';
 
 export const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 export const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -85,8 +86,14 @@ function byeWarning(player, myRoster, slots) {
 // pool passed in is already the available players, so membership is the whole check, and
 // a backupId pointing outside it (common — depth charts run past the top 400) is not an
 // error: the absence of the line is the message, never "no handcuff available".
+//
+// Running backs only, matching HANDCUFF_POSITIONS — see the reasoning there. Without
+// this gate the four most-viewed cards in the shipped pool each carried a false line:
+// "Handcuff available: Tee Higgins" under Ja'Marr Chase, and three more like it.
+// `pool` needs no guard: recommendationCard is only reached inside `if (isMyPick &&
+// pool.length)`.
 function backupNote(player, pool) {
-  if (!player.backupId || !pool) return null;
+  if (!player.backupId || !HANDCUFF_POSITIONS.includes(player.position)) return null;
   const backup = pool.find((pl) => pl.id === player.backupId);
   return backup
     ? el('div', { class: 'backup-note', text: `Handcuff available: ${backup.name}` }, [])
