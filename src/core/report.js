@@ -26,7 +26,7 @@ export function stillOnWaivers(state, allPlayers, perPosition = WAIVERS_PER_POSI
     .filter((group) => group.players.length > 0);
 }
 
-// Every pick that can honestly be measured against ADP, with the three that cannot
+// Every pick that can honestly be measured against ADP, with the four that cannot
 // dropped rather than guessed at:
 //
 //   keepers      - held at a round the league agreed beforehand, not a draft decision.
@@ -34,6 +34,26 @@ export function stillOnWaivers(state, allPlayers, perPosition = WAIVERS_PER_POSI
 //                  would top the list in every draft that had one.
 //   off-list     - no player exists behind the id at all.
 //   no ADP       - nothing to measure. Covers 3 of the top 160 on the shipped pool.
+//   K and DEF    - an ADP exists, and it does not describe how leagues draft them.
+//                  Measured on the shipped pool: 20 defenses carry an ADP, earliest
+//                  83.3, median 146.8; 19 kickers, earliest 127.5, median 156.8. An
+//                  ADP of 83.3 is round 9 of a ten-team draft, and no room takes a
+//                  defense before round 13 — so a defense taken at pick 134 scores as
+//                  "51 picks after an ADP of 83", and that number measures the ADP,
+//                  not the pick. Over 40 simulated ten-team drafts it swamped both
+//                  headline sections: 162 of 200 "Biggest steals" lines and 260 of 400
+//                  team "Best value" lines were kickers or defenses. The skew is
+//                  symmetric, so an "early" one is measured against the same wrong bar
+//                  and the reaches list goes with it.
+//
+//                  It is also the defect the grading change exists to remove, in a new
+//                  place: the ranking at the top of the same screen says a defense
+//                  contributes nothing, and four inches below it the report would call
+//                  one the best pick of the draft.
+//
+//                  WAIVER_POSITIONS, not a fresh list — these are the same four
+//                  positions stillOnWaivers and leagueBlindSpot report on, and every
+//                  position list in this report now says the same thing.
 //
 // delta is a WHOLE number of picks measured against the ADP as the report displays it —
 // `pickNumber - Math.round(adp)`, not the raw difference. POSITIVE means he fell (a
@@ -59,6 +79,7 @@ export function pickValues(state, allPlayers) {
     if (isOffListId(entry.playerId)) continue;
     const player = byId.get(entry.playerId);
     if (!player || player.adp === null || player.adp === undefined) continue;
+    if (!WAIVER_POSITIONS.includes(player.position)) continue;
 
     const pickNumber = Number(key);
     const team = teams[entry.teamIndex - 1];

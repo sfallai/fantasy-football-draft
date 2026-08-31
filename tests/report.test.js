@@ -24,6 +24,11 @@ const POOL = [
   pl('fell', 'RB', 235, 1, 11),
   pl('k1', 'K', 171.7, 90, 9),
   pl('noadp', 'WR', 205, null, 10),
+  // ADP 2 on a defense is not a fixture contrivance: the earliest D/ST ADP in the
+  // shipped pool is 83.3, which is round 9 of a ten-team draft, in a game where no
+  // room takes one before round 13. Scaled to this four-team, two-round fixture, an
+  // ADP near the top is the same distortion.
+  pl('def1', 'DEF', 130, 2, 12),
 ];
 
 test('waivers are grouped by position, never one list ordered by projection', () => {
@@ -157,6 +162,29 @@ test('an off-list pick is skipped by name, not by happening to match no player',
   state = applyOffListPick(state);
   const collides = [...POOL, pl('off-list-1', 'RB', 210, 3, 12)];
   assert.deepEqual(pickValues(state, collides), []);
+});
+
+test('a kicker and a defense are never measured against ADP', () => {
+  // Published ADP for a streamed position does not describe how leagues draft it, so
+  // the gap is not measuring a draft decision. Left in, it dominated: over 40 simulated
+  // ten-team drafts against the shipped pool, 162 of 200 "Biggest steals" lines and 260
+  // of 400 team "Best value" lines were kickers or defenses.
+  //
+  // The skew is symmetric, so the kicker below is here too: a K taken at pick 8 against
+  // an ADP of 90 is not a reach either, and would head the reaches list ahead of te1.
+  let state = fresh();
+  state = applyPick(state, 'rb1');   // pick 1, adp 2  ->  -1
+  state = applyPick(state, 'rb2');   // pick 2, adp 5  ->  -3
+  state = applyPick(state, 'wr1');   // pick 3, adp 3  ->   0
+  state = applyPick(state, 'te1');   // pick 4, adp 80 -> -76
+  state = applyPick(state, 'qb1');   // pick 5, adp 60 -> -55
+  state = applyPick(state, 'qb2');   // pick 6, adp 70 -> -64
+  state = applyPick(state, 'def1');  // pick 7, adp 2  ->  +5, the only positive delta
+  state = applyPick(state, 'k1');    // pick 8, adp 90 -> -82, larger than any of them
+  const values = pickValues(state, POOL);
+  assert.deepEqual(values.map((v) => v.player.id), ['rb1', 'rb2', 'wr1', 'te1', 'qb1', 'qb2']);
+  assert.deepEqual(biggestSteals(values), [], 'the defense was the only thing that fell');
+  assert.equal(biggestReaches(values, 1)[0].player.id, 'te1', 'and the kicker does not head this');
 });
 
 test('a player with no ADP is omitted, never guessed at', () => {
