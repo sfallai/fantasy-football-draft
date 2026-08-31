@@ -74,6 +74,25 @@ test('a report supplied in ctx is rendered below the ranking', () => {
   assert.equal(walk(c).filter((n) => n.className === 'report').length, 1);
 });
 
+test('a draft that is not over is not titled as one that is', () => {
+  // End draft is unguarded, so one click three picks in used to render "Draft complete"
+  // over "22 startable WRs went undrafted" and "Still on waivers: Jonathan Taylor".
+  // Every one of those sentences is true; the heading was the thing that was not.
+  const c = document.createElement('div');
+  renderSummary(c, { rows: ROWS, myTeamIndex: 1, complete: false }, { onBack() {} });
+  const text = walk(c).map((n) => n.textContent || '').join(' ');
+  assert.doesNotMatch(text, /Draft complete/);
+  assert.match(text, /picks made so far/i, 'and it says what the numbers cover');
+});
+
+test('a finished draft still says so, and so does a caller that omits the flag', () => {
+  const done = document.createElement('div');
+  renderSummary(done, { rows: ROWS, myTeamIndex: 1, complete: true }, { onBack() {} });
+  assert.ok(walk(done).some((n) => n.textContent === 'Draft complete'));
+  // chunk F's caller passes neither a report nor this flag.
+  assert.ok(walk(render()).some((n) => n.textContent === 'Draft complete'));
+});
+
 test('the ranking says it no longer counts kickers or defenses', () => {
   // The caveat and the arithmetic have to move together, or the screen lies about
   // what its own number means.

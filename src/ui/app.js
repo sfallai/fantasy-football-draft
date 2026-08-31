@@ -120,7 +120,13 @@ function showSummary() {
   const report = buildReport(state, allPlayers, replacement);
   const container = root();
   clear(container);
-  renderSummary(container, { rows, myTeamIndex: state.config.myTeamIndex, report }, {
+  // End draft is deliberately unguarded — a league that stops after fourteen rounds is
+  // finished, and the app has no business arguing. But the screen must not call that a
+  // completed draft: currentPickNumber returns null only when every pick exists.
+  const complete = currentPickNumber(state) === null;
+  renderSummary(container, {
+    rows, myTeamIndex: state.config.myTeamIndex, report, complete,
+  }, {
     onBack: () => { screen = 'draft'; render(); },
   });
   // The other two screens both say how fresh the projections are, and this screen is

@@ -394,6 +394,10 @@ test('End draft ranks every team, and Back to draft returns to the board', () =>
     'the summary replaces the three panels rather than overlaying them');
   const rows = find(appRoot, (n) => String(n.className).includes('sum-row'));
   assert.equal(rows.length, CONFIG.teams.length, 'one row per team');
+  // One pick of six. End draft is unguarded on purpose, but the heading has to say
+  // which of the two this is — the report under it is a measurement either way.
+  assert.ok(find(appRoot, (n) => n.textContent === 'Draft in progress').length,
+    'a draft with five picks left is not titled as a finished one');
   assert.ok(find(appRoot, (n) => n.className === 'freshness').length,
     'and it says how fresh the projections behind the ranking are');
 
@@ -416,6 +420,19 @@ test('End draft ranks every team, and Back to draft returns to the board', () =>
     .listeners.click[0]();
   assert.ok(find(panels().right, (n) => n.textContent === 'Draft Board').length,
     'and the draft is still there to go back to');
+});
+
+test('a draft with every pick made is titled as complete', () => {
+  // The other half of the flag: app.js reads currentPickNumber, which is null only once
+  // all six picks exist. Without both directions pinned, hardcoding either title passes.
+  start();
+  for (const name of ['Jahmyr Gibbs', 'Ja Marr Chase', 'Bijan Robinson',
+    'Rookie Runner', 'Josh Allen', 'Veteran Wideout']) {
+    rowFor(panels().center, name).listeners.dblclick[0]();
+  }
+  button(panels().left, 'End draft').listeners.click[0]();
+  assert.ok(find(appRoot, (n) => n.textContent === 'Draft complete').length);
+  assert.equal(find(appRoot, (n) => n.textContent === 'Draft in progress').length, 0);
 });
 
 test('a reload never reopens the summary the last session was left on', () => {
