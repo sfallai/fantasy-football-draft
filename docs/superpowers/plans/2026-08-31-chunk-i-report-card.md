@@ -934,7 +934,11 @@ const FULL = {
   waivers: [{ position: 'QB', players: [pl('q', 'Jordan Love', 'QB', 259, 9, 198)] }],
   steals: [{ pickNumber: 96, round: 10, teamName: 'Rival', player: pl('s', 'Steal Guy', 'RB', 180), adp: 62, delta: 34 }],
   reaches: [{ pickNumber: 14, round: 2, teamName: 'Mine', player: pl('r', 'Reach Guy', 'WR', 150), adp: 59, delta: -45 }],
-  blindSpot: [{ position: 'QB', count: 4, bar: 288.3, best: pl('q', 'Jordan Love', 'QB', 259) }],
+  // The bar sits BELOW the best man left, because leagueBlindSpot only ever emits
+  // players projecting above it. A fixture with best < bar renders prose the code
+  // cannot produce — "above the replacement level of 288.3 … at 259.0" — and a test
+  // built on it asserts a sentence no user will ever see.
+  blindSpot: [{ position: 'QB', count: 4, bar: 240, best: pl('q', 'Jordan Love', 'QB', 259) }],
   benched: [{ pickNumber: 23, round: 3, teamName: 'Rival', player: pl('b', 'Bench Guy', 'RB', 140) }],
   teams: [{
     teamIndex: 1, name: 'Mine',
@@ -976,7 +980,8 @@ test('a reach states how far early, as a positive count of picks', () => {
 test('the blind spot states the count, the bar, and the best man left', () => {
   const text = textOf(render(FULL));
   assert.match(text, /4 startable QBs went undrafted/);
-  assert.match(text, /288\.3/);
+  assert.match(text, /240\.0/, 'the bar, to one decimal');
+  assert.match(text, /259\.0/, 'and the best man still there, who must clear it');
 });
 
 test('a section with nothing to say is left out entirely', () => {
