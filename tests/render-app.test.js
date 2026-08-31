@@ -52,6 +52,7 @@ document.body.appendChild(appRoot);
 // the test decides when init() runs.
 const { init } = await import('../src/ui/app.js');
 const { resetView } = await import('../src/ui/center.js');
+const { SETUP_STEPS, DRAFT_STEPS } = await import('../src/ui/tour.js');
 
 function find(node, predicate, out = []) {
   if (predicate(node)) out.push(node);
@@ -478,4 +479,20 @@ test('the offer line can be dismissed, and never comes back', () => {
   assert.equal(tourLayers().length, 0, 'and dismissing never starts the tour');
   init();
   assert.equal(find(appRoot, (n) => n.className === 'tour-offer').length, 0, 'and on the next visit');
+});
+
+test('every tour anchor resolves against the screen it describes', () => {
+  // Anchor resolution is otherwise invisible: rename .btn-end-draft, table.board,
+  // .center-scroll or a data-tour value and the tour rings nothing at all while the
+  // suite stays green. Iterated over the exported arrays, not a hard-coded list, so
+  // a step added later is covered the day it lands.
+  freshSetup();
+  for (const step of SETUP_STEPS) {
+    assert.ok(document.querySelector(step.anchor), `setup step "${step.title}" anchors to ${step.anchor}`);
+  }
+
+  start();
+  for (const step of DRAFT_STEPS) {
+    assert.ok(document.querySelector(step.anchor), `draft step "${step.title}" anchors to ${step.anchor}`);
+  }
 });
