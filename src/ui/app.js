@@ -170,7 +170,10 @@ function handleReset() {
   // The centre panel's sort/filter/search is module state and would otherwise
   // survive into the next draft.
   resetView();
-  showSetup();
+  // Through render(), not showSetup() directly: it is render() that closes an open
+  // tour, and step 4 rings the panel this very button sits in.
+  screen = 'setup';
+  render();
 }
 
 // Blob and FileReader, not a library: the page ships as one self-contained file and

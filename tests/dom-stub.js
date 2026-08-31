@@ -149,6 +149,13 @@ function findById(node, id) {
   return null;
 }
 
+// addEventListener takes either a boolean or an options object as its third
+// argument, and the two must key the registry identically — a call site that added
+// with `true` and removed with `{capture: true}` would otherwise leak invisibly.
+function captureOf(options) {
+  return options === true || Boolean(options && options.capture);
+}
+
 // Installs a minimal `document` (and a `window` carrying viewport dimensions) on
 // globalThis and returns the document. Tests are free to extend either.
 export function installDomStub() {
@@ -161,7 +168,7 @@ export function installDomStub() {
     // part of that key. Modelling that is the whole point of popover.js's
     // containment-based dismissal, so the stub has to model it too.
     addEventListener(type, handler, options) {
-      const capture = Boolean(options && options.capture);
+      const capture = captureOf(options);
       const already = listeners.some(
         (l) => l.type === type && l.handler === handler && l.capture === capture,
       );
@@ -169,7 +176,7 @@ export function installDomStub() {
       listeners.push({ type, handler, capture });
     },
     removeEventListener(type, handler, options) {
-      const capture = Boolean(options && options.capture);
+      const capture = captureOf(options);
       const at = listeners.findIndex(
         (l) => l.type === type && l.handler === handler && l.capture === capture,
       );

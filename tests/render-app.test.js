@@ -456,6 +456,20 @@ test('changing screen closes a tour that described the screen you left', () => {
   assert.equal(tourLayers().length, 0, 'and gone with the screen it described');
 });
 
+test('Reset draft closes the tour that pointed at it', () => {
+  // Step 4 rings .panel.left and its copy now names reset explicitly, so this is the
+  // button a first-timer is most likely to press mid-tour. handleReset() used to call
+  // showSetup() directly, which skipped the closeTour() that lives in render().
+  start();
+  button(panels().left, 'Show me around').listeners.click[0]();
+  // The card lives on document.body, not in the panel it points at.
+  for (let i = 0; i < 3; i += 1) button(document.body, 'Next').listeners.click[0]();
+  assert.match(find(document.body, (n) => n.className === 'tour-count')[0].textContent, /4 of 6/,
+    'on the step that rings the panel the reset button sits in');
+  button(panels().left, 'Reset draft').listeners.click[0]();
+  assert.equal(tourLayers().length, 0, 'no stale 4 of 6 card over the setup screen');
+});
+
 test('finishing the setup tour clears the offer without recursing', () => {
   // close() runs onClose, which re-renders, which calls closeTour() again. If the
   // live handle were not cleared before the callback this blows the stack.

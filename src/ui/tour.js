@@ -22,7 +22,7 @@ export const SETUP_STEPS = [
   {
     anchor: '[data-tour="teams"]',
     title: 'Everyone else',
-    body: 'Every team in the league, yours included — it is the row numbered with the slot you picked a moment ago. Name them if you like, and add any keepers with the round they cost; a keeper needs both.',
+    body: 'Every team in the league, yours included; yours is the row numbered with the slot you picked a moment ago. Name them if you like, and add any keepers with the round they cost; a keeper needs both.',
   },
   {
     anchor: '[data-tour="start"]',
@@ -51,7 +51,7 @@ export const DRAFT_STEPS = [
   {
     anchor: '.panel.left',
     title: 'Your roster',
-    body: 'Your lineup as it fills, what you still need, and how many you hold at each position — covered ones drop out of the ranking. Below it: reset, end the draft, and Save backup / Import backup. A draft lives in this one browser, so that file is the only way to move or rescue it.',
+    body: 'Your lineup as it fills, what you still need, and how many you hold at each position — covered ones drop out of the ranking. Lower down in this panel: reset, end the draft, and Save backup / Import backup. A draft lives in this one browser, so that file is the only way to move or rescue it.',
   },
   {
     anchor: 'table.board',
@@ -186,7 +186,9 @@ export function startTour(steps, doc = document, onClose = null) {
   function onReposition() {
     if (!win || typeof win.requestAnimationFrame !== 'function') { draw(); return; }
     if (frame !== null) return;
-    frame = win.requestAnimationFrame(() => { frame = null; draw(); });
+    // Cleared after draw(), not before: draw() calls scrollIntoView, and the scroll
+    // event that fires from it must land inside this frame rather than queue another.
+    frame = win.requestAnimationFrame(() => { draw(); frame = null; });
   }
   function cancelPending() {
     if (frame === null) return;

@@ -181,6 +181,7 @@ test('an anchor that is present but empty is dimmed, not ringed', async () => {
   anchor(doc, 'center-scroll', {
     left: 400, top: 300, width: 520, height: 0,
   });
+  assert.ok(doc.querySelector('.center-scroll'), 'the anchor is present — that is the point');
   const { startTour } = await import('../src/ui/tour.js');
   startTour([{ anchor: '.center-scroll', title: 'What to take', body: 'suggestions' }], doc);
 
