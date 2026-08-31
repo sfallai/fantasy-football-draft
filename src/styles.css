@@ -253,6 +253,29 @@ table.board td.cell.filled { cursor: pointer; }
    last column needs its own rule to sit over the right-aligned numbers. */
 .sum-head span:last-child { text-align: right; }
 
+/* The report shares the summary's 620px column: it is the same document, continued. */
+.sum-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.sum-title h1 { margin: 0; }
+.report { margin-top: 32px; }
+.rep-section { margin-bottom: 28px; }
+.rep-section h2 {
+  margin: 0 0 10px; font-size: 12px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+}
+.rep-line { padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.rep-line:last-child { border-bottom: none; }
+.rep-pos {
+  display: inline-block; width: 34px; color: var(--accent);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+}
+.rep-team { margin-bottom: 18px; }
+.rep-team h3 { margin: 0 0 4px; font-size: 14px; }
+.rep-spine { padding: 5px 0; font-size: 13px; color: #c3c9d6; }
+.rep-label {
+  display: inline-block; width: 52px; color: var(--muted);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+}
+
 /* ---- Guided tour ---- */
 .tour-layer { position: fixed; inset: 0; z-index: var(--z-tour); pointer-events: none; }
 .tour-ring { position: fixed; border: 2px solid var(--accent); border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62); pointer-events: none; }

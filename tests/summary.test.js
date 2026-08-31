@@ -53,3 +53,30 @@ test('Back to draft calls its handler', () => {
   walk(c).find((n) => n.tagName === 'button' && /back/i.test(n.textContent)).listeners.click[0]();
   assert.equal(went, true);
 });
+
+test('the summary renders without a report, exactly as it did before', () => {
+  const c = document.createElement('div');
+  renderSummary(c, { rows: ROWS, myTeamIndex: 1 }, { onBack() {} });
+  assert.equal(walk(c).some((n) => n.className === 'report'), false);
+  assert.equal(walk(c).filter((n) => n.className === 'sum-name').length, 3);
+});
+
+test('a report supplied in ctx is rendered below the ranking', () => {
+  const c = document.createElement('div');
+  renderSummary(c, {
+    rows: ROWS,
+    myTeamIndex: 1,
+    report: {
+      waivers: [], steals: [], reaches: [], blindSpot: [], benched: [],
+      teams: [{ teamIndex: 1, name: 'My Team', spine: [], clashes: [], bestValue: null, biggestReach: null }],
+    },
+  }, { onBack() {} });
+  assert.equal(walk(c).filter((n) => n.className === 'report').length, 1);
+});
+
+test('the ranking says it no longer counts kickers or defenses', () => {
+  // The caveat and the arithmetic have to move together, or the screen lies about
+  // what its own number means.
+  const text = walk(render()).map((n) => n.textContent || '').join(' ');
+  assert.match(text, /not counting kickers or defenses/i);
+});

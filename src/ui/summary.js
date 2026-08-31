@@ -1,4 +1,5 @@
 import { el, clear } from './dom.js';
+import { renderReport } from './report.js';
 
 export function renderSummary(container, ctx, handlers) {
   clear(container);
@@ -16,11 +17,16 @@ export function renderSummary(container, ctx, handlers) {
     el('span', { class: 'sum-pts', text: r.strength.toFixed(1) }, []),
   ]));
 
-  container.appendChild(el('div', { class: 'summary' }, [
-    el('h1', { text: 'Draft complete' }, []),
+  const summary = el('div', { class: 'summary' }, [
+    // The button lives in the header, not after the rows: with the report below, a
+    // button between the table and "Still on waivers" reads as the end of the page.
+    el('div', { class: 'sum-title' }, [
+      el('h1', { text: 'Draft complete' }, []),
+      el('button', { text: 'Back to draft', onClick: handlers.onBack }, []),
+    ]),
     // The schedule is not in the data, so this is an ordering of preseason projections
     // and nothing more. Saying so is the difference between information and a fake result.
-    el('p', { class: 'meta', text: 'Teams ranked by the projected points of the best lineup they can start. This is a preseason projection, not a predicted finish.' }, []),
+    el('p', { class: 'meta', text: 'Teams ranked by the projected points of the best lineup they can start, not counting kickers or defenses. This is a preseason projection, not a predicted finish.' }, []),
     // No sum-rank/sum-name/sum-grade/sum-pts classes here: those select a team's data
     // cell, and reusing them on the header would let '#'/'Team'/'Grade'/'Proj' answer
     // those queries too. The header still lines up under the grid via column order —
@@ -32,6 +38,11 @@ export function renderSummary(container, ctx, handlers) {
       el('span', { text: 'Proj' }, []),
     ]),
     ...rowNodes,
-    el('button', { text: 'Back to draft', style: { marginTop: '16px' }, onClick: handlers.onBack }, []),
-  ]));
+  ]);
+
+  // Optional: chunk F's summary renders without one, and so does any caller that has
+  // not built a report.
+  if (ctx.report) renderReport(summary, ctx.report);
+
+  container.appendChild(summary);
 }
