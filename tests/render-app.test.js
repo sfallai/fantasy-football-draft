@@ -566,30 +566,35 @@ test('Print on the summary prints, and names the PDF for the league', () => {
   // Before End draft: showSummary decides whether to offer the button by looking for
   // window.print, so stubbing it afterwards renders a summary with no button at all.
   globalThis.window.print = () => { titles.push(globalThis.document.title); };
-  globalThis.document.title = 'Draft Assistant';
+  // NOT the page's real title: restoring `previous` and hardcoding the literal
+  // 'Draft Assistant' are indistinguishable if the fixture starts there.
+  globalThis.document.title = 'Draft Assistant — league night';
   start();
   button(panels().left, 'End draft').listeners.click[0]();
 
   find(appRoot, (n) => n.tagName === 'button' && /print/i.test(n.textContent))[0]
     .listeners.click[0]();
 
-  assert.deepEqual(titles, ['Draft report card — 2 teams, 3 rounds'],
+  assert.deepEqual(titles, ['My Team — draft report card — 2 teams, 3 rounds'],
     'the title is swapped BEFORE print, which is what the browser reads');
-  assert.equal(globalThis.document.title, 'Draft Assistant', 'and put back afterwards');
+  assert.equal(globalThis.document.title, 'Draft Assistant — league night',
+    'and whatever was there is put back, not a guess at it');
 });
 
 test('a print that throws still puts the title back', () => {
   // Otherwise the tab is left titled "Draft report card" for the rest of the session,
   // and the next save-as-PDF from anywhere in the app inherits it.
-  globalThis.window.print = () => { throw new Error('user cancelled'); };
-  globalThis.document.title = 'Draft Assistant';
+  globalThis.window.print = () => { throw new Error('printing is disabled'); };
+  globalThis.document.title = 'Draft Assistant — league night';
   start();
   button(panels().left, 'End draft').listeners.click[0]();
 
   const printButton = find(appRoot, (n) => n.tagName === 'button' && /print/i.test(n.textContent))[0];
   assert.ok(printButton, 'the button exists, so the throw below is the real one');
-  assert.throws(() => printButton.listeners.click[0](), /user cancelled/);
-  assert.equal(globalThis.document.title, 'Draft Assistant');
+  assert.throws(() => printButton.listeners.click[0](), /printing is disabled/);
+  assert.equal(globalThis.document.title, 'Draft Assistant — league night');
+  // Not left as a throwing stub for whatever runs after this file.
+  delete globalThis.window.print;
 });
 
 test('no window.print means no crash, and no button either', () => {

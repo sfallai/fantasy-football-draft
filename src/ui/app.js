@@ -128,7 +128,9 @@ function showSummary() {
     rows, myTeamIndex: state.config.myTeamIndex, report, complete,
   }, {
     onBack: () => { screen = 'draft'; render(); },
-    // Only offered when the host actually has one. Nothing else in the app assumes it.
+    // Every real browser defines window.print, so this guard is not a compatibility
+    // check — it is what lets the test stub stand in for a host that has none. Hiding
+    // the button costs nothing either way, since Ctrl+P still works.
     onPrint: typeof window.print === 'function' ? handlePrint : null,
   });
   // The other two screens both say how fresh the projections are, and this screen is
@@ -215,9 +217,19 @@ function handlePrint() {
   try {
     window.print();
   } finally {
-    // finally, not after: a print that throws or a dialog the user dismisses must not
-    // leave the tab titled "Draft report card" for the rest of the session, where the
-    // next save-as-PDF from any other screen would inherit it.
+    // finally, not a plain assignment after the call. Dismissing the dialog does NOT
+    // need this — where print() blocks, the user has already dismissed it by the time
+    // the call returns. It is here for the throw: printing can be disabled by policy or
+    // by a sandboxed frame, and without it the tab keeps the report's title for the rest
+    // of the session, so the next save-as-PDF from any other screen inherits it.
+    //
+    // Known limitation, untestable here and unfixable without guessing: on engines where
+    // print() does NOT block — iOS Safari, some Android WebViews — this restores the
+    // title before the print UI has read it, and the file saves as "Draft Assistant.pdf"
+    // again. An `afterprint` listener would cover those, but it does not fire reliably
+    // in the same engines, and relying on it would trade a wrong filename on mobile for
+    // a permanently wrong tab title on desktop. The desktop path is the one that works;
+    // this is recorded rather than papered over.
     document.title = previous;
   }
 }

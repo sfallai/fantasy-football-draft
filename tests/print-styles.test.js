@@ -31,12 +31,49 @@ test('printing flips the page to ink on white', () => {
 });
 
 test('the print sheet redefines the tokens the dark theme sets', () => {
-  // Every one of these paints a large area or a lot of glyphs. Leaving any at its dark
-  // value puts a slab of ink on the page.
+  // VALUES, not presence. An earlier version of this test only checked that each token
+  // appeared, and leaving --muted at the dark theme's #8b93a5 passed the whole suite —
+  // the exact failure class this file exists to catch. --muted is the one that matters
+  // most: it paints every section heading, .rep-note, .rep-label, .sum-head and the
+  // freshness line, and unlike a background it is never suppressed by the browser's
+  // background-graphics default. It always prints, so it is always visible on paper.
   const block = printBlock();
-  for (const token of ['--bg', '--panel', '--panel-2', '--text', '--muted', '--accent']) {
-    assert.match(block, new RegExp(`${token}:`), `${token} is given a print value`);
+  const dark = {
+    '--bg': '#0f1116',
+    '--panel': '#181b23',
+    '--panel-2': '#1f232d',
+    '--border': '#2a2f3a',
+    '--text': '#e6e8ed',
+    '--muted': '#8b93a5',
+    '--accent': '#fbbf24',
+  };
+  for (const [token, screenValue] of Object.entries(dark)) {
+    const declared = block.match(new RegExp(`${token}:\\s*([^;]+);`));
+    assert.ok(declared, `${token} is given a print value`);
+    assert.notEqual(declared[1].trim().toLowerCase(), screenValue,
+      `${token} is not left at its screen value`);
   }
+});
+
+test('your own team is still marked on paper', () => {
+  // The only mark on the page saying which of twelve teams belongs to the reader.
+  // It must not be a box-shadow: browsers print with background graphics off by
+  // default and drop shadows along with backgrounds. Borders always print.
+  const block = printBlock();
+  const rule = block.match(/\.sum-row\.mine\s*\{[^}]*\}/);
+  assert.ok(rule, 'the row is given print treatment at all');
+  assert.match(rule[0], /border-left:/, 'a border, which prints');
+  assert.doesNotMatch(rule[0], /box-shadow/, 'not a shadow, which does not');
+});
+
+test('a screen that was never designed for print is at least not truncated', () => {
+  // Ctrl+P works everywhere and someone will press it on the draft board. Panels are
+  // overflow:auto inside a 100vh grid, so without this it prints one page and silently
+  // loses everything below each fold.
+  const block = printBlock();
+  assert.match(block, /\.layout\s*\{[^}]*height:\s*auto/);
+  assert.match(block, /overflow:\s*visible/);
+  assert.match(block, /position:\s*static/, 'and sticky headers stop being sticky');
 });
 
 test('controls are not printed', () => {

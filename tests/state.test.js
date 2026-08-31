@@ -596,16 +596,34 @@ test('setPick can mark an earlier pick off-list without leaving a hole', () => {
   assert.equal(undoPick(state).picks[1].playerId, 'a');
 });
 
-test('printTitle names the report from the league, and claims no date', () => {
+test('printTitle names the report from the league', () => {
   // Browsers use document.title as the default PDF filename, so without this every
   // league member's export is "Draft Assistant.pdf".
   const state = createState({ numTeams: 10, rounds: 15, myTeamIndex: 1 });
-  assert.equal(printTitle(state), 'Draft report card — 10 teams, 15 rounds');
+  assert.equal(printTitle(state), 'Team 1 — draft report card — 10 teams, 15 rounds');
+});
+
+test('printTitle names WHOSE report it is', () => {
+  // Twelve people exporting the same draft would otherwise produce twelve identical
+  // filenames, which defeats the point of a file you send to your league.
+  const config = {
+    numTeams: 2,
+    rounds: 3,
+    myTeamIndex: 2,
+    teams: [{ name: 'Rival' }, { name: 'My Team' }],
+  };
+  assert.match(printTitle(createState(config)), /^My Team — /);
+});
+
+test('printTitle survives a team with no name', () => {
+  const state = createState({ numTeams: 2, rounds: 3, myTeamIndex: 1 });
+  state.config.teams[0].name = '';
+  assert.equal(printTitle(state), 'draft report card — 2 teams, 3 rounds');
 });
 
 test('printTitle stays singular for a one-round draft', () => {
   const state = createState({ numTeams: 2, rounds: 1, myTeamIndex: 1 });
-  assert.equal(printTitle(state), 'Draft report card — 2 teams, 1 round');
+  assert.match(printTitle(state), /2 teams, 1 round$/);
 });
 
 test('printTitle carries no date, because the app does not know one', () => {
