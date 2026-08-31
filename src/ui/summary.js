@@ -7,6 +7,7 @@ export function renderSummary(container, ctx, handlers) {
   // in. `complete` defaults to true for the callers that predate the flag — chunk F's
   // summary, and any test that renders the ranking on its own.
   const { rows, myTeamIndex, complete = true } = ctx;
+  const { onBack, onPrint } = handlers;
 
   const rowNodes = rows.map((r) => el('div', {
     class: r.teamIndex === myTeamIndex ? 'sum-row mine' : 'sum-row',
@@ -28,7 +29,10 @@ export function renderSummary(container, ctx, handlers) {
       // three picks made it read "Draft complete" over a report saying 22 startable WRs
       // went undrafted, which made every true sentence under it read as nonsense.
       el('h1', { text: complete ? 'Draft complete' : 'Draft in progress' }, []),
-      el('button', { text: 'Back to draft', onClick: handlers.onBack }, []),
+      el('button', { text: 'Back to draft', onClick: onBack }, []),
+      // Only when a caller supplies the handler. renderSummary is also called by tests
+      // and by chunk F's original path, neither of which has a window to print.
+      onPrint ? el('button', { class: 'btn-print', text: 'Print / Save as PDF', onClick: onPrint }, []) : null,
     ]),
     complete ? null : el('p', {
       class: 'meta',
@@ -52,7 +56,7 @@ export function renderSummary(container, ctx, handlers) {
 
   // Optional: chunk F's summary renders without one, and so does any caller that has
   // not built a report.
-  if (ctx.report) renderReport(summary, ctx.report, handlers.onBack);
+  if (ctx.report) renderReport(summary, ctx.report, onBack);
 
   container.appendChild(summary);
 }

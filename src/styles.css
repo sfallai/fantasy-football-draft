@@ -301,3 +301,48 @@ table.board td.cell.filled { cursor: pointer; }
    with the same weight as "Show me around" would read as a second offer. */
 .tour-offer .btn-dismiss { border-color: transparent; background: transparent; color: var(--muted); padding: 2px 8px; font-size: 15px; line-height: 1; }
 .tour-offer .btn-dismiss:hover { border-color: var(--border); color: var(--text); }
+
+/* ---- Print ----
+   The app is dark-on-dark. Printed as-is it is a black rectangle, and on a colour
+   printer an expensive one, so the print sheet is not a nicety — it is the whole of
+   the export feature. "Save as PDF" lives in every browser's print dialog, which is
+   why exporting needs no download code and no dependency.
+
+   Only tokens are redefined where possible, so the rules above keep applying and the
+   two themes cannot drift apart. */
+@media print {
+  :root {
+    --bg: #fff;
+    --panel: #fff;
+    --panel-2: #fff;
+    --border: #ccc;
+    --text: #000;
+    --muted: #444;
+    --accent: #000;
+  }
+
+  /* The screen column is 620px because that is a comfortable reading measure; a sheet
+     of paper already is one, and the margin is the printer's job. */
+  .summary { max-width: none; margin: 0; padding: 0; }
+  .freshness-summary { max-width: none; }
+
+  /* Controls do not survive a page. Back to draft, print, and the tour overlay if one
+     is somehow open. */
+  .sum-title button, .rep-back, .tour-layer, .tour-ring, .tour-dim, .tour-card {
+    display: none !important;
+  }
+
+  /* On screen your own team is a filled panel. On paper that is a block of ink for no
+     information, so the same fact is carried by weight and a rule instead. */
+  .sum-row.mine { background: none; font-weight: 600; box-shadow: inset 2px 0 0 #000; }
+  .sum-grade { color: #000; font-weight: 700; }
+
+  /* A team's note split across a page boundary is the one break that loses meaning —
+     a bye-week clash reads as a different team's. */
+  .rep-section, .rep-team { break-inside: avoid; page-break-inside: avoid; }
+  .rep-section h2, .rep-team h3 { break-after: avoid; page-break-after: avoid; }
+
+  /* Widen the measure now that the 620px column is gone, and keep hairlines visible:
+     a 1px border in a light grey is what most printers drop entirely. */
+  .rep-line { border-bottom: 1px solid #ddd; }
+}

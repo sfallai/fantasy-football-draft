@@ -99,3 +99,31 @@ test('the ranking says it no longer counts kickers or defenses', () => {
   const text = walk(render()).map((n) => n.textContent || '').join(' ');
   assert.match(text, /not counting kickers or defenses/i);
 });
+
+test('the summary offers a print button when a handler is supplied', () => {
+  let printed = 0;
+  const c = document.createElement('div');
+  renderSummary(c, { rows: ROWS, myTeamIndex: 1 }, { onBack() {}, onPrint: () => { printed += 1; } });
+  const button = walk(c).find((n) => n.tagName === 'button' && /print/i.test(n.textContent));
+  assert.ok(button, 'the button is there');
+  button.listeners.click[0]();
+  assert.equal(printed, 1);
+});
+
+test('the print button sits in the header, beside Back to draft', () => {
+  // Not at the foot as well. You decide to print before reading five screens, and a
+  // second copy down there would sit next to the report's own Back to draft and read
+  // as a pair of unrelated controls.
+  const c = document.createElement('div');
+  renderSummary(c, { rows: ROWS, myTeamIndex: 1 }, { onBack() {}, onPrint() {} });
+  const title = walk(c).find((n) => n.className === 'sum-title');
+  assert.ok(walk(title).some((n) => n.tagName === 'button' && /print/i.test(n.textContent)));
+  assert.equal(walk(c).filter((n) => n.tagName === 'button' && /print/i.test(n.textContent)).length, 1);
+});
+
+test('a caller with no print handler gets no print button', () => {
+  // chunk F's caller, and every test that renders the ranking on its own.
+  const c = document.createElement('div');
+  renderSummary(c, { rows: ROWS, myTeamIndex: 1 }, { onBack() {} });
+  assert.equal(walk(c).filter((n) => n.tagName === 'button' && /print/i.test(n.textContent)).length, 0);
+});

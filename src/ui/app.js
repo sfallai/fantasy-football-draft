@@ -12,7 +12,7 @@ import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
 import { gradeTeams } from '../core/grade.js';
 import { buildReport } from '../core/report.js';
-import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename } from '../core/state.js';
+import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename, printTitle } from '../core/state.js';
 
 let state = null;
 let allPlayers = [];
@@ -128,6 +128,8 @@ function showSummary() {
     rows, myTeamIndex: state.config.myTeamIndex, report, complete,
   }, {
     onBack: () => { screen = 'draft'; render(); },
+    // Only offered when the host actually has one. Nothing else in the app assumes it.
+    onPrint: typeof window.print === 'function' ? handlePrint : null,
   });
   // The other two screens both say how fresh the projections are, and this screen is
   // nothing but a ranking derived from them — it needs the caveat more than either.
@@ -201,6 +203,23 @@ function handleBackup() {
   // by the time click() returns, and revoking on the same tick silently produces an
   // empty or failed download. This is the one path in the chunk nobody can test here.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// The browser's print dialog is the export: "Save as PDF" is built into every one of
+// them, so this needs no download code and no dependency. The title swap is the whole
+// trick — browsers name the saved file after document.title, which is otherwise
+// "Draft Assistant" for every league member's report.
+function handlePrint() {
+  const previous = document.title;
+  document.title = printTitle(state);
+  try {
+    window.print();
+  } finally {
+    // finally, not after: a print that throws or a dialog the user dismisses must not
+    // leave the tab titled "Draft report card" for the rest of the session, where the
+    // next save-as-PDF from any other screen would inherit it.
+    document.title = previous;
+  }
 }
 
 // Exported for the tests: everything about an import except reading the bytes, which

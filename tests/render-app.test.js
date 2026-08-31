@@ -560,3 +560,45 @@ test('every tour anchor resolves against the screen it describes', () => {
     assert.ok(document.querySelector(step.anchor), `draft step "${step.title}" anchors to ${step.anchor}`);
   }
 });
+
+test('Print on the summary prints, and names the PDF for the league', () => {
+  const titles = [];
+  // Before End draft: showSummary decides whether to offer the button by looking for
+  // window.print, so stubbing it afterwards renders a summary with no button at all.
+  globalThis.window.print = () => { titles.push(globalThis.document.title); };
+  globalThis.document.title = 'Draft Assistant';
+  start();
+  button(panels().left, 'End draft').listeners.click[0]();
+
+  find(appRoot, (n) => n.tagName === 'button' && /print/i.test(n.textContent))[0]
+    .listeners.click[0]();
+
+  assert.deepEqual(titles, ['Draft report card — 2 teams, 3 rounds'],
+    'the title is swapped BEFORE print, which is what the browser reads');
+  assert.equal(globalThis.document.title, 'Draft Assistant', 'and put back afterwards');
+});
+
+test('a print that throws still puts the title back', () => {
+  // Otherwise the tab is left titled "Draft report card" for the rest of the session,
+  // and the next save-as-PDF from anywhere in the app inherits it.
+  globalThis.window.print = () => { throw new Error('user cancelled'); };
+  globalThis.document.title = 'Draft Assistant';
+  start();
+  button(panels().left, 'End draft').listeners.click[0]();
+
+  const printButton = find(appRoot, (n) => n.tagName === 'button' && /print/i.test(n.textContent))[0];
+  assert.ok(printButton, 'the button exists, so the throw below is the real one');
+  assert.throws(() => printButton.listeners.click[0](), /user cancelled/);
+  assert.equal(globalThis.document.title, 'Draft Assistant');
+});
+
+test('no window.print means no crash, and no button either', () => {
+  // Not every host has one, and the stub document has no title until a test sets it.
+  const saved = globalThis.window.print;
+  delete globalThis.window.print;
+  start();
+  button(panels().left, 'End draft').listeners.click[0]();
+  assert.equal(find(appRoot, (n) => n.tagName === 'button' && /print/i.test(n.textContent)).length, 0,
+    'the app does not offer what the browser cannot do');
+  globalThis.window.print = saved;
+});
