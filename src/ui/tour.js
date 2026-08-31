@@ -111,21 +111,50 @@ export function markTourSeen(storage) {
 // four rectangles to cut a hole, and they would disagree at the corners.
 const RING_PAD = 6;
 
+// Neither `window` nor the addEventListener/removeEventListener methods on it are
+// modelled by the test stub, so every touch of them is guarded rather than assumed.
+function on(target, type, handler, options) {
+  if (target && typeof target.addEventListener === 'function') target.addEventListener(type, handler, options);
+}
+function off(target, type, handler, options) {
+  if (target && typeof target.removeEventListener === 'function') target.removeEventListener(type, handler, options);
+}
+
+// One tour open at a time, exactly like popover.js's openNode: a second call closes
+// whatever the first left open rather than stacking a second overlay and a second
+// keydown listener on top of it.
+let openClose = null;
+
 export function startTour(steps, doc = document) {
+  if (openClose) openClose();
+
   const tour = createTour(steps);
   const layer = el('div', { class: 'tour-layer' }, []);
   doc.body.appendChild(layer);
+  const win = typeof window !== 'undefined' ? window : null;
 
   function close() {
     markTourSeen();
     if (layer.parentNode) layer.parentNode.removeChild(layer);
     doc.removeEventListener('keydown', onKey);
+    off(win, 'resize', onReposition);
+    off(doc, 'scroll', onReposition, true);
+    if (openClose === close) openClose = null;
   }
 
   function onKey(e) {
     if (e && e.key === 'Escape') close();
   }
+  // `.tour-layer` is pointer-events: none, so clicks reach the page underneath —
+  // someone can act on the very thing a step is describing (e.g. record a pick) and
+  // re-render the app mid-tour, leaving the ring measured against a node that no
+  // longer exists. Re-measuring on resize and scroll keeps it honest without ever
+  // blocking that click-through, which is worth more than a perfectly stable ring.
+  function onReposition() { draw(); }
+
   doc.addEventListener('keydown', onKey);
+  on(win, 'resize', onReposition);
+  on(doc, 'scroll', onReposition, true);
 
   function draw() {
     clear(layer);
@@ -134,6 +163,11 @@ export function startTour(steps, doc = document) {
 
     // A missing anchor is expected, not exceptional — see the suggestions step.
     const target = doc.querySelector ? doc.querySelector(step.anchor) : null;
+    // Accurate but off-screen is as unhelpful as missing — table.board scrolled down,
+    // or .panel.left overflowing. Not modelled by the test stub, hence the guard.
+    if (target && typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
     const box = target && target.getBoundingClientRect ? target.getBoundingClientRect() : null;
 
     if (box && box.width) {
@@ -165,6 +199,7 @@ export function startTour(steps, doc = document) {
     ]));
   }
 
+  openClose = close;
   draw();
   return close;
 }

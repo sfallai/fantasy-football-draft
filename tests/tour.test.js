@@ -156,5 +156,27 @@ test('a step whose anchor is missing still shows its card', async () => {
   doc.querySelector = () => null;
   const { startTour } = await import('../src/ui/tour.js');
   startTour(DRAFT_STEPS, doc);
-  assert.match(walk(doc.body).map((n) => n.textContent || '').join(' '), /Who is on the clock/);
+  const nodes = walk(doc.body);
+  assert.match(nodes.map((n) => n.textContent || '').join(' '), /Who is on the clock/);
+  // A regression that started drawing a ring at NaN coordinates would still pass
+  // the assertion above, so check the ring is genuinely absent and the card knows
+  // it has nothing to point at.
+  assert.equal(nodes.filter((n) => String(n.className).includes('tour-ring')).length, 0);
+  const card = nodes.find((n) => String(n.className).includes('tour-card'));
+  assert.ok(card, 'the card still renders');
+  assert.match(String(card.className), /centred/);
+});
+
+test('opening a second tour closes the first, leaving exactly one overlay', async () => {
+  // Both call sites invoke startTour bare, with nothing tracking whether a tour is
+  // already open — a stray double-click must not stack two full-viewport layers and
+  // two keydown listeners on top of each other.
+  const doc = stubDoc();
+  const { startTour } = await import('../src/ui/tour.js');
+  startTour(SETUP_STEPS, doc);
+  startTour(DRAFT_STEPS, doc);
+  assert.equal(doc.body.children.filter((n) => String(n.className).includes('tour-layer')).length, 1);
+  const text = walk(doc.body).map((n) => n.textContent || '').join(' ');
+  assert.match(text, /Who is on the clock/);
+  assert.doesNotMatch(text, /Your league/);
 });
