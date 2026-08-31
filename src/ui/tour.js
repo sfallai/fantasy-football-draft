@@ -61,7 +61,7 @@ export const DRAFT_STEPS = [
   {
     anchor: '.btn-end-draft',
     title: 'Afterwards',
-    body: 'When the draft is over this ranks all the teams with a grade, so you can see how yours came out.',
+    body: 'When the draft is over, every team is graded and ranked. Below that: who is left on waivers, the biggest steals and reaches against ADP, where the league was wrong about a position, and a note on each team.',
   },
 ];
 

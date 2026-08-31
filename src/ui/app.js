@@ -11,6 +11,7 @@ import { replacementPoints, withVbd } from '../core/vbd.js';
 import { maxPositiveVbd, maxOverallRank } from '../core/recommend.js';
 import { competitiveNotes } from '../core/competitive.js';
 import { gradeTeams } from '../core/grade.js';
+import { buildReport } from '../core/report.js';
 import { DEFAULT_CONFIG, createState, currentPickNumber, applyPick, applyOffListPick, undoPick, setPick, availablePlayers, rosterFor, rostersByTeam, myNextPick, myNextPickAfter, saveState, loadState, clearState, playersWithOwners, playersWithPickNumbers, serialize, deserialize, backupFilename } from '../core/state.js';
 
 let state = null;
@@ -112,9 +113,20 @@ function showSetup() {
 
 function showSummary() {
   const rows = gradeTeams(rostersByTeam(state, allPlayers), state.config.slots, state.config.teams);
+  // The module-level `replacement`, not a fresh replacementPoints() call: a second
+  // computation would silently disagree with the VBD column the moment a config
+  // differed, and the blind spot would be measured against a bar the rest of the app
+  // is not using.
+  const report = buildReport(state, allPlayers, replacement);
   const container = root();
   clear(container);
-  renderSummary(container, { rows, myTeamIndex: state.config.myTeamIndex }, {
+  // End draft is deliberately unguarded — a league that stops after fourteen rounds is
+  // finished, and the app has no business arguing. But the screen must not call that a
+  // completed draft: currentPickNumber returns null only when every pick exists.
+  const complete = currentPickNumber(state) === null;
+  renderSummary(container, {
+    rows, myTeamIndex: state.config.myTeamIndex, report, complete,
+  }, {
     onBack: () => { screen = 'draft'; render(); },
   });
   // The other two screens both say how fresh the projections are, and this screen is

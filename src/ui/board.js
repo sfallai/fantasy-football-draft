@@ -68,7 +68,12 @@ function showRosterPopover(event, state, allPlayers, teamIndex, row) {
     }, []) : null,
     row ? el('div', { class: 'pop-grade' }, [
       el('span', { text: `Grade ${row.grade}` }, []),
-      el('span', { class: 'meta', text: `${row.strength} projected starter pts` }, []),
+      // The caveat is not optional here, and it is the summary's wording verbatim. The
+      // slot list at the top of this same popover shows K and DEF as *starting* slots
+      // with players in them, and the picks list shows each man's projection — so an
+      // unqualified "projected starter pts" is a total that visibly leaves out two of
+      // the rows above it, with nothing on screen saying why.
+      el('span', { class: 'meta', text: `${row.strength} projected starter pts, not counting kickers or defenses` }, []),
     ]) : null,
   ]);
 

@@ -24,6 +24,21 @@ test('every step has something to say', () => {
   }
 });
 
+test('the last draft step describes the report, not just the ranking', () => {
+  const last = DRAFT_STEPS[DRAFT_STEPS.length - 1];
+  assert.match(last.body, /waiver/i, 'the most useful thing on that screen is named');
+  assert.doesNotMatch(last.body, /\bwill\b/i, 'no prediction, here or on the screen itself');
+});
+
+test('the last draft step is not the longest card in the tour', () => {
+  // It is the last thing the tour says to someone who has never drafted, and it ran to
+  // 300 characters carrying a four-item list. Measured against the other ten rather
+  // than a constant, so it cannot quietly grow back past them.
+  const others = [...SETUP_STEPS, ...DRAFT_STEPS.slice(0, -1)].map((s) => s.body.length);
+  const last = DRAFT_STEPS[DRAFT_STEPS.length - 1].body.length;
+  assert.ok(last < Math.max(...others), `the last card is ${last} characters`);
+});
+
 test('the suggestions step reads correctly even when it is not your turn', () => {
   // Its anchor only exists on your own pick. The card still shows, so the wording
   // cannot assume the thing it describes is on screen.

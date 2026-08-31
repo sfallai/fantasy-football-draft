@@ -1,10 +1,20 @@
 import { assignSlots } from './roster.js';
 
+// Kickers and defenses are worth real points and no draft capital — they are streamed
+// off waivers week to week. Counting them in the grade rewarded spending capital where
+// it buys nothing: a kicker projects 145-172 against a league spread of 100-150, so a
+// round-8 kicker moved a team up two letters while the recommendation panel was telling
+// the user to wait. There is no separate penalty for a wasted pick; a pick that
+// contributes nothing IS the penalty.
+export const UNGRADED_POSITIONS = ['K', 'DEF'];
+
 // Reusing assignSlots rather than reimplementing "who starts" is the point: the grade and
 // the roster panel are then incapable of disagreeing about a team's lineup.
 export function teamStrength(roster, slots) {
   return assignSlots(roster, slots)
-    .filter((slot) => !slot.label.startsWith('BN') && slot.player)
+    .filter((slot) => slot.player
+      && !slot.label.startsWith('BN')
+      && !UNGRADED_POSITIONS.includes(slot.player.position))
     .reduce((sum, slot) => sum + slot.player.projectedPoints, 0);
 }
 
