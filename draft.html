@@ -268,6 +268,10 @@ table.board td.cell.filled { cursor: pointer; }
   margin: 0 0 10px; font-size: 12px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--muted);
 }
+/* Sits between the heading and the rows, so it is set like the heading rather than
+   like a fact: this is the one line in the report that defines a word instead of
+   stating a measurement. */
+.rep-note { margin: -4px 0 8px; font-size: 12px; color: var(--muted); }
 .rep-line { padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .rep-line:last-child { border-bottom: none; }
 .rep-pos {
@@ -276,11 +280,16 @@ table.board td.cell.filled { cursor: pointer; }
 }
 .rep-team { margin-bottom: 18px; }
 .rep-team h3 { margin: 0 0 4px; font-size: 14px; }
-.rep-spine { padding: 5px 0; font-size: 13px; color: #c3c9d6; }
+/* var(--text), not a hardcoded #c3c9d6: the spine names players, exactly as the
+   .rep-line rows around it do, and every neighbouring rule here is on a token. */
+.rep-spine { padding: 5px 0; font-size: 13px; color: var(--text); }
 .rep-label {
   display: inline-block; width: 52px; color: var(--muted);
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
 }
+/* The report is five screens long and Back to draft otherwise lives only in the
+   header, above all of it. */
+.rep-back { margin-top: 4px; }
 
 /* ---- Guided tour ---- */
 .tour-layer { position: fixed; inset: 0; z-index: var(--z-tour); pointer-events: none; }
@@ -804,7 +813,7 @@ function stillOnWaivers(state, allPlayers, perPosition = WAIVERS_PER_POSITION) {
     .filter((group) => group.players.length > 0);
 }
 
-// Every pick that can honestly be measured against ADP, with the three that cannot
+// Every pick that can honestly be measured against ADP, with the four that cannot
 // dropped rather than guessed at:
 //
 //   keepers      - held at a round the league agreed beforehand, not a draft decision.
@@ -812,6 +821,26 @@ function stillOnWaivers(state, allPlayers, perPosition = WAIVERS_PER_POSITION) {
 //                  would top the list in every draft that had one.
 //   off-list     - no player exists behind the id at all.
 //   no ADP       - nothing to measure. Covers 3 of the top 160 on the shipped pool.
+//   K and DEF    - an ADP exists, and it does not describe how leagues draft them.
+//                  Measured on the shipped pool: 20 defenses carry an ADP, earliest
+//                  83.3, median 146.8; 19 kickers, earliest 127.5, median 156.8. An
+//                  ADP of 83.3 is round 9 of a ten-team draft, and no room takes a
+//                  defense before round 13 — so a defense taken at pick 134 scores as
+//                  "51 picks after an ADP of 83", and that number measures the ADP,
+//                  not the pick. Over 40 simulated ten-team drafts it swamped both
+//                  headline sections: 162 of 200 "Biggest steals" lines and 260 of 400
+//                  team "Best value" lines were kickers or defenses. The skew is
+//                  symmetric, so an "early" one is measured against the same wrong bar
+//                  and the reaches list goes with it.
+//
+//                  It is also the defect the grading change exists to remove, in a new
+//                  place: the ranking at the top of the same screen says a defense
+//                  contributes nothing, and four inches below it the report would call
+//                  one the best pick of the draft.
+//
+//                  WAIVER_POSITIONS, not a fresh list — these are the same four
+//                  positions stillOnWaivers and leagueBlindSpot report on, and every
+//                  position list in this report now says the same thing.
 //
 // delta is a WHOLE number of picks measured against the ADP as the report displays it —
 // `pickNumber - Math.round(adp)`, not the raw difference. POSITIVE means he fell (a
@@ -837,6 +866,7 @@ function pickValues(state, allPlayers) {
     if (isOffListId(entry.playerId)) continue;
     const player = byId.get(entry.playerId);
     if (!player || player.adp === null || player.adp === undefined) continue;
+    if (!WAIVER_POSITIONS.includes(player.position)) continue;
 
     const pickNumber = Number(key);
     const team = teams[entry.teamIndex - 1];
@@ -846,7 +876,14 @@ function pickValues(state, allPlayers) {
       teamIndex: entry.teamIndex,
       teamName: team ? team.name : `Team ${entry.teamIndex}`,
       player,
+      // Two fields, and the renderer prints the second. `adp` is the pool's raw value;
+      // `shownAdp` is the one this delta was measured against and the one the report
+      // displays. The reconciliation the wave before this one bought — printed ADP plus
+      // printed gap equals the pick — held only because the renderer happened to round
+      // the same way here. Deriving it twice is one edit away from losing it, so it is
+      // derived once and carried.
       adp: player.adp,
+      shownAdp: Math.round(player.adp),
       delta: pickNumber - Math.round(player.adp),
     });
   }
@@ -927,9 +964,16 @@ function benchedEarliest(state, allPlayers, limit = 5) {
 // `teamValues` is this team's slice of pickValues — already keeper-, off-list- and
 // no-ADP-filtered, so a team whose every pick was unmeasurable simply reports neither.
 function notesForTeam(roster, slots, teamValues) {
+  // Two sorts, each the same one its league-wide section uses, rather than the head and
+  // the tail of one. The tail of a descending-delta sort with an ASCENDING pickNumber
+  // secondary key resolves a tie to the LATEST pick, while biggestReaches — the head of
+  // the ascending sort — resolves the identical tie to the earliest, so the two sections
+  // named different picks. Deltas are whole numbers of picks, so ties are ordinary: 56
+  // of 400 team blocks over 40 simulated drafts disagreed with the section above them.
   const byDelta = [...teamValues].sort((a, b) => b.delta - a.delta || a.pickNumber - b.pickNumber);
+  const byReach = [...teamValues].sort((a, b) => a.delta - b.delta || a.pickNumber - b.pickNumber);
   const top = byDelta[0];
-  const bottom = byDelta[byDelta.length - 1];
+  const bottom = byReach[0];
   return {
     spine: startingSpine(roster, slots),
     clashes: byeClashes(roster, slots),
@@ -1785,7 +1829,13 @@ function showSummary() {
   const report = buildReport(state, allPlayers, replacement);
   const container = root();
   clear(container);
-  renderSummary(container, { rows, myTeamIndex: state.config.myTeamIndex, report }, {
+  // End draft is deliberately unguarded — a league that stops after fourteen rounds is
+  // finished, and the app has no business arguing. But the screen must not call that a
+  // completed draft: currentPickNumber returns null only when every pick exists.
+  const complete = currentPickNumber(state) === null;
+  renderSummary(container, {
+    rows, myTeamIndex: state.config.myTeamIndex, report, complete,
+  }, {
     onBack: () => { screen = 'draft'; render(); },
   });
   // The other two screens both say how fresh the projections are, and this screen is
@@ -2140,7 +2190,12 @@ function showRosterPopover(event, state, allPlayers, teamIndex, row) {
     }, []) : null,
     row ? el('div', { class: 'pop-grade' }, [
       el('span', { text: `Grade ${row.grade}` }, []),
-      el('span', { class: 'meta', text: `${row.strength} projected starter pts` }, []),
+      // The caveat is not optional here, and it is the summary's wording verbatim. The
+      // slot list at the top of this same popover shows K and DEF as *starting* slots
+      // with players in them, and the picks list shows each man's projection — so an
+      // unqualified "projected starter pts" is a total that visibly leaves out two of
+      // the rows above it, with nothing on screen saying why.
+      el('span', { class: 'meta', text: `${row.strength} projected starter pts, not counting kickers or defenses` }, []),
     ]) : null,
   ]);
 
@@ -2942,10 +2997,13 @@ const { el } = __req('ui/dom.js');
 // rather than padded, and nothing is phrased as judgement: "34 picks after an ADP of
 // 62" is a measurement, "a steal of the draft" is the app claiming an authority it does
 // not have. It would also be obviously templated by the third team.
-function section(title, lines) {
+// `note` is a once-per-section gloss, not a per-line one — see the blind spot below,
+// where the alternative was repeating the same definition on every row.
+function section(title, lines, note = null) {
   if (lines.length === 0) return null;
   return el('div', { class: 'rep-section' }, [
     el('h2', { text: title }, []),
+    note ? el('p', { class: 'rep-note', text: note }, []) : null,
     ...lines,
   ]);
 }
@@ -2961,10 +3019,15 @@ const line = (text) => el('div', { class: 'rep-line', text }, []);
 // "before", and the count is a magnitude.
 const picks = (n) => (n === 1 ? '1 pick' : `${n} picks`);
 
-// "an ADP", never "his ADP": Eagles D/ST does not have a his, and the possessive adds
-// nothing to a player either.
-const fellTo = (v) => `${picks(v.delta)} after an ADP of ${Math.round(v.adp)}`;
-const wentAt = (v) => `${picks(-v.delta)} before an ADP of ${Math.round(v.adp)}`;
+// "an ADP", never "his ADP": the possessive adds nothing, and it was wrong outright on
+// the D/ST lines this report used to be full of.
+//
+// `shownAdp`, not `Math.round(v.adp)`: the core measured the gap against the rounded
+// ADP, so printing a second, independent rounding beside it is two derivations of the
+// one guarantee this section rests on — that the ADP and the gap add back up to the
+// pick number. There is now one derivation, in pickValues, and this prints it.
+const fellTo = (v) => `${picks(v.delta)} after an ADP of ${v.shownAdp}`;
+const wentAt = (v) => `${picks(-v.delta)} before an ADP of ${v.shownAdp}`;
 
 function waiverLines(waivers) {
   return waivers.map((group) => el('div', { class: 'rep-line' }, [
@@ -3020,7 +3083,13 @@ function teamBlock(team) {
   ]);
 }
 
-function renderReport(container, report) {
+// One sentence, once, at the top of the section rather than on each of its four
+// possible rows. "the replacement level of 288.3" is jargon on a screen written for
+// people who have never drafted; the VBD column elsewhere at least has a tooltip.
+const REPLACEMENT_NOTE = 'Replacement level is what the best player at that position '
+  + 'nobody has to start projects — the bar a drafted player has to clear.';
+
+function renderReport(container, report, onBack = null) {
   const sections = [
     section('Still on waivers', waiverLines(report.waivers)),
     section('Biggest steals', report.steals.map(stealLine)),
@@ -3028,10 +3097,20 @@ function renderReport(container, report) {
     // Not "The league's blind spot": the section holds one row per position and can
     // hold QB, RB, WR and TE at once, so a singular heading is wrong three times in
     // four. This one reads the same over one row and over four.
-    section('Where the league was wrong', report.blindSpot.map(blindSpotLine)),
-    section('Earliest picks that never start', report.benched.map(benchLine)),
+    section('Where the league was wrong', report.blindSpot.map(blindSpotLine), REPLACEMENT_NOTE),
+    // Not "that never start". A bench WR3 starts on a bye week, so "never" states a
+    // season-long certainty the data cannot support — and the line underneath already
+    // says the accurate thing, that he does not make their starting lineup.
+    section('Earliest picks that do not make a starting lineup', report.benched.map(benchLine)),
     section('Team by team', report.teams.map(teamBlock)),
   ].filter(Boolean);
+
+  // A second Back to draft, at the bottom. The header one is five screens up by the
+  // time the last team block ends, and appendFreshness puts the data stamp below the
+  // whole report — so without this the last thing on the page is a date.
+  if (onBack) {
+    sections.push(el('button', { class: 'rep-back', text: 'Back to draft', onClick: onBack }, []));
+  }
 
   container.appendChild(el('div', { class: 'report' }, sections));
 }
@@ -3422,7 +3501,10 @@ const { renderReport } = __req('ui/report.js');
 
 function renderSummary(container, ctx, handlers) {
   clear(container);
-  const { rows, myTeamIndex } = ctx;
+  // End draft is unguarded and always has been, so this screen is reachable three picks
+  // in. `complete` defaults to true for the callers that predate the flag — chunk F's
+  // summary, and any test that renders the ranking on its own.
+  const { rows, myTeamIndex, complete = true } = ctx;
 
   const rowNodes = rows.map((r) => el('div', {
     class: r.teamIndex === myTeamIndex ? 'sum-row mine' : 'sum-row',
@@ -3440,9 +3522,16 @@ function renderSummary(container, ctx, handlers) {
     // The button lives in the header, not after the rows: with the report below, a
     // button between the table and "Still on waivers" reads as the end of the page.
     el('div', { class: 'sum-title' }, [
-      el('h1', { text: 'Draft complete' }, []),
+      // The heading is the one thing on this screen that was not a measurement: with
+      // three picks made it read "Draft complete" over a report saying 22 startable WRs
+      // went undrafted, which made every true sentence under it read as nonsense.
+      el('h1', { text: complete ? 'Draft complete' : 'Draft in progress' }, []),
       el('button', { text: 'Back to draft', onClick: handlers.onBack }, []),
     ]),
+    complete ? null : el('p', {
+      class: 'meta',
+      text: 'The draft is not over. Everything below covers the picks made so far.',
+    }, []),
     // The schedule is not in the data, so this is an ordering of preseason projections
     // and nothing more. Saying so is the difference between information and a fake result.
     el('p', { class: 'meta', text: 'Teams ranked by the projected points of the best lineup they can start, not counting kickers or defenses. This is a preseason projection, not a predicted finish.' }, []),
@@ -3461,7 +3550,7 @@ function renderSummary(container, ctx, handlers) {
 
   // Optional: chunk F's summary renders without one, and so does any caller that has
   // not built a report.
-  if (ctx.report) renderReport(summary, ctx.report);
+  if (ctx.report) renderReport(summary, ctx.report, handlers.onBack);
 
   container.appendChild(summary);
 }
