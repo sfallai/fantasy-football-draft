@@ -355,7 +355,7 @@ export function renderCenter(container, ctx, handlers) {
   const handcuffBtn = el('button', {
     class: view.handcuffsOnly ? 'selected' : '',
     text: 'Handcuffs',
-    title: 'Show only the backups to the players in your starting lineup',
+    title: 'Show only the backups to the running backs in your starting lineup',
     onClick: () => { view.handcuffsOnly = !view.handcuffsOnly; rerender(); },
   }, []);
 
@@ -375,7 +375,9 @@ export function renderCenter(container, ctx, handlers) {
     const listedHandcuffs = tablePlayers.filter((pl) => handcuffIds.has(pl.id)).length;
     let text;
     if (handcuffIds.size === 0) {
-      text = 'No handcuffs yet — this shows the backups to the players in your starting lineup, once you have some.';
+      // "running backs", not "players": a lineup of five with no RB is a real round-six
+      // state, and the old wording told that user they had no starters.
+      text = 'No handcuffs yet — this shows the backups to the running backs in your starting lineup, once you have one.';
     } else if (availableHandcuffs > 0) {
       text = availableHandcuffs === 1
         ? '1 of your starters\' backups is still available — your other filters are hiding him.'
@@ -385,7 +387,12 @@ export function renderCenter(container, ctx, handlers) {
     } else {
       // Never drafted — never here. Saying "gone" about a player who was never listed
       // is the one thing this sentence must not do.
-      text = `Your starters' backups are outside this list of ${tablePlayers.length} players, so they are not draftable here.`;
+      // Singular when there is one, like the case above it. In this branch every id in
+      // the set is outside the list, so the set's own size is the count — a single-RB
+      // lineup whose one backup is not in the top 400 is the common way to get here.
+      text = handcuffIds.size === 1
+        ? `That backup is outside this list of ${tablePlayers.length} players, so he is not draftable here.`
+        : `Those backups are outside this list of ${tablePlayers.length} players, so they are not draftable here.`;
     }
     return el('div', { class: 'empty-note', text }, []);
   }

@@ -366,10 +366,14 @@ test('re-rendering the panel closes an open popover', () => {
 // Extends the `player()` fixture rather than replacing it: Gibbs is the starter you
 // own, Pacheco is his backup, Jameson is a backup at another position — which is what
 // makes the AND with the position buttons observable.
+// The owned player is deliberate: without one, tablePlayers.length and pool.length are
+// equal, and the case-4 assertion on "this list of N players" cannot tell which of the
+// two the sentence is counting.
 const handcuffPool = () => [
   player(),
   player({ id: 'pacheco', name: 'Isiah Pacheco', team: 'KC', position: 'RB', overallRank: 40 }),
   player({ id: 'jamo', name: 'Jameson Williams', team: 'DET', position: 'WR', overallRank: 41 }),
+  player({ id: 'gone', name: 'Already Drafted', team: 'NYJ', position: 'RB', overallRank: 42, ownerName: 'Team 3' }),
 ];
 
 function renderWithHandcuffs(tablePlayers, handcuffIds) {
@@ -472,6 +476,31 @@ test('a search box hiding your handcuff does not claim he is gone either', () =>
 // 121 of the 309 shipped backupIds point outside the 400-player pool — Josh Allen's,
 // for one. "Nobody took him" and "he was never in this app" are different absences and
 // resolve differently, so the copy must not conflate them.
+test('the empty note says running backs, because that is what the filter covers', () => {
+  // A lineup of five with no RB is an ordinary round-six state. Saying "the players in
+  // your starting lineup" tells that user they have no starters, which is false — and
+  // is the same species of untrue on-screen sentence the RB restriction removed.
+  const container = renderWithHandcuffs(handcuffPool(), new Set());
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.match(note.textContent, /running back/i);
+});
+
+test('one backup outside the list reads as one, not as several', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['deep-reserve']));
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.match(note.textContent, /That backup is/, 'singular for a single-RB lineup');
+  assert.doesNotMatch(note.textContent, /Those backups/);
+});
+
+test('two backups outside the list read as several', () => {
+  const container = renderWithHandcuffs(handcuffPool(), new Set(['deep-reserve', 'deeper-reserve']));
+  button(container, 'Handcuffs').listeners.click[0]();
+  const note = find(container, (n) => n.className === 'empty-note')[0];
+  assert.match(note.textContent, /Those backups are/);
+});
+
 test('a backup who is not in the list at all is not reported as drafted', () => {
   const container = renderWithHandcuffs(handcuffPool(), new Set(['deep-reserve']));
   button(container, 'Handcuffs').listeners.click[0]();
@@ -480,7 +509,9 @@ test('a backup who is not in the list at all is not reported as drafted', () => 
   assert.doesNotMatch(note.textContent, /still on the board/i,
     'he was never on the board — nobody drafted him');
   assert.match(note.textContent, /not draftable here/i);
-  assert.match(note.textContent, /\b3\b/, 'and names the size of the list he is outside');
+  // The list, not the available pool — handcuffPool() has an owned player precisely so
+  // those two numbers differ and `${pool.length}` cannot satisfy this.
+  assert.match(note.textContent, /\b4\b/, 'and names the size of the list he is outside');
 });
 
 // The stub has no layout engine, so it can only pin WHERE in the tree the note goes —
