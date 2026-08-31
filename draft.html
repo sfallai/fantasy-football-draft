@@ -813,8 +813,20 @@ function stillOnWaivers(state, allPlayers, perPosition = WAIVERS_PER_POSITION) {
 //   off-list     - no player exists behind the id at all.
 //   no ADP       - nothing to measure. Covers 3 of the top 160 on the shipped pool.
 //
-// delta is picks past ADP: POSITIVE means he fell (a steal), NEGATIVE means he went
-// early (a reach). Only the renderer, in a later task, negates it for display.
+// delta is a WHOLE number of picks measured against the ADP as the report displays it —
+// `pickNumber - Math.round(adp)`, not the raw difference. POSITIVE means he fell (a
+// steal), NEGATIVE means he went early (a reach); only the renderer negates it, and it
+// does no arithmetic on it beyond that.
+//
+// Rounded here rather than in the renderer for two reasons. The report prints the
+// rounded ADP beside the gap, and rounding the two independently makes them disagree:
+// pick 20 against an ADP of 8.5 rendered "12 picks after his ADP of 9", and 9 + 12 is
+// 21. And a raw delta in (-0.5, 0) is negative, so it passed the reach filter and then
+// displayed as zero — "0 picks before his ADP of 1", exactly the non-fact the zero rule
+// below forbids, reached through a fractional ADP. 193 of the 219 ADPs in the shipped
+// pool are fractional, so neither was rare. Whole picks against the displayed ADP fixes
+// both at once: the filters exclude the sub-half-pick cases for free, and the two
+// printed numbers always reconstruct the pick.
 function pickValues(state, allPlayers) {
   const byId = new Map(allPlayers.map((pl) => [pl.id, pl]));
   const { numTeams, teams } = state.config;
@@ -835,7 +847,7 @@ function pickValues(state, allPlayers) {
       teamName: team ? team.name : `Team ${entry.teamIndex}`,
       player,
       adp: player.adp,
-      delta: Math.round((pickNumber - player.adp) * 10) / 10,
+      delta: pickNumber - Math.round(player.adp),
     });
   }
 
@@ -2927,7 +2939,7 @@ __def("ui/report.js", function (__exports, __req) {
 const { el } = __req('ui/dom.js');
 
 // Every line here states a computed fact. A section with nothing to say is omitted
-// rather than padded, and nothing is phrased as judgement: "34 picks after his ADP of
+// rather than padded, and nothing is phrased as judgement: "34 picks after an ADP of
 // 62" is a measurement, "a steal of the draft" is the app claiming an authority it does
 // not have. It would also be obviously templated by the third team.
 function section(title, lines) {
@@ -2939,6 +2951,20 @@ function section(title, lines) {
 }
 
 const line = (text) => el('div', { class: 'rep-line', text }, []);
+
+// One helper for all four ADP lines. "1 picks before his ADP of 4" appeared six times
+// in a single simulated draft, three of them in the headline reaches section, because
+// the rule was known and applied only in blindSpotLine.
+//
+// The delta arrives from the core as a whole number of picks against the ADP as it is
+// displayed, so nothing here rounds it: the sign is carried by the words "after" and
+// "before", and the count is a magnitude.
+const picks = (n) => (n === 1 ? '1 pick' : `${n} picks`);
+
+// "an ADP", never "his ADP": Eagles D/ST does not have a his, and the possessive adds
+// nothing to a player either.
+const fellTo = (v) => `${picks(v.delta)} after an ADP of ${Math.round(v.adp)}`;
+const wentAt = (v) => `${picks(-v.delta)} before an ADP of ${Math.round(v.adp)}`;
 
 function waiverLines(waivers) {
   return waivers.map((group) => el('div', { class: 'rep-line' }, [
@@ -2952,13 +2978,13 @@ function waiverLines(waivers) {
 }
 
 function stealLine(v) {
-  return line(`Round ${v.round} · ${v.teamName} — ${v.player.name}, ${Math.round(v.delta)} picks after his ADP of ${Math.round(v.adp)}`);
+  return line(`Round ${v.round} · ${v.teamName} — ${v.player.name}, ${fellTo(v)}`);
 }
 
 // The delta is stored negative; the sign is carried by the word "before", so the
 // number is rendered as a magnitude. "-45 picks before" reads as a double negative.
 function reachLine(v) {
-  return line(`Round ${v.round} · ${v.teamName} — ${v.player.name}, ${Math.round(-v.delta)} picks before his ADP of ${Math.round(v.adp)}`);
+  return line(`Round ${v.round} · ${v.teamName} — ${v.player.name}, ${wentAt(v)}`);
 }
 
 function blindSpotLine(spot) {
@@ -2983,10 +3009,10 @@ function teamBlock(team) {
     lines.push(line(`${clash.players.length} starters are off in Week ${clash.week}: ${clash.players.map((p) => p.name).join(', ')}`));
   }
   if (team.bestValue) {
-    lines.push(line(`Best value: ${team.bestValue.player.name}, ${Math.round(team.bestValue.delta)} picks after his ADP of ${Math.round(team.bestValue.adp)}`));
+    lines.push(line(`Best value: ${team.bestValue.player.name}, ${fellTo(team.bestValue)}`));
   }
   if (team.biggestReach) {
-    lines.push(line(`Earliest pick: ${team.biggestReach.player.name}, ${Math.round(-team.biggestReach.delta)} picks before his ADP of ${Math.round(team.biggestReach.adp)}`));
+    lines.push(line(`Earliest pick: ${team.biggestReach.player.name}, ${wentAt(team.biggestReach)}`));
   }
   return el('div', { class: 'rep-team' }, [
     el('h3', { text: team.name }, []),
@@ -2999,7 +3025,10 @@ function renderReport(container, report) {
     section('Still on waivers', waiverLines(report.waivers)),
     section('Biggest steals', report.steals.map(stealLine)),
     section('Biggest reaches', report.reaches.map(reachLine)),
-    section('The league\'s blind spot', report.blindSpot.map(blindSpotLine)),
+    // Not "The league's blind spot": the section holds one row per position and can
+    // hold QB, RB, WR and TE at once, so a singular heading is wrong three times in
+    // four. This one reads the same over one row and over four.
+    section('Where the league was wrong', report.blindSpot.map(blindSpotLine)),
     section('Earliest picks that never start', report.benched.map(benchLine)),
     section('Team by team', report.teams.map(teamBlock)),
   ].filter(Boolean);
@@ -3504,7 +3533,7 @@ const DRAFT_STEPS = [
   {
     anchor: '.btn-end-draft',
     title: 'Afterwards',
-    body: 'When the draft is over this ranks every team with a grade, then breaks it down: the best players still on waivers, the biggest steals and reaches against ADP, where the league collectively passed on a position, and the earliest picks that never crack a lineup. Every team gets a note of its own, too.',
+    body: 'When the draft is over, every team is graded and ranked. Below that: who is left on waivers, the biggest steals and reaches against ADP, where the league was wrong about a position, and a note on each team.',
   },
 ];
 
