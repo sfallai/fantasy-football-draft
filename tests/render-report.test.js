@@ -36,7 +36,10 @@ const FULL = {
   benched: [{ pickNumber: 23, round: 3, teamName: 'Rival', player: pl('b', 'Bench Guy', 'RB', 140) }],
   teams: [{
     teamIndex: 1, name: 'Mine',
-    spine: [{ label: 'QB', player: pl('a', 'Spine QB', 'QB', 300) }, { label: 'RB1', player: pl('c', 'Spine RB', 'RB', 200) }],
+    // Bye 10 in both lists. startingSpine and byeClashes read the same roster objects,
+    // so a man cannot be off in week 10 as a clash and carry bye 9 as a spine entry;
+    // the previous fixture gave these two both byes at once.
+    spine: [{ label: 'QB', player: pl('a', 'Spine QB', 'QB', 300, 10) }, { label: 'RB1', player: pl('c', 'Spine RB', 'RB', 200, 10) }],
     clashes: [{ week: 10, players: [pl('a', 'Spine QB', 'QB', 300, 10), pl('c', 'Spine RB', 'RB', 200, 10)] }],
     bestValue: { pickNumber: 96, round: 10, player: pl('s', 'Steal Guy', 'RB', 180), adp: 62, delta: 34 },
     // Non-null, and a player who appears nowhere else in the fixture. With this null
