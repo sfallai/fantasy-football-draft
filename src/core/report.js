@@ -1,5 +1,6 @@
-import { availablePlayers, isOffListId } from './state.js';
+import { availablePlayers, isOffListId, rostersByTeam } from './state.js';
 import { pickToSlot } from './snake.js';
+import { startingSpine, benchedPlayers, byeClashes } from './teamnotes.js';
 
 // Grouped by position, never one list ordered by projection. Projected points are not
 // position-normalised — a QB at a given rank projects roughly twice what an RB or WR at
@@ -77,4 +78,91 @@ export function biggestReaches(values, limit = 5) {
     .filter((v) => v.delta < 0)
     .sort((a, b) => a.delta - b.delta || a.pickNumber - b.pickNumber)
     .slice(0, limit);
+}
+
+// "Startable" is measured, not asserted: a player projecting above his position's
+// replacement level would improve somebody's starting lineup. Several of those going
+// undrafted means the whole league was wrong about the position — which is exactly the
+// claim the section makes, and no more.
+export function leagueBlindSpot(state, allPlayers, replacement) {
+  const left = availablePlayers(state, allPlayers);
+  return WAIVER_POSITIONS
+    .map((position) => {
+      const bar = replacement[position] || 0;
+      const players = left
+        .filter((pl) => pl.position === position && pl.projectedPoints > bar)
+        .sort((a, b) => b.projectedPoints - a.projectedPoints);
+      return {
+        position,
+        count: players.length,
+        bar: Math.round(bar * 10) / 10,
+        best: players[0] || null,
+      };
+    })
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count || WAIVER_POSITIONS.indexOf(a.position) - WAIVER_POSITIONS.indexOf(b.position));
+}
+
+// The spec asks for "early picks on backups who cannot start". "Early" would need a
+// round number nobody can defend, so this ranks instead: assign every final roster and
+// name the players who landed on a bench, earliest pick first. A stronger fact than a
+// count, and constant-free.
+export function benchedEarliest(state, allPlayers, limit = 5) {
+  const { slots, teams, numTeams } = state.config;
+  const rosters = rostersByTeam(state, allPlayers);
+  const pickOf = new Map();
+  for (const [key, entry] of Object.entries(state.picks)) pickOf.set(entry.playerId, Number(key));
+
+  const out = [];
+  for (let teamIndex = 1; teamIndex <= numTeams; teamIndex += 1) {
+    for (const player of benchedPlayers(rosters[teamIndex] || [], slots)) {
+      const pickNumber = pickOf.get(player.id);
+      // A keeper has a pick number like any other and belongs here: a kept player who
+      // cannot crack the lineup is the clearest wasted capital in the league.
+      if (pickNumber === undefined) continue;
+      const team = teams[teamIndex - 1];
+      out.push({
+        pickNumber,
+        round: pickToSlot(pickNumber, numTeams).round,
+        teamIndex,
+        teamName: team ? team.name : `Team ${teamIndex}`,
+        player,
+      });
+    }
+  }
+
+  return out.sort((a, b) => a.pickNumber - b.pickNumber).slice(0, limit);
+}
+
+// `teamValues` is this team's slice of pickValues — already keeper-, off-list- and
+// no-ADP-filtered, so a team whose every pick was unmeasurable simply reports neither.
+export function notesForTeam(roster, slots, teamValues) {
+  const byDelta = [...teamValues].sort((a, b) => b.delta - a.delta || a.pickNumber - b.pickNumber);
+  const top = byDelta[0];
+  const bottom = byDelta[byDelta.length - 1];
+  return {
+    spine: startingSpine(roster, slots),
+    clashes: byeClashes(roster, slots),
+    bestValue: top && top.delta > 0 ? top : null,
+    biggestReach: bottom && bottom.delta < 0 ? bottom : null,
+  };
+}
+
+export function buildReport(state, allPlayers, replacement) {
+  const values = pickValues(state, allPlayers);
+  const rosters = rostersByTeam(state, allPlayers);
+  const { slots, teams } = state.config;
+
+  return {
+    waivers: stillOnWaivers(state, allPlayers),
+    steals: biggestSteals(values),
+    reaches: biggestReaches(values),
+    blindSpot: leagueBlindSpot(state, allPlayers, replacement),
+    benched: benchedEarliest(state, allPlayers),
+    teams: teams.map((team, i) => ({
+      teamIndex: i + 1,
+      name: team.name,
+      ...notesForTeam(rosters[i + 1] || [], slots, values.filter((v) => v.teamIndex === i + 1)),
+    })),
+  };
 }
