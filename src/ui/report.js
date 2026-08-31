@@ -14,6 +14,20 @@ function section(title, lines) {
 
 const line = (text) => el('div', { class: 'rep-line', text }, []);
 
+// One helper for all four ADP lines. "1 picks before his ADP of 4" appeared six times
+// in a single simulated draft, three of them in the headline reaches section, because
+// the rule was known and applied only in blindSpotLine.
+//
+// The delta arrives from the core as a whole number of picks against the ADP as it is
+// displayed, so nothing here rounds it: the sign is carried by the words "after" and
+// "before", and the count is a magnitude.
+const picks = (n) => (n === 1 ? '1 pick' : `${n} picks`);
+
+// "an ADP", never "his ADP": Eagles D/ST does not have a his, and the possessive adds
+// nothing to a player either.
+const fellTo = (v) => `${picks(v.delta)} after an ADP of ${Math.round(v.adp)}`;
+const wentAt = (v) => `${picks(-v.delta)} before an ADP of ${Math.round(v.adp)}`;
+
 function waiverLines(waivers) {
   return waivers.map((group) => el('div', { class: 'rep-line' }, [
     el('span', { class: 'rep-pos', text: group.position }, []),
@@ -26,13 +40,13 @@ function waiverLines(waivers) {
 }
 
 function stealLine(v) {
-  return line(`Round ${v.round} · ${v.teamName} — ${v.player.name}, ${Math.round(v.delta)} picks after his ADP of ${Math.round(v.adp)}`);
+  return line(`Round ${v.round} · ${v.teamName} — ${v.player.name}, ${fellTo(v)}`);
 }
 
 // The delta is stored negative; the sign is carried by the word "before", so the
 // number is rendered as a magnitude. "-45 picks before" reads as a double negative.
 function reachLine(v) {
-  return line(`Round ${v.round} · ${v.teamName} — ${v.player.name}, ${Math.round(-v.delta)} picks before his ADP of ${Math.round(v.adp)}`);
+  return line(`Round ${v.round} · ${v.teamName} — ${v.player.name}, ${wentAt(v)}`);
 }
 
 function blindSpotLine(spot) {
@@ -57,10 +71,10 @@ function teamBlock(team) {
     lines.push(line(`${clash.players.length} starters are off in Week ${clash.week}: ${clash.players.map((p) => p.name).join(', ')}`));
   }
   if (team.bestValue) {
-    lines.push(line(`Best value: ${team.bestValue.player.name}, ${Math.round(team.bestValue.delta)} picks after his ADP of ${Math.round(team.bestValue.adp)}`));
+    lines.push(line(`Best value: ${team.bestValue.player.name}, ${fellTo(team.bestValue)}`));
   }
   if (team.biggestReach) {
-    lines.push(line(`Earliest pick: ${team.biggestReach.player.name}, ${Math.round(-team.biggestReach.delta)} picks before his ADP of ${Math.round(team.biggestReach.adp)}`));
+    lines.push(line(`Earliest pick: ${team.biggestReach.player.name}, ${wentAt(team.biggestReach)}`));
   }
   return el('div', { class: 'rep-team' }, [
     el('h3', { text: team.name }, []),
