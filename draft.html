@@ -168,7 +168,23 @@ table.players tr:hover td { background: #22262f; }
    long. An explicit min-height always overrides the flexbox automatic minimum size —
    that has nothing to do with `overflow: auto`, which only zeroes the *automatic*
    minimum when no explicit one is given. */
-.panel.center .tablewrap { flex: 1 1 auto; min-height: 120px; }
+/* basis 0, not auto. With `auto` the table's flex basis is its own content height —
+   about 8000px for a 400-row unfiltered pool — so the container is wildly
+   over-subscribed and both children shrink in proportion to their basis. The
+   recommendations block (basis ~150px) lost 150/8150 of the overflow and collapsed to
+   roughly 13px: one suggestion, cut off. A zero basis takes the table's content height
+   out of that sum entirely, so the block above keeps its natural height and the table
+   grows into whatever is left. Filtering to one position hid the bug, because 20 rows
+   never over-subscribe anything. */
+.panel.center .tablewrap { flex: 1 1 0; min-height: 120px; }
+/* Shown only while something is still below the fold — see setScrollHint in center.js.
+   `pointer-events: none` so the fade never swallows a click on a card underneath. */
+.center-scroll { position: relative; }
+.center-scroll.has-more::after {
+  content: ''; position: sticky; display: block; bottom: 0; height: 24px; margin-top: -24px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--panel));
+}
 table.players tr.taken td { color: #545b6b; }
 table.players tr.taken:hover td { background: transparent; }
 table.players td.owner { color: var(--muted); font-style: italic; white-space: nowrap; }
@@ -1927,6 +1943,15 @@ function playerPopover(pl) {
   ]);
 }
 
+// A scrollport that is already at its end must not keep advertising more, so this is
+// recomputed rather than set once. Exported for the test: layout is invisible to the DOM
+// stub, so the arithmetic is the only part that can be pinned.
+function setScrollHint(node) {
+  const more = node.scrollHeight > node.clientHeight + node.scrollTop + 1;
+  node.className = more ? 'center-scroll has-more' : 'center-scroll';
+  return more;
+}
+
 // Set by renderCenter so the sort/filter controls can redraw without the caller's help.
 let rerender = () => {};
 
@@ -1973,6 +1998,10 @@ function renderCenter(container, ctx, handlers) {
   // long block instead of the panel scrolling the pick header off the top.
   const scroll = el('div', { class: 'center-scroll' }, []);
   container.appendChild(scroll);
+  // The fade at the bottom edge is the only thing telling a user mid-draft that there
+  // are more suggestions below. Recomputed on scroll as well as on render, so it stops
+  // claiming there is more once you have reached the end.
+  scroll.addEventListener('scroll', () => setScrollHint(scroll));
 
   for (const note of notes || []) {
     scroll.appendChild(el('div', { class: 'notes', text: note }, []));
@@ -1999,6 +2028,9 @@ function renderCenter(container, ctx, handlers) {
       for (const g of gambles) scroll.appendChild(sleeperCard(g, myRoster, slots));
     }
   }
+
+  // After the block is populated, not before — scrollHeight is meaningless until then.
+  setScrollHint(scroll);
 
   const headingText = () =>
     `Players (${visiblePlayers(tablePlayers).length} shown · ${pool.length} available)`;
@@ -2083,6 +2115,7 @@ __exports.formatVbd = formatVbd;
 __exports.resetView = resetView;
 __exports.isTaken = isTaken;
 __exports.visiblePlayers = visiblePlayers;
+__exports.setScrollHint = setScrollHint;
 __exports.renderCenter = renderCenter;
 
 });

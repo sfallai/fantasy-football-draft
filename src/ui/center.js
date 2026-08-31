@@ -207,6 +207,15 @@ function playerPopover(pl) {
   ]);
 }
 
+// A scrollport that is already at its end must not keep advertising more, so this is
+// recomputed rather than set once. Exported for the test: layout is invisible to the DOM
+// stub, so the arithmetic is the only part that can be pinned.
+export function setScrollHint(node) {
+  const more = node.scrollHeight > node.clientHeight + node.scrollTop + 1;
+  node.className = more ? 'center-scroll has-more' : 'center-scroll';
+  return more;
+}
+
 // Set by renderCenter so the sort/filter controls can redraw without the caller's help.
 let rerender = () => {};
 
@@ -253,6 +262,10 @@ export function renderCenter(container, ctx, handlers) {
   // long block instead of the panel scrolling the pick header off the top.
   const scroll = el('div', { class: 'center-scroll' }, []);
   container.appendChild(scroll);
+  // The fade at the bottom edge is the only thing telling a user mid-draft that there
+  // are more suggestions below. Recomputed on scroll as well as on render, so it stops
+  // claiming there is more once you have reached the end.
+  scroll.addEventListener('scroll', () => setScrollHint(scroll));
 
   for (const note of notes || []) {
     scroll.appendChild(el('div', { class: 'notes', text: note }, []));
@@ -279,6 +292,9 @@ export function renderCenter(container, ctx, handlers) {
       for (const g of gambles) scroll.appendChild(sleeperCard(g, myRoster, slots));
     }
   }
+
+  // After the block is populated, not before — scrollHeight is meaningless until then.
+  setScrollHint(scroll);
 
   const headingText = () =>
     `Players (${visiblePlayers(tablePlayers).length} shown · ${pool.length} available)`;

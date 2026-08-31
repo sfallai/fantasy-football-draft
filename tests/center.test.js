@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sortPlayers, filterByPositions, formatVbd, SORT_KEYS } from '../src/ui/center.js';
+import { sortPlayers, filterByPositions, formatVbd, SORT_KEYS, setScrollHint } from '../src/ui/center.js';
 
 const p = (id, name, position, overallRank, extra) => ({
   id, name, team: (extra && extra.team) || 'XX', position, overallRank,
@@ -68,4 +68,23 @@ test('filterByPositions does not mutate its input', () => {
   const before = POOL.map((x) => x.id);
   filterByPositions(POOL, ['RB']);
   assert.deepEqual(POOL.map((x) => x.id), before);
+});
+
+test('the scroll hint appears only while something is still below the fold', () => {
+  // No test can see the layout bug this fade accompanies — the DOM stub has no layout
+  // engine, which is why that one reached a user. The arithmetic is what can be pinned.
+  const node = { scrollHeight: 400, clientHeight: 200, scrollTop: 0, className: 'center-scroll' };
+  assert.equal(setScrollHint(node), true);
+  assert.equal(node.className, 'center-scroll has-more');
+});
+
+test('the scroll hint stops claiming there is more once you reach the end', () => {
+  const node = { scrollHeight: 400, clientHeight: 200, scrollTop: 200, className: 'center-scroll has-more' };
+  assert.equal(setScrollHint(node), false);
+  assert.equal(node.className, 'center-scroll', 'the class is removed, not just left stale');
+});
+
+test('the scroll hint is absent when everything already fits', () => {
+  const node = { scrollHeight: 150, clientHeight: 200, scrollTop: 0, className: 'center-scroll' };
+  assert.equal(setScrollHint(node), false);
 });
