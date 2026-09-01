@@ -545,10 +545,12 @@ const THE_BACKUP = player({
 
 // recommend() takes the top three, so a pool this small puts every fixture on a card —
 // the assertions below are then about the note, not about which player came back.
-function renderRecs(pool) {
+// `over` is spread last so a test can move the pick numbers, the roster or the needs
+// without rebuilding the whole ctx by hand.
+function renderRecs(pool, over = {}) {
   resetView();
   const container = document.createElement('div');
-  renderCenter(container, { ...ctx(pool), pool, isMyPick: true, needs: { RB: 'high' } },
+  renderCenter(container, { ...ctx(pool), pool, isMyPick: true, needs: { RB: 'high' }, ...over },
     { onPick() {}, onUndo() {}, onOffList() {} });
   return container;
 }
@@ -599,4 +601,115 @@ test('a backup outside the pool is not an error, it is simply no line', () => {
   const container = renderRecs([player({ backupId: 'somebody-unranked' })]);
   assert.equal(recCards(container).length, 1);
   assert.equal(find(container, (n) => n.className === 'backup-note').length, 0);
+});
+
+// --- Availability odds, and stacks -----------------------------------------------
+// Two more secondary lines on the card, and neither is a reason: one says what happens
+// to this player between now and your next turn, the other states a shared NFL team.
+
+// The stub leaves textContent empty on any node that has children, so the odds line —
+// a band span plus an evidence span — has no text of its own. Every assertion about
+// what is ON SCREEN therefore walks the subtree and joins it.
+const allText = (node) => find(node, () => true).map((n) => n.textContent).join(' ');
+
+// currentPick 8 → nextPick 15 against ADP 12.4 ± 6 lands at p ≈ 0.458: the middle band,
+// which is the one that most obviously must not be printed as a number.
+// adpStdev 6.4, not 6: an integer makes Math.round a no-op, and removing the round
+// survived the whole suite. Real spreads are 10.1, 5.9, 22.4 — the rounding is live.
+const LASTS = () => player({ adp: 12.4, adpStdev: 6.4, adpDrafts: 118, adpLatest: 40 });
+const AT_PICK_8 = { currentPick: 8, nextPick: 15 };
+
+test('a recommendation says how likely the player is to last', () => {
+  // The band, and the inputs under it, so the claim is auditable and obviously a model.
+  const container = renderRecs([LASTS()], AT_PICK_8);
+  const notes = find(container, (n) => n.className === 'odds-note');
+  assert.equal(notes.length, 1, 'the one recommendation carries one odds line');
+
+  const band = find(notes[0], (n) => n.className === 'odds-band');
+  assert.equal(band.length, 1, 'the band is its own element, so it can be weighted');
+  // The pick is INSIDE the bolded band, not stranded at the end of the evidence.
+  // "Almost certainly gone" alone is present tense about a player visibly on the board,
+  // and the bolded fragment is what a reader under a draft clock takes in.
+  assert.equal(band[0].textContent, 'Coin flip by 2.05');
+
+  const text = allText(notes[0]);
+  // One string, not two loose fragments: /ADP 12 ± 6/ alone matches "± 6.4" as a prefix,
+  // so dropping the Math.round on the spread survived it.
+  assert.match(text, /ADP 12 ± 6 across 118 drafts/,
+    'the inputs under the band, rounded, so the reading is auditable');
+  // Round.pick, never a bare overall number: the header two inches above says "Your
+  // next: 2.05", and this line used to say "15" for the same pick.
+  assert.doesNotMatch(text, /\bat 15\b/, 'no bare overall pick number anywhere');
+});
+
+test('a spread under half a pick reads as one, never as zero', () => {
+  // Rounds to 0 and prints "± 0" — visual certainty from a model that refuses a spread
+  // of exactly 0 as no information. No shipped player is under 0.5 today (the minimum is
+  // 0.6), but the pool is regenerated daily.
+  const container = renderRecs([player({ adp: 3.2, adpStdev: 0.4, adpDrafts: 900, adpLatest: 40 })],
+    { currentPick: 2, nextPick: 9 });
+  const text = allText(find(container, (n) => n.className === 'odds-note')[0]);
+  assert.match(text, /± 1\b/);
+  assert.doesNotMatch(text, /± 0\b/);
+});
+
+test('no odds line when the model refuses to answer', () => {
+  // No spread is no information. Omit rather than say "unknown".
+  const container = renderRecs([player({ adp: 12.4, adpStdev: null, adpDrafts: 118 })], AT_PICK_8);
+  assert.equal(recCards(container).length, 1, 'he is still recommended');
+  assert.equal(find(container, (n) => n.className === 'odds-note').length, 0);
+});
+
+test('no odds line for a player already past anything ever observed', () => {
+  // The second refusal: past adpLatest the model is extrapolating into the tail it is
+  // measurably worst in, so it declines rather than asserting into it.
+  const container = renderRecs([player({ adp: 12.4, adpStdev: 6, adpDrafts: 118, adpLatest: 40 })],
+    { currentPick: 41, nextPick: 48 });
+  assert.equal(recCards(container).length, 1);
+  assert.equal(find(container, (n) => n.className === 'odds-note').length, 0);
+});
+
+test('no percentage appears anywhere on the screen', () => {
+  // The measured reason for bands: real ADP tails run 11-34% wider than a normal, so a
+  // number looks most authoritative exactly where the model is worst.
+  const container = renderRecs([LASTS()], AT_PICK_8);
+  const text = allText(container);
+  assert.match(text, /Coin flip/, 'the odds line is on screen at all');
+  assert.doesNotMatch(text, /\d+\s?%/);
+});
+
+// A quarterback and a receiver on the same NFL team, in the direction the card sees
+// most: the candidate is the QB, the pass-catcher is already yours.
+const MY_CHASE = {
+  id: 'chase', name: 'Ja\'Marr Chase', team: 'CIN', position: 'WR', bye: 10, projectedPoints: 262,
+};
+const SLOTS = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1, BENCH: 6 };
+
+test('a stack is stated as a shared team, never as advice', () => {
+  const burrow = player({
+    id: 'burrow', name: 'Joe Burrow', team: 'CIN', position: 'QB', overallRank: 20, bye: 10,
+  });
+  const container = renderRecs([burrow],
+    { needs: { QB: 'high' }, myRoster: [MY_CHASE], slots: SLOTS });
+
+  const notes = find(container, (n) => n.className === 'stack-note');
+  assert.equal(notes.length, 1, 'the shared team is stated');
+  const text = notes[0].textContent;
+  assert.match(text, /same NFL team/i);
+  assert.match(text, /Ja'Marr Chase/, 'and names the team-mate you already own');
+  assert.match(text, /WR/, 'and what he plays');
+  // Whether a stack is GOOD in a season-long non-PPR league is a judgement this data
+  // cannot support. Scoped to the line itself — the panel's own heading is
+  // "Recommended", and that word is not this line's to avoid.
+  assert.doesNotMatch(text, /pairs well|good fit|recommended/i);
+});
+
+test('no stack line when nothing on your roster shares his team', () => {
+  // Gibbs is DET; the quarterback you own is not. Omission is the message.
+  const container = renderRecs([player()], {
+    myRoster: [{ id: 'mah', name: 'Patrick Mahomes', team: 'KC', position: 'QB', bye: 10, projectedPoints: 380 }],
+    slots: SLOTS,
+  });
+  assert.equal(recCards(container).length, 1);
+  assert.equal(find(container, (n) => n.className === 'stack-note').length, 0);
 });

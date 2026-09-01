@@ -444,3 +444,13 @@ table.board td.cell.filled { cursor: pointer; }
    rather than being the unsized last child of the panel's flex column, where a short
    viewport shrank it to nothing and `.panel.center { overflow: hidden }` clipped it. */
 .empty-note { padding: 12px 8px; color: var(--muted); font-size: 13px; }
+
+/* Same weight as the bye warning: secondary facts under the reasons, not reasons.
+   These sit here, below the print block's closing brace, rather than beside
+   `.rec .bye-warn` up in the centre-panel section — either place is fine, but a naive
+   append that landed above that brace would have scoped them to paper. */
+.rec .odds-note { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+/* The band is the claim; the ADP figures after it are its evidence, so the two are one
+   sentence with the claim carrying the weight. */
+.rec .odds-band { font-weight: 600; }
+.rec .stack-note { color: var(--muted); font-size: 11.5px; margin-top: 3px; }

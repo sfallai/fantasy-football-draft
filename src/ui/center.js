@@ -4,6 +4,8 @@ import { byeConflict } from '../core/roster.js';
 import { isRookie, priorSummary, matchesQuery } from '../core/player.js';
 import { showPopover, closePopover } from './popover.js';
 import { HANDCUFF_POSITIONS } from '../core/handcuff.js';
+import { availabilityOdds } from '../core/odds.js';
+import { stackPartner } from '../core/stack.js';
 
 export const SORT_KEYS = ['overallRank', 'position', 'vbd', 'adp'];
 export const POSITION_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -100,7 +102,56 @@ function backupNote(player, pool) {
     : null;
 }
 
-function recommendationCard(rec, myRoster, slots, pool) {
+// A model, and it says so: the band is the reading, the numbers under it are what
+// produced it. `availabilityOdds` returns null wherever it has nothing honest to say —
+// no spread, no next pick, or a player already past anything ever observed — and a null
+// renders nothing at all rather than "unknown".
+//
+// A band, never a percentage. Real ADP ranges run 11% wider than a normal at the median
+// and 34% wider at the p90, so the model is overconfident exactly in the tails, where a
+// number looks most authoritative: printing "13%" invites the reader to tell it from
+// "24%" when the model cannot. The inputs go underneath so the reading is auditable and
+// obviously a model rather than a fact — including `adpDrafts`, which is what lets a
+// reader discount a band resting on nine drafts instead of a hundred.
+function oddsNote(player, currentPick, nextPick, numTeams) {
+  const odds = availabilityOdds(player, currentPick, nextPick);
+  if (!odds) return null;
+  const drafts = player.adpDrafts ? ` across ${player.adpDrafts} drafts` : '';
+  // ± 1 rather than ± 0: a spread under half a pick rounds to zero and reads as
+  // certainty, from a model that refuses a spread of exactly zero as no information.
+  // No shipped player rounds to 0 today (the minimum is 0.6), but the pool is
+  // regenerated daily and one below 0.5 would print "ADP 3 ± 0".
+  const spread = Math.max(1, Math.round(player.adpStdev));
+  // The band and the pick it is about, in one bolded phrase. "Almost certainly gone" on
+  // its own is present tense about a player visibly on the board and being recommended
+  // right now — and the bolded fragment is what a reader under a draft clock takes in.
+  // "by" carries every band: gone by, still there by, coin flip by.
+  //
+  // formatPick, not the raw overall number: the header two inches above says "Your next:
+  // 10.08", and this line said "116" for the same pick. It was the only place in the app
+  // printing a bare overall pick, and this audience thinks in rounds.
+  const band = `${odds.band} by ${formatPick(nextPick, numTeams)}`;
+  return el('div', { class: 'odds-note' }, [
+    el('span', { class: 'odds-band', text: band }, []),
+    el('span', { text: ` — ADP ${Math.round(player.adp)} ± ${spread}${drafts}` }, []),
+  ]);
+}
+
+// The shared team, and nothing more. Stacking is a correlation play, well established in
+// DFS and best-ball and much weaker in a season-long non-PPR league, where it mostly
+// raises variance. The shared team is a computed fact; whether it is desirable is a
+// judgement this data cannot support, so the line never says "pairs well".
+function stackNote(player, myRoster) {
+  const partner = stackPartner(player, myRoster || []);
+  return partner
+    ? el('div', {
+      class: 'stack-note',
+      text: `Same NFL team as your ${partner.position}, ${partner.name}`,
+    }, [])
+    : null;
+}
+
+function recommendationCard(rec, myRoster, slots, pool, currentPick, nextPick, numTeams) {
   const pl = rec.player;
   return el('div', {
     class: 'rec',
@@ -122,6 +173,11 @@ function recommendationCard(rec, myRoster, slots, pool) {
     // The whole pool, not the position-filtered `targeted` list: whether his backup is
     // still there does not depend on which positions you happen to be looking at.
     backupNote(pl, pool),
+    // Both are facts about what happens next rather than reasons to draft him, which is
+    // why they are lines on the card and not entries in reasonsFor, whose two slots are
+    // for reasons.
+    oddsNote(pl, currentPick, nextPick, numTeams),
+    stackNote(pl, myRoster),
   ]);
 }
 
@@ -311,7 +367,9 @@ export function renderCenter(container, ctx, handlers) {
     scroll.appendChild(el('h2', {
       text: view.positions.length ? `Recommended — ${view.positions.join(', ')}` : 'Recommended',
     }, []));
-    for (const rec of recs) scroll.appendChild(recommendationCard(rec, myRoster, slots, pool));
+    for (const rec of recs) {
+      scroll.appendChild(recommendationCard(rec, myRoster, slots, pool, currentPick, nextPick, numTeams));
+    }
 
     const gambles = sleepers(targeted, {
       currentPick,
