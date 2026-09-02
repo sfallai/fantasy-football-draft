@@ -1,0 +1,38 @@
+name: Tests
+
+# The refresh job runs the suite too, but only once a day and only as a gate on the
+# data it just fetched — so a code change pushed at 14:00 had nothing checking it
+# until the next morning, and the failure surfaced as a silently skipped refresh.
+# This runs the same suite on the change itself.
+on:
+  # main only on push: a pull request from a branch in this repo already gets a run
+  # below, and covering both here would run every commit twice.
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No install step, deliberately: this project has no npm dependencies and never
+      # will, so `npm ci` would fail for want of a lockfile rather than install nothing.
+      #
+      # `npm test` is also what catches a src/ change that was never rebuilt —
+      # tests/build.test.js compares draft.html against a fresh bundle of src/ and
+      # data/. draft.html is what GitHub Pages actually serves, so without this the
+      # only thing standing between a missed `npm run build` and a stale live page is
+      # remembering to run the suite by hand.
+      - name: Run the test suite
+        run: npm test

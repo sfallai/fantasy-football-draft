@@ -206,6 +206,53 @@ test('reasonsFor warns when a pick is well ahead of ADP, rounded', () => {
   assert.doesNotMatch(line, /55\.4/, 'ADP is rounded for display');
 });
 
+// The ADP a line prints and the gap it prints are two halves of one claim: subtract
+// them and you must land back on the pick the card was shown at. Rounding the gap
+// independently of the ADP beside it breaks that — pick 25 against an ADP of 15.5 read
+// "10 picks past his ADP of 16", and 16 + 10 is 26. This is the same guarantee
+// pickValues() in report.js already carries, and the same derivation: one rounding,
+// measured against the value that is displayed.
+test('a value line reconciles: the printed ADP plus the printed gap is the pick', () => {
+  const ctx = { needs: allLow, currentPick: 25, nextPick: 26, round: 3 };
+  const target = p({ id: 'a', position: 'WR', overallRank: 20, adp: 15.5, vbd: 60 });
+  const line = reasonsFor(target, [target], ctx).find((r) => /past his ADP/i.test(r));
+  assert.ok(line, 'expected a value line');
+  const [, gap, adp] = line.match(/(\d+) picks past his ADP of (\d+)/).map(Number);
+  assert.equal(adp + gap, ctx.currentPick, line);
+});
+
+test('a reach line reconciles: the printed ADP minus the printed gap is the pick', () => {
+  const ctx = { needs: allLow, currentPick: 10, nextPick: 11, round: 1 };
+  const target = p({ id: 'a', position: 'WR', overallRank: 40, adp: 22.5, vbd: 10 });
+  const line = reasonsFor(target, [target], ctx).find((r) => /reach/i.test(r));
+  assert.ok(line, 'expected a reach line');
+  const [, adp, gap] = line.match(/ADP is (\d+), (\d+) picks from now/).map(Number);
+  assert.equal(adp - gap, ctx.currentPick, line);
+});
+
+// A sweep rather than one example: 193 of the 219 ADPs in the shipped pool are
+// fractional, and a half-pick ADP is the case that breaks, so a single fixture pins
+// almost nothing.
+test('every value and reach line reconciles, across fractional ADPs and picks', () => {
+  for (let tenths = 0; tenths < 200; tenths += 1) {
+    const adp = 5 + tenths / 10;
+    for (let currentPick = 1; currentPick <= 180; currentPick += 1) {
+      const target = p({ id: 'a', position: 'WR', overallRank: 20, adp, vbd: 60 });
+      const reasons = reasonsFor(target, [target], { needs: allLow, currentPick, nextPick: currentPick + 1, round: 1 });
+      const value = reasons.find((r) => /past his ADP/i.test(r));
+      if (value) {
+        const [, gap, shown] = value.match(/(\d+) picks past his ADP of (\d+)/).map(Number);
+        assert.equal(shown + gap, currentPick, `${value} (adp ${adp}, pick ${currentPick})`);
+      }
+      const reach = reasons.find((r) => /reach/i.test(r));
+      if (reach) {
+        const [, shown, gap] = reach.match(/ADP is (\d+), (\d+) picks from now/).map(Number);
+        assert.equal(shown - gap, currentPick, `${reach} (adp ${adp}, pick ${currentPick})`);
+      }
+    }
+  }
+});
+
 test('reasonsFor signs a below-replacement VBD correctly', () => {
   const ctx = { needs: allLow, currentPick: 140, nextPick: 141, round: 14 };
   const target = p({ id: 'a', position: 'K', overallRank: 300, projectedPoints: 90, vbd: -37 });
@@ -330,6 +377,16 @@ test('sleepers flags a player still available well past his ADP', () => {
   assert.equal(found.length, 1);
   assert.equal(found[0].player.id, 'a', '25 picks past ADP clears the 15-pick gap');
   assert.match(found[0].why, /past his ADP/);
+});
+
+// Same reconciliation the recommendation lines owe, for the same reason: a sleeper is
+// the pick a user is most likely to check by hand.
+test('a sleeper line reconciles: the printed ADP plus the printed gap is the pick', () => {
+  const pool = [{ id: 'a', name: 'Faller', position: 'WR', overallRank: 50, projectedPoints: 120, vbd: 10, adp: 34.5 }];
+  const [found] = sleepers(pool, { currentPick: 50 });
+  assert.ok(found, 'expected a faller');
+  const [, gap, adp] = found.why.match(/Still here (\d+) picks past his ADP of (\d+)/).map(Number);
+  assert.equal(adp + gap, 50, found.why);
 });
 
 test('sleepers ignores a player with no ADP on the falling test', () => {
