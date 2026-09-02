@@ -12,8 +12,9 @@ The player data refreshes itself every morning, so the page is current whenever 
 open it — the date it was last checked is shown at the bottom of the screen. Once the
 page has loaded it keeps working even if your connection drops mid-draft.
 
-**First time?** The app offers you a guided tour on the setup screen, and there is a
-**Show me around** button on both screens if you want it later. The short version:
+**First time?** The app offers you a guided tour the first time you open it, and a
+**Show me around** button sits on both screens whenever you want it again. The short
+version:
 confirm the league settings, click your draft position, add any keepers, press
 **Start Draft**, then type a name into the filter box and double-click the player as
 each pick happens — including other teams' picks.

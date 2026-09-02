@@ -311,6 +311,10 @@ table.board td.cell.filled { cursor: pointer; }
    lose on source order and the buttons would print on every exported sheet. */
 .board-exports { display: flex; gap: 8px; margin-top: 10px; }
 
+/* The heading and the way back into the tour share a row, as the summary's does. */
+.setup-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.setup-title h1 { margin: 0 0 16px; }
+
 /* ---- Print ----
    The app is dark-on-dark. Printed as-is it is a black rectangle, and on a colour
    printer an expensive one, so the print sheet is not a nicety — it is the whole of

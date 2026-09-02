@@ -255,7 +255,18 @@ export function renderSetup(root, initialConfig, onStart, onImport, tour = {}) {
     : null;
 
   root.appendChild(el('div', { class: 'panel setup' }, [
-    el('h1', { text: 'Draft Assistant — Setup' }, []),
+    // The heading carries the way back into the tour once the offer below has gone.
+    // The offer is a one-time PROMPT, not the only door: the draft screen has always
+    // kept a permanent "Show me around", and setup having none meant anyone who took
+    // the tour once could never see it again. Rendered only when the prompt is absent,
+    // so there is exactly one control with those words on screen at any moment — two
+    // would read as two offers.
+    el('div', { class: 'setup-title' }, [
+      el('h1', { text: 'Draft Assistant — Setup' }, []),
+      !tour.offerTour && tour.onStartTour
+        ? el('button', { class: 'btn-tour', text: 'Show me around', onClick: tour.onStartTour }, [])
+        : null,
+    ]),
     errorBox,
 
     // Shown once. Most first-time users would never find a button nobody told them
