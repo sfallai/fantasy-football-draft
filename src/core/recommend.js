@@ -73,6 +73,25 @@ function nextAtPosition(player, pool) {
     .find((x) => x.projectedPoints <= player.projectedPoints) || null;
 }
 
+// The ADP as every line that mentions it PRINTS it. One derivation, carried to both the
+// gap and the text, because the two are halves of one claim: subtract the printed gap
+// from the printed ADP and you must land on the pick the line was shown at.
+//
+// Rounding them independently is what broke that. `Math.round(currentPick - adp)` rounds
+// the gap against the RAW ADP while the text rounds the ADP separately, and the pair
+// then disagrees whenever the ADP is fractional: pick 25 against an ADP of 15.5 read
+// "10 picks past his ADP of 16", and 16 + 10 is 26. 193 of the 219 ADPs in the shipped
+// pool are fractional, so this was not a corner — 11.4% of the value lines the pool can
+// produce failed to add up.
+//
+// This is pickValues() in report.js reaching the same conclusion for the same reason;
+// see the long comment there. Measuring against the displayed value also drops the
+// sub-half-pick cases out of the gates for free, which is why nothing below rounds again.
+function shownAdp(player) {
+  if (!player || player.adp === null || player.adp === undefined) return null;
+  return Math.round(player.adp);
+}
+
 export function reasonsFor(player, pool, ctx) {
   const { needs, currentPick } = ctx;
   const reasons = [];
@@ -90,12 +109,15 @@ export function reasonsFor(player, pool, ctx) {
     reasons.push(`Fills your ${player.position} slot (${NEED_LABEL[tier]})`);
   }
 
-  if (player.adp !== null && player.adp !== undefined) {
-    const past = Math.round(currentPick - player.adp);
+  const adp = shownAdp(player);
+  if (adp !== null) {
+    // A whole number already: currentPick and adp are both whole, so nothing here
+    // rounds a second time.
+    const past = currentPick - adp;
     if (past >= ADP_VALUE_GAP) {
-      reasons.push(`Value — ${past} picks past his ADP of ${Math.round(player.adp)}`);
+      reasons.push(`Value — ${past} picks past his ADP of ${adp}`);
     } else if (-past >= ADP_REACH_GAP) {
-      reasons.push(`Slight reach — ADP is ${Math.round(player.adp)}, ${-past} picks from now`);
+      reasons.push(`Slight reach — ADP is ${adp}, ${-past} picks from now`);
     }
   }
 
@@ -119,9 +141,12 @@ export const SLEEPER_PROJECTION_EDGE = 15;
 // near the very top or bottom of the pool to judge anyone against.
 const MIN_BAND_NEIGHBOURS = 3;
 
+// Against the DISPLAYED ADP, like reasonsFor — the sleeper card prints both numbers
+// side by side and owes the reader the same reconciliation.
 function picksPastAdp(player, currentPick) {
-  if (player.adp === null || player.adp === undefined) return null;
-  return currentPick - player.adp;
+  const adp = shownAdp(player);
+  if (adp === null) return null;
+  return currentPick - adp;
 }
 
 // The comparison is against *positional* peers, never overall-rank neighbours.
@@ -177,7 +202,7 @@ export function sleepers(pool, ctx, limit = 2) {
     const fallClaim = past !== null && past >= SLEEPER_ADP_GAP
       ? {
         strength: past / SLEEPER_ADP_GAP,
-        why: `Still here ${Math.round(past)} picks past his ADP of ${Math.round(player.adp)}`,
+        why: `Still here ${past} picks past his ADP of ${shownAdp(player)}`,
       }
       : null;
 
