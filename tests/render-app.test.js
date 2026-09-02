@@ -704,3 +704,26 @@ test('the Handcuffs button finds the backup to a starter the app knows you own',
   assert.equal(find(panels().center, (n) => n.className === 'empty-note').length, 0,
     'no "no handcuffs yet" while a handcuff is right there');
 });
+
+test('the setup screen keeps a way back to its tour after the offer is gone', () => {
+  // The offer is a one-time PROMPT; it is not the only way in. The draft screen has
+  // kept a permanent "Show me around" since chunk H, and setup having none meant a
+  // user who took the tour once could never see it again — the two screens disagreed
+  // for no reason, and the README claimed they did not.
+  freshSetup();
+  find(appRoot, (n) => String(n.className) === 'btn-dismiss')[0].listeners.click[0]();
+  assert.equal(find(appRoot, (n) => n.className === 'tour-offer').length, 0, 'the prompt is gone');
+
+  const back = button(appRoot, 'Show me around');
+  assert.ok(back, 'but there is still a way in');
+  back.listeners.click[0]();
+  assert.equal(tourLayers().length, 1, 'and it starts the setup tour');
+  find(document.body, (n) => String(n.className) === 'tour-skip')[0].listeners.click[0]();
+});
+
+test('the first visit offers exactly one way in, not two', () => {
+  // With the prompt showing, a second button carrying the same words would read as a
+  // second offer. Exactly one "Show me around" on screen at any time.
+  freshSetup();
+  assert.equal(find(appRoot, (n) => n.tagName === 'button' && n.textContent === 'Show me around').length, 1);
+});

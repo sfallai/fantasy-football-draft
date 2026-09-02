@@ -317,6 +317,10 @@ table.board td.cell.filled { cursor: pointer; }
    lose on source order and the buttons would print on every exported sheet. */
 .board-exports { display: flex; gap: 8px; margin-top: 10px; }
 
+/* The heading and the way back into the tour share a row, as the summary's does. */
+.setup-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.setup-title h1 { margin: 0 0 16px; }
+
 /* ---- Print ----
    The app is dark-on-dark. Printed as-is it is a black rectangle, and on a colour
    printer an expensive one, so the print sheet is not a nicety — it is the whole of
@@ -4022,7 +4026,18 @@ function renderSetup(root, initialConfig, onStart, onImport, tour = {}) {
     : null;
 
   root.appendChild(el('div', { class: 'panel setup' }, [
-    el('h1', { text: 'Draft Assistant — Setup' }, []),
+    // The heading carries the way back into the tour once the offer below has gone.
+    // The offer is a one-time PROMPT, not the only door: the draft screen has always
+    // kept a permanent "Show me around", and setup having none meant anyone who took
+    // the tour once could never see it again. Rendered only when the prompt is absent,
+    // so there is exactly one control with those words on screen at any moment — two
+    // would read as two offers.
+    el('div', { class: 'setup-title' }, [
+      el('h1', { text: 'Draft Assistant — Setup' }, []),
+      !tour.offerTour && tour.onStartTour
+        ? el('button', { class: 'btn-tour', text: 'Show me around', onClick: tour.onStartTour }, [])
+        : null,
+    ]),
     errorBox,
 
     // Shown once. Most first-time users would never find a button nobody told them
